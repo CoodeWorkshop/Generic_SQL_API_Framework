@@ -5,9 +5,11 @@ require_once __DIR__ . '/SqlBackendCapabilities.php';
 
 class SqlToApiMapper
 {
+    private int $expressionDepth = 0;
+
     /**
      * Positional SQL signatures mapped to the heterogeneous public field-object
-     * properties. Function admission still comes from QueryRequestValidator.
+     * properties. Function admission comes from the backend function registry.
      */
     private const POSITIONAL_FUNCTION_SCHEMAS = [
         'COUNT' => [['field', 'field']],
@@ -136,12 +138,10 @@ class SqlToApiMapper
         }
 
         if ($ast['group'] !== []) {
-            $request['groupBy'] = array_map(function (array $expression): string {
+            $request['groupBy'] = array_map(function (array $expression) {
                 $expression = $this->unwrapGroup($expression);
-                if ($expression['type'] !== 'identifier') {
-                    throw new SqlMappingException('GROUP BY expressions must be direct fields in the public contract.');
-                }
-                return $expression['name'];
+                return $expression['type'] === 'identifier'
+                    ? $expression['name'] : $this->mapExpression($expression);
             }, $ast['group']);
         }
 
@@ -157,15 +157,7 @@ class SqlToApiMapper
             if (!$topLevel) {
                 throw new SqlMappingException('Nested SELECT and set-operation branches cannot contain ORDER BY.');
             }
-            $request['sort'] = array_map(function (array $order): array {
-                $expression = $this->unwrapGroup($order['expression']);
-                if ($expression['type'] !== 'identifier') {
-                    throw new SqlMappingException(
-                        'ORDER BY expressions cannot be represented; use a field or selected alias.'
-                    );
-                }
-                return ['field' => $expression['name'], 'direction' => $order['direction']];
-            }, $ast['order']);
+            $request['sort'] = array_map(fn (array $order): array => $this->mapSort($order), $ast['order']);
         }
 
         return $request;
@@ -336,40 +328,103 @@ class SqlToApiMapper
                 ? $expression['name']
                 : ['field' => $expression['name'], 'alias' => $alias];
         }
-        if ($expression['type'] === 'function') {
-            $mapped = $this->functionField($expression);
-            if ($alias !== null) {
-                $mapped['alias'] = $alias;
-            }
-            return $mapped;
+        $mapped = $this->mapExpression($expression, false);
+        if ($alias !== null) {
+            $mapped['alias'] = $alias;
         }
-        if ($expression['type'] === 'window') {
-            $mapped = $this->windowField($expression);
-            if ($alias !== null) {
-                $mapped['alias'] = $alias;
-            }
-            return $mapped;
-        }
-        if ($expression['type'] === 'case') {
-            return $this->caseField($expression, $alias);
-        }
-        if ($expression['type'] === 'binary') {
-            $mapped = ['expression' => $this->binary($expression)];
-            if ($alias !== null) {
-                $mapped['alias'] = $alias;
-            }
-            return $mapped;
-        }
-        throw new SqlMappingException('The selected expression cannot be represented by the public fields contract.');
+        return $mapped;
     }
 
-    private function binary(array $expression): array
+    /** Public expression nodes only; never the normalizer's private AST. */
+    public function mapExpression(array $expression, bool $recursive = true): array
     {
-        return [
-            'left' => $this->operand($expression['left']),
-            'operator' => $expression['operator'],
-            'right' => $this->operand($expression['right']),
-        ];
+        if (++$this->expressionDepth > 64) {
+            --$this->expressionDepth;
+            throw new SqlMappingException('SQL expression mapping exceeds the safety depth limit.');
+        }
+        try {
+            return $this->mapExpressionTree($expression, $recursive);
+        } finally {
+            --$this->expressionDepth;
+        }
+    }
+
+    private function mapExpressionTree(array $expression, bool $recursive): array
+    {
+        $expression = $this->unwrapGroup($expression);
+        $children = match ($expression['type'] ?? null) {
+            'binary' => ['left', 'right'],
+            'unary' => ['expression'],
+            'function' => ['arguments'],
+            'case' => ['when'],
+            'window' => ['function', 'partitionBy', 'order'],
+            default => [],
+        };
+        foreach ($children as $child) {
+            if (!is_array($expression[$child] ?? null)) {
+                throw new SqlMappingException('Malformed recursive SQL AST expression.');
+            }
+        }
+        switch ($expression['type'] ?? null) {
+            case 'identifier':
+                return ['field' => $expression['name']];
+            case 'literal':
+                return ['literal' => $this->literal($expression)];
+            case 'unary':
+                if (!in_array($expression['operator'] ?? null, ['+', '-'], true)) {
+                    throw new SqlMappingException('Unsupported unary operator.');
+                }
+                return ['unary' => [
+                    'operator' => $expression['operator'],
+                    'operand' => $this->mapExpression($expression['expression']),
+                ]];
+            case 'binary':
+                if (!in_array($expression['operator'] ?? null, ['+', '-', '*', '/', '%'], true)) {
+                    throw new SqlMappingException('Unsupported arithmetic operator.');
+                }
+                $legacy = !$recursive && $this->isLegacyOperand($expression['left'])
+                    && $this->isLegacyOperand($expression['right']);
+                return ['expression' => [
+                    'left' => $legacy ? $this->operand($expression['left']) : $this->mapExpression($expression['left']),
+                    'operator' => $expression['operator'],
+                    'right' => $legacy ? $this->operand($expression['right']) : $this->mapExpression($expression['right']),
+                ]];
+            case 'function':
+                if ($recursive && !QueryFunctionRegistry::isRecursivelyRenderable($expression['name'])) {
+                    throw new SqlMappingException("Function {$expression['name']} is not supported in a recursive expression.");
+                }
+                return $this->functionField($expression, $recursive);
+            case 'case':
+                return $this->caseField($expression, null, $recursive);
+            case 'window':
+                if ($recursive) {
+                    throw new SqlMappingException('Window functions cannot be nested inside expressions.');
+                }
+                return $this->windowField($expression);
+            default:
+                throw new SqlMappingException('Unexpected AST node in a public expression.');
+        }
+    }
+
+    private function isLegacyOperand(array $expression): bool
+    {
+        $expression = $this->unwrapGroup($expression);
+        return $expression['type'] === 'identifier'
+            || ($expression['type'] === 'literal'
+                && (is_int($expression['value']) || is_float($expression['value'])));
+    }
+
+    public function mapSort(array $order): array
+    {
+        $expression = $this->unwrapGroup($order['expression']);
+        if ($expression['type'] === 'literal' || ($expression['type'] === 'unary'
+            && $this->unwrapGroup($expression['expression'])['type'] === 'literal')) {
+            throw new SqlMappingException('Numeric positional / literal ORDER BY is unsupported; use a logical field or expression.');
+        }
+        return ($expression['type'] === 'identifier'
+            ? ['field' => $expression['name']]
+            : ['expression' => $this->mapExpression($expression)])
+            + ['direction' => $order['direction']];
     }
 
     private function operand(array $expression)
@@ -378,25 +433,10 @@ class SqlToApiMapper
         if ($expression['type'] === 'identifier') {
             return $expression['name'];
         }
-        if ($expression['type'] === 'literal') {
-            return $expression['value'];
-        }
-        if ($expression['type'] === 'unary'
-            && $this->unwrapGroup($expression['expression'])['type'] === 'literal') {
-            $value = $this->unwrapGroup($expression['expression'])['value'];
-            return $expression['operator'] === '-' ? -$value : $value;
-        }
-        if ($expression['type'] === 'binary') {
-            throw new SqlMappingException(
-                'Nested arithmetic parsed successfully but top-level public expression fields accept one binary level.'
-            );
-        }
-        throw new SqlMappingException(
-            'A function nested inside top-level arithmetic is not representable by the current public fields contract.'
-        );
+        return $this->literal($expression);
     }
 
-    private function functionField(array $expression): array
+    private function functionField(array $expression, bool $recursive = false): array
     {
         $name = $expression['name'];
         $arguments = $expression['arguments'];
@@ -409,7 +449,8 @@ class SqlToApiMapper
             return $this->mapPositionalFunction(
                 $name,
                 $arguments,
-                self::POSITIONAL_FUNCTION_SCHEMAS[$name]
+                self::POSITIONAL_FUNCTION_SCHEMAS[$name],
+                $recursive
             );
         }
         if (in_array($name, ['GETDATE', 'SYSDATETIME', 'CURRENT_TIMESTAMP'], true)) {
@@ -423,7 +464,7 @@ class SqlToApiMapper
                 throw new SqlMappingException('CAST requires an expression and datatype.');
             }
             return $mapped + [
-                'field' => $this->directField($arguments[0], 'CAST'),
+                'field' => $this->functionInput($arguments[0], 'CAST', $recursive),
                 'datatype' => $arguments[1]['name'],
             ];
         }
@@ -458,7 +499,7 @@ class SqlToApiMapper
             }
             return $mapped + [
                 'part' => strtoupper($this->directField($arguments[0], $name)),
-                'field' => $this->directField($arguments[1], $name),
+                'field' => $this->functionInput($arguments[1], $name, $recursive),
             ];
         }
         if ($name === 'DATEADD') {
@@ -468,7 +509,7 @@ class SqlToApiMapper
             return $mapped + [
                 'datepart' => strtoupper($this->directField($arguments[0], 'DATEADD')),
                 'number' => $this->integerLiteral($arguments[1], 'DATEADD number'),
-                'field' => $this->directField($arguments[2], 'DATEADD'),
+                'field' => $this->functionInput($arguments[2], 'DATEADD', $recursive),
             ];
         }
         if (in_array($name, ['CHARINDEX', 'PATINDEX'], true)) {
@@ -477,7 +518,7 @@ class SqlToApiMapper
             }
             $key = $name === 'CHARINDEX' ? 'search' : 'pattern';
             return $mapped + [
-                'field' => $this->directField($arguments[1], $name),
+                'field' => $this->functionInput($arguments[1], $name, $recursive),
                 $key => $this->stringLiteral($arguments[0], $name),
             ];
         }
@@ -485,7 +526,7 @@ class SqlToApiMapper
             if (count($arguments) < 2 || count($arguments) > 3) {
                 throw new SqlMappingException('FORMAT requires field, format, and optional style.');
             }
-            $mapped['field'] = $this->directField($arguments[0], 'FORMAT');
+            $mapped['field'] = $this->functionInput($arguments[0], 'FORMAT', $recursive);
             $mapped['format'] = $this->stringLiteral($arguments[1], 'FORMAT');
             if (isset($arguments[2])) {
                 $mapped['style'] = $this->integerLiteral($arguments[2], 'FORMAT style');
@@ -497,7 +538,7 @@ class SqlToApiMapper
                 throw new SqlMappingException('CONVERT requires datatype, field, and optional style.');
             }
             $mapped['datatype'] = $this->directField($arguments[0], 'CONVERT');
-            $mapped['field'] = $this->directField($arguments[1], 'CONVERT');
+            $mapped['field'] = $this->functionInput($arguments[1], 'CONVERT', $recursive);
             if (isset($arguments[2])) {
                 $mapped['style'] = $this->integerLiteral($arguments[2], 'CONVERT style');
             }
@@ -509,7 +550,22 @@ class SqlToApiMapper
         );
     }
 
-    private function mapPositionalFunction(string $name, array $arguments, array $schema): array
+    private function functionInput(array $expression, string $name, bool $recursive)
+    {
+        $expression = $this->unwrapGroup($expression);
+        if ($recursive && $expression['type'] === 'identifier' && $expression['name'] === '*') {
+            throw new SqlMappingException('Wildcard function inputs are not renderable inside recursive backend expressions; direct COUNT(*) remains supported.');
+        }
+        if ($expression['type'] === 'identifier' && !$recursive) {
+            return $expression['name'];
+        }
+        if (!QueryFunctionRegistry::acceptsExpressionInput($name)) {
+            throw new SqlMappingException("{$name} does not accept an expression input.");
+        }
+        return $this->mapExpression($expression);
+    }
+
+    private function mapPositionalFunction(string $name, array $arguments, array $schema, bool $recursive): array
     {
         $minimum = count(array_filter($schema, fn (array $item): bool => !($item[2] ?? false)));
         if (count($arguments) < $minimum || count($arguments) > count($schema)) {
@@ -527,7 +583,7 @@ class SqlToApiMapper
             }
             $context = "{$name} {$property}";
             $mapped[$property] = match ($kind) {
-                'field' => $this->directField($arguments[$index], $name),
+                'field' => $this->functionInput($arguments[$index], $name, $recursive),
                 'integer' => $this->integerLiteral($arguments[$index], $context),
                 'numeric' => $this->numericLiteral($arguments[$index], $context),
                 'string' => $this->stringLiteral($arguments[$index], $context),
@@ -540,26 +596,22 @@ class SqlToApiMapper
 
     private function windowField(array $expression): array
     {
-        if ($expression['partitionBy'] !== []) {
-            throw new SqlMappingException('Window PARTITION BY is not exposed by the public function contract.');
-        }
         $function = $expression['function'];
         $name = $function['name'];
-        if (!in_array($name, [
-            'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD',
-            'FIRST_VALUE', 'LAST_VALUE',
-        ], true)) {
+        if (!QueryFunctionRegistry::isWindow($name)) {
             throw new SqlMappingException("{$name} OVER is not a supported public window function.");
         }
         if ($expression['order'] === []) {
             throw new SqlMappingException("{$name} OVER requires ORDER BY.");
         }
-        $mapped = ['function' => $name, 'sort' => array_map(function (array $order): array {
-            return [
-                'field' => $this->directField($order['expression'], 'window ORDER BY'),
-                'direction' => $order['direction'],
-            ];
-        }, $expression['order'])];
+        $mapped = ['function' => $name, 'sort' => array_map(fn (array $order): array => $this->mapSort($order), $expression['order'])];
+        if ($expression['partitionBy'] !== []) {
+            $mapped['partitionBy'] = array_map(function (array $partition) {
+                $partition = $this->unwrapGroup($partition);
+                return $partition['type'] === 'identifier'
+                    ? $partition['name'] : $this->mapExpression($partition);
+            }, $expression['partitionBy']);
+        }
         $arguments = $function['arguments'];
         if ($name === 'NTILE') {
             if (count($arguments) !== 1) {
@@ -570,7 +622,7 @@ class SqlToApiMapper
             if ($arguments === [] || count($arguments) > 3) {
                 throw new SqlMappingException("{$name} requires field and optional offset/default.");
             }
-            $mapped['field'] = $this->directField($arguments[0], $name);
+            $mapped['field'] = $this->functionInput($arguments[0], $name, false);
             if (isset($arguments[1])) {
                 $mapped['offset'] = $this->integerLiteral($arguments[1], "{$name} offset");
             }
@@ -581,14 +633,14 @@ class SqlToApiMapper
             if (count($arguments) !== 1) {
                 throw new SqlMappingException("{$name} requires one field.");
             }
-            $mapped['field'] = $this->directField($arguments[0], $name);
+            $mapped['field'] = $this->functionInput($arguments[0], $name, false);
         } elseif ($arguments !== []) {
             throw new SqlMappingException("{$name} does not accept arguments.");
         }
         return $mapped;
     }
 
-    private function caseField(array $expression, ?string $alias): array
+    private function caseField(array $expression, ?string $alias, bool $recursive = false): array
     {
         $when = [];
         foreach ($expression['when'] as $branch) {
@@ -598,20 +650,26 @@ class SqlToApiMapper
             }
             $condition = $predicates[0];
             $left = $this->unwrapGroup($condition['left']);
-            if ($left['type'] !== 'identifier' || !isset($condition['right']) || is_array($condition['right']) && array_is_list($condition['right'])) {
-                throw new SqlMappingException('CASE conditions require a direct field and literal value.');
+            if (!isset($condition['right']) || array_is_list($condition['right'])) {
+                throw new SqlMappingException('CASE conditions require one comparison with two expression operands.');
             }
+            $legacy = !$recursive && $left['type'] === 'identifier'
+                && $this->isLiteralExpression($condition['right']) && $this->isLiteralExpression($branch['then']);
             $when[] = [
-                'condition' => [
+                'condition' => $legacy ? [
                     'field' => $left['name'], 'operator' => $condition['operator'],
                     'value' => $this->literal($condition['right']),
+                ] : [
+                    'left' => $this->mapExpression($left), 'operator' => $condition['operator'],
+                    'right' => $this->mapExpression($condition['right']),
                 ],
-                'then' => $this->literal($branch['then']),
+                'then' => $legacy ? $this->literal($branch['then']) : $this->mapExpression($branch['then']),
             ];
         }
         $mapped = ['case' => ['when' => $when]];
         if ($expression['else'] !== null) {
-            $mapped['case']['else'] = $this->literal($expression['else']);
+            $mapped['case']['else'] = !$recursive && $this->isLiteralExpression($expression['else'])
+                ? $this->literal($expression['else']) : $this->mapExpression($expression['else']);
         }
         if ($alias !== null) {
             $mapped['alias'] = $alias;
@@ -635,13 +693,18 @@ class SqlToApiMapper
         return $result;
     }
 
-    private function having(array $predicate): array
+    public function having(array $predicate): array
     {
         $left = $this->unwrapGroup($predicate['left']);
         if ($left['type'] !== 'function'
-            || !in_array($left['name'], ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STRING_AGG'], true)
-            || count($left['arguments']) !== 1) {
-            throw new SqlMappingException('HAVING must compare one supported aggregate over a direct field.');
+            || !QueryFunctionRegistry::isAggregate($left['name'])
+            || count($left['arguments']) !== 1
+            || $this->unwrapGroup($left['arguments'][0])['type'] !== 'identifier') {
+            return [
+                'expression' => $this->mapExpression($left),
+                'operator' => $predicate['operator'],
+                'value' => $this->literal($predicate['right'] ?? []),
+            ];
         }
         return [
             'function' => $left['name'],
@@ -656,7 +719,7 @@ class SqlToApiMapper
         $expression = $this->unwrapGroup($expression);
         if ($expression['type'] !== 'identifier') {
             throw new SqlMappingException(
-                "{$context} parsed successfully, but the public API requires a direct field; nested functions/arithmetic require SQL Resource Mode."
+                "{$context} requires a direct identifier at this structural argument position."
             );
         }
         return $expression['name'];
@@ -666,15 +729,31 @@ class SqlToApiMapper
     {
         $expression = $this->unwrapGroup($expression);
         if ($expression['type'] === 'literal') {
-            return $expression['value'];
+            $value = $expression['value'];
+            if (is_scalar($value) || $value === null) {
+                return $value;
+            }
+            throw new SqlMappingException('Literal AST values must be scalars or null.');
         }
         if ($expression['type'] === 'unary') {
             $inner = $this->unwrapGroup($expression['expression']);
-            if ($inner['type'] === 'literal' && is_numeric($inner['value'])) {
+            if (in_array($expression['operator'], ['+', '-'], true)
+                && $inner['type'] === 'literal'
+                && (is_int($inner['value']) || is_float($inner['value']))) {
                 return $expression['operator'] === '-' ? -$inner['value'] : $inner['value'];
             }
         }
         throw new SqlMappingException('The public request requires a literal value at this position.');
+    }
+
+    private function isLiteralExpression(array $expression): bool
+    {
+        try {
+            $this->literal($expression);
+            return true;
+        } catch (SqlMappingException $exception) {
+            return false;
+        }
     }
 
     private function integerLiteral(array $expression, string $context): int
@@ -706,7 +785,11 @@ class SqlToApiMapper
 
     private function unwrapGroup(array $expression): array
     {
+        $depth = 0;
         while (($expression['type'] ?? null) === 'group') {
+            if (++$depth > 64 || !is_array($expression['expression'] ?? null)) {
+                throw new SqlMappingException('Malformed or excessively deep grouped SQL expression.');
+            }
             $expression = $expression['expression'];
         }
         return $expression;

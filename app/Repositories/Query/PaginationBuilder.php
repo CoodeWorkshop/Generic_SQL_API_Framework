@@ -18,7 +18,8 @@ class PaginationBuilder
         ?string $paginationOrderBy,
         bool $paginateData = true,
         string $queryPrefix = '',
-        string $querySuffix = ''
+        string $querySuffix = '',
+        ?array $countParams = null
     ): array {
         $totalRows = null;
 
@@ -27,7 +28,7 @@ class PaginationBuilder
          FROM (
              {$sqlWithoutOrderBy}
          ) AS CountQuery{$querySuffix}";
-            $countResult = $this->queryEngine->executePrepared($countSql, $params, [
+            $countResult = $this->queryEngine->executePrepared($countSql, $countParams ?? $params, [
                 'queryPhase' => 'pagination_count',
                 'page' => (int)$request['page'],
                 'pageSize' => (int)$request['pageSize'],

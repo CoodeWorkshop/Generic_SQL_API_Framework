@@ -18,8 +18,9 @@ The public schema is authoritative in [JSON request reference](JSON-Request-Refe
 
 ## Selection and aliases
 
-Strings select columns. Objects add aliases, functions, one binary arithmetic
-expression, or CASE. `distinct` is boolean; `limit` is a positive SQL Server TOP.
+Strings select columns. Objects add aliases, functions, recursive arithmetic,
+unary expressions, literal nodes, or CASE. `distinct` is boolean; `limit` is a
+positive SQL Server TOP.
 
 ```json
 {
@@ -43,9 +44,12 @@ expression, or CASE. `distinct` is boolean; `limit` is a positive SQL Server TOP
 }
 ```
 
-Arithmetic is one level with number-or-identifier operands and `+`, `-`, `*`,
-`/`, or `%`. CASE conditions use comparison operators only; branch results are
-controlled literal values.
+The simple arithmetic and CASE forms above remain compatible. Recursive trees
+use explicit `{"field":"Amount"}` and `{"literal":2}` nodes, nested
+`{"expression":...}` nodes, or `{"unary":{"operator":"-","operand":...}}`.
+Functions and CASE are also expression nodes. Recursive CASE branches can return
+fields, literals, arithmetic, functions, or nested CASE. Values are prepared
+parameters and the maximum recursive depth is 32.
 
 ## Filtering
 
@@ -92,8 +96,10 @@ JSON features. Use a server-owned SQL Resource when such SQL is required.
 
 ## Grouping and HAVING
 
-HAVING entries are combined with AND and support COUNT, SUM, AVG, MIN, MAX, and
-STRING_AGG with comparison operators.
+HAVING entries are combined with AND. The aggregate shorthand remains supported;
+an entry may alternatively use `expression`, a comparison `operator`, and a
+prepared scalar `value`. `groupBy` entries may be field strings or safe
+ExpressionNodes.
 
 ```json
 {
@@ -189,8 +195,9 @@ Top-level pagination remains supported and keeps the CTE in count and data SQL.
 ## Window functions
 
 ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD, FIRST_VALUE, and LAST_VALUE are
-public. Each requires a `sort` list inside the field object; PARTITION BY is not
-public.
+public. Each requires a `sort` list inside the field object. `sort` entries may
+use a logical `field` or an `expression`. Optional `partitionBy` accepts fields
+and expressions.
 
 ```json
 {
@@ -205,8 +212,8 @@ public.
 }
 ```
 
-Window sort uses a logical field, never a numeric position. LAST_VALUE receives
-the full-partition frame internally.
+Window ordering never accepts a numeric position. LAST_VALUE receives the
+full-partition frame internally.
 
 ## Set operations
 

@@ -1,6 +1,8 @@
 <?php
 
 require_once __DIR__ . '/SqlBackendCapabilities.php';
+require_once __DIR__ . '/SqlToApiMapper.php';
+require_once __DIR__ . '/../../app/Requests/QueryRequestValidator.php';
 
 class SqlCapabilityAnalyzer
 {
@@ -16,7 +18,7 @@ class SqlCapabilityAnalyzer
         if ($ast['type'] === 'with') {
             $state['supported'][] = 'CTE / WITH';
             if (count($ast['ctes']) > 1) {
-                $state['unsupported'][] = 'The public with property accepts exactly one CTE definition.';
+                $state['unsupported'][] = 'Multiple CTE definitions are unsupported: the public with property accepts exactly one CTE definition.';
             }
             foreach ($ast['ctes'] as $cte) {
                 if ($cte['columns'] !== []) {
@@ -90,15 +92,14 @@ class SqlCapabilityAnalyzer
         if ($query['where'] !== null) {
             $state['supported'][] = 'WHERE';
             $this->inspectBoolean($query['where'], $state, true);
+            $this->inspectWhereCompatibility($query['where'], $state, $query['commaSources'] !== []);
         }
         if ($query['group'] !== []) {
             $state['supported'][] = 'GROUP BY';
             foreach ($query['group'] as $expression) {
                 $this->inspectExpression($expression, $state);
                 $state['grouping'][] = $this->expressionLabel($expression);
-                if ($this->unwrapGroup($expression)['type'] !== 'identifier') {
-                    $state['unsupported'][] = 'The public groupBy property accepts identifiers, not SQL expressions.';
-                }
+                $this->inspectPublicFieldExpression($expression, $state, 'groupBy');
             }
         }
         if ($query['having'] !== null) {
@@ -111,9 +112,7 @@ class SqlCapabilityAnalyzer
             foreach ($query['order'] as $order) {
                 $this->inspectExpression($order['expression'], $state);
                 $state['sorting'][] = $this->expressionLabel($order['expression']);
-                if ($this->unwrapGroup($order['expression'])['type'] !== 'identifier') {
-                    $state['unsupported'][] = 'The public sort property accepts logical field identifiers, not SQL expressions.';
-                }
+                $this->inspectPublicFieldExpression($order['expression'], $state, 'sort');
             }
         }
         if ($query['distinct']) {
@@ -203,50 +202,21 @@ class SqlCapabilityAnalyzer
         return $expression['name'] ?? $expression['type'];
     }
 
-    private function inspectPublicFieldExpression(array $expression, array &$state): void
+    private function inspectPublicFieldExpression(array $expression, array &$state, string $context = 'fields'): void
     {
-        $expression = $this->unwrapGroup($expression);
-        if (in_array($expression['type'], ['identifier', 'case'], true)) {
-            return;
-        }
-        if ($expression['type'] === 'window') {
-            if ($expression['partitionBy'] !== []) {
-                $state['unsupported'][] = 'The public window-function schema has sort but no partitionBy property.';
+        // Probe the authoritative public validator in the actual clause context.
+        // This keeps aggregate/window/depth/signature rules shared, not mirrored.
+        try {
+            $mapper = new SqlToApiMapper();
+            $request = ['action' => 'select', 'source' => ['table' => 'CapabilityProbe'], 'fields' => ['Probe']];
+            if ($context === 'sort') {
+                $request['sort'] = [$mapper->mapSort(['expression' => $expression, 'direction' => 'ASC'])];
+            } else {
+                $request[$context] = [$mapper->mapExpression($expression, $context !== 'fields')];
             }
-            return;
-        }
-        if ($expression['type'] === 'binary') {
-            foreach (['left', 'right'] as $side) {
-                if (!$this->isPublicArithmeticOperand($expression[$side])) {
-                    $state['unsupported'][] = 'A public fields[].expression has one binary level and number-or-identifier operands.';
-                    break;
-                }
-            }
-            return;
-        }
-        if ($expression['type'] !== 'function') {
-            $state['unsupported'][] = 'This selected expression has no representation in the public fields schema.';
-            return;
-        }
-
-        $fieldArgumentIndexes = [
-            'COUNT' => 0, 'SUM' => 0, 'AVG' => 0, 'MIN' => 0, 'MAX' => 0,
-            'STRING_AGG' => 0, 'UPPER' => 0, 'LOWER' => 0, 'LTRIM' => 0,
-            'RTRIM' => 0, 'TRIM' => 0, 'LEN' => 0, 'ISNULL' => 0,
-            'CAST' => 0, 'CONVERT' => 1, 'NULLIF' => 0, 'LEFT' => 0,
-            'RIGHT' => 0, 'SUBSTRING' => 0, 'REPLACE' => 0,
-            'CHARINDEX' => 1, 'PATINDEX' => 1, 'FORMAT' => 0, 'YEAR' => 0,
-            'MONTH' => 0, 'DAY' => 0, 'DATEPART' => 1, 'DATENAME' => 1,
-            'DATEADD' => 2, 'ISDATE' => 0, 'ABS' => 0, 'ROUND' => 0,
-            'CEILING' => 0, 'FLOOR' => 0, 'POWER' => 0, 'SQRT' => 0,
-            'EXP' => 0, 'LOG' => 0,
-        ];
-        $name = $expression['name'];
-        if (isset($fieldArgumentIndexes[$name])) {
-            $argument = $expression['arguments'][$fieldArgumentIndexes[$name]] ?? null;
-            if (!is_array($argument) || $this->unwrapGroup($argument)['type'] !== 'identifier') {
-                $state['unsupported'][] = "The public {$name} schema requires a direct field identifier; its parsed SQL argument is an expression.";
-            }
+            $this->validateCapabilityRequest($request, $state);
+        } catch (SqlMappingException $exception) {
+            $state['unsupported'][] = $exception->getMessage();
         }
     }
 
@@ -264,23 +234,63 @@ class SqlCapabilityAnalyzer
             $this->inspectHavingCompatibility($node['right'], $state);
             return;
         }
-        $left = $this->unwrapGroup($node['left']);
-        $validFunctions = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STRING_AGG'];
-        $argument = $left['arguments'][0] ?? null;
-        if ($left['type'] !== 'function'
-            || !in_array($left['name'], $validFunctions, true)
-            || !is_array($argument)
-            || $this->unwrapGroup($argument)['type'] !== 'identifier') {
-            $state['unsupported'][] = 'Each public having item must be a supported aggregate over one direct field.';
+        try {
+            $this->validateCapabilityRequest([
+                'action' => 'select', 'source' => ['table' => 'CapabilityProbe'], 'fields' => ['Probe'],
+                'having' => [(new SqlToApiMapper())->having($node)],
+            ], $state);
+        } catch (SqlMappingException $exception) {
+            $state['unsupported'][] = $exception->getMessage();
         }
     }
 
-    private function isPublicArithmeticOperand(array $expression): bool
+    private function validateCapabilityRequest(array $request, array &$state): void
     {
-        $expression = $this->unwrapGroup($expression);
-        return $expression['type'] === 'identifier'
-            || ($expression['type'] === 'literal'
-                && (is_int($expression['value']) || is_float($expression['value'])));
+        try {
+            (new QueryRequestValidator())->validate($request);
+        } catch (ApiRequestException $exception) {
+            foreach ($exception->getDetails() as $detail) {
+                $state['unsupported'][] = 'Backend public contract: ' . $detail['message'];
+            }
+        }
+    }
+
+    private function inspectWhereCompatibility(array $node, array &$state, bool $commaSources): void
+    {
+        if ($node['type'] === 'boolean_group') {
+            $this->inspectWhereCompatibility($node['expression'], $state, $commaSources);
+            return;
+        }
+        if ($node['type'] === 'boolean') {
+            $this->inspectWhereCompatibility($node['left'], $state, $commaSources);
+            $this->inspectWhereCompatibility($node['right'], $state, $commaSources);
+            return;
+        }
+        $left = $this->unwrapGroup($node['left']);
+        if ($left['type'] !== 'identifier') {
+            $state['unsupported'][] = 'Expression-valued WHERE inputs are unsupported; the left side must be a direct field.';
+        }
+        $right = $node['right'] ?? null;
+        foreach (is_array($right) && array_is_list($right) ? $right : [$right] as $endpoint) {
+            if ($endpoint === null) {
+                continue;
+            }
+            $endpoint = $this->unwrapGroup($endpoint);
+            // Leave candidate comma-join edges to the existing safe join mapper.
+            if ($commaSources && $node['operator'] === '=' && $left['type'] === 'identifier'
+                && $endpoint['type'] === 'identifier') {
+                continue;
+            }
+            if ($endpoint['type'] === 'literal' || ($endpoint['type'] === 'unary'
+                && in_array($endpoint['operator'], ['+', '-'], true)
+                && $this->unwrapGroup($endpoint['expression'])['type'] === 'literal'
+                && is_numeric($this->unwrapGroup($endpoint['expression'])['value']))) {
+                continue;
+            }
+            $state['unsupported'][] = in_array($node['operator'], ['BETWEEN', 'NOT BETWEEN'], true)
+                ? 'Expression-valued BETWEEN endpoints are unsupported.'
+                : 'Expression-valued WHERE comparison values are unsupported.';
+        }
     }
 
     private function unwrapGroup(array $expression): array

@@ -126,7 +126,41 @@ Every example below uses the public JSON contract accepted by the current valida
 }
 ```
 
-Window sort values are logical fields, never numeric positions. `partitionBy` is not currently supported.
+Window sort values are logical fields or ExpressionNodes, never numeric
+positions. `partitionBy` accepts logical fields or ExpressionNodes.
+
+## Recursive expressions
+
+```json
+{
+  "action": "select",
+  "source": { "table": "BillDetTable", "alias": "BIL" },
+  "fields": [{
+    "function": "ROUND",
+    "field": {
+      "expression": {
+        "left": { "function": "SUM", "field": { "field": "BIL.Item_Rate" } },
+        "operator": "/",
+        "right": { "literal": 1000 }
+      }
+    },
+    "precision": 0,
+    "alias": "Sales"
+  }],
+  "having": [{
+    "expression": {
+      "function": "SUM",
+      "field": { "field": "BIL.Item_Rate" }
+    },
+    "operator": ">",
+    "value": 15
+  }]
+}
+```
+
+Recursive strings are never ambiguous: use `field` for identifiers and
+`literal` for string values. Multiple CTE definitions and expression-valued
+WHERE/BETWEEN endpoints remain unsupported.
 
 ## CTE and recursive CTE
 

@@ -64,7 +64,8 @@ class SqlGenerator
             return [
                 'success' => false,
                 'message' => 'Generated JSON was rejected by the existing request validator.',
-                'candidate' => $candidate,
+                // Never expose partial JSON that failed the public safety boundary.
+                'candidate' => null,
                 'analysis' => $analysis,
                 'error' => [
                     'code' => 'GENERATED_REQUEST_INVALID',

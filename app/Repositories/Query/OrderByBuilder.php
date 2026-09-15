@@ -4,11 +4,17 @@ class OrderByBuilder
 {
     private MetadataRepository $metadataRepository;
     private $columnResolver;
+    private ?SqlExpressionBuilder $expressionBuilder;
 
-    public function __construct(MetadataRepository $metadataRepository, callable $columnResolver)
+    public function __construct(
+        MetadataRepository $metadataRepository,
+        callable $columnResolver,
+        ?SqlExpressionBuilder $expressionBuilder = null
+    )
     {
         $this->metadataRepository = $metadataRepository;
         $this->columnResolver = $columnResolver;
+        $this->expressionBuilder = $expressionBuilder;
     }
 
     public function buildItems(
@@ -16,11 +22,34 @@ class OrderByBuilder
         array $request,
         bool $allowSelectedAliases = false,
         bool $useOutputNames = false,
-        bool $windowContext = false
+        bool $windowContext = false,
+        ?array &$params = null
     ): array {
+        if ($params === null) {
+            $params = [];
+        }
         $sqlOrders = [];
 
         foreach ($orders as $order) {
+            if (is_array($order) && isset($order['expression'])) {
+                if ($this->expressionBuilder === null) {
+                    throw new Exception('ORDER BY expression rendering is unavailable.');
+                }
+                foreach ($this->expressionBuilder->fieldNames($order['expression']) as $field) {
+                    $resolved = ($this->columnResolver)($field);
+                    $table = $resolved['table'] ?? $request['table'];
+                    if (!$this->metadataRepository->columnExists($table, $resolved['column'])) {
+                        throw new Exception("Invalid ORDER BY column: {$field}");
+                    }
+                }
+                $direction = strtoupper($order['direction'] ?? 'ASC');
+                if (!in_array($direction, ['ASC', 'DESC'], true)) {
+                    throw new Exception("Invalid sort direction: {$direction}");
+                }
+                $sqlOrders[] = $this->expressionBuilder->renderNode($order['expression'], $params)
+                    . ' ' . $direction;
+                continue;
+            }
             if (!is_array($order) || empty($order['column']) || !is_string($order['column'])) {
                 throw new Exception('ORDER BY column is required.');
             }
@@ -156,6 +185,13 @@ class OrderByBuilder
             }
             if (!empty($column['alias'])) {
                 return '[' . $column['alias'] . ']';
+            }
+            if (isset($column['node'])) {
+                $node = $column['node'];
+                $default = ($node['type'] ?? null) === 'function'
+                    ? strtolower((string)$node['name'])
+                    : (($node['type'] ?? null) === 'case' ? 'CaseValue' : 'Expression');
+                return '[' . $default . ']';
             }
             if (isset($column['case'])) {
                 return '[' . ($column['case']['alias'] ?? 'CaseValue') . ']';

@@ -75,10 +75,11 @@ parserAssert(
 );
 $nestedFunctionResult = generated('SELECT ROUND(SUM(Item_Rate), 2) FROM BillDetTable;');
 parserAssert(
-    !$nestedFunctionResult['success']
-    && $nestedFunctionResult['error']['stage'] === 'capability'
-    && str_contains($nestedFunctionResult['error']['details'][0]['message'], 'direct field identifier'),
-    'Nested function mapping limitation was not separated from parsing.'
+    $nestedFunctionResult['success']
+    && $nestedFunctionResult['request']['fields'][0] === [
+        'function' => 'ROUND', 'field' => ['function' => 'SUM', 'field' => ['field' => 'Item_Rate']], 'precision' => 2,
+    ],
+    'Nested function mapping did not preserve the recursive public contract.'
 );
 
 $functionCases = [
@@ -120,8 +121,11 @@ $oneLevelArithmetic = generated('SELECT Item_Rate / 100 AS Rate FROM BillDetTabl
 parserAssert($oneLevelArithmetic['success'], 'Representable arithmetic failed.');
 $groupedResult = generated('SELECT (Item_Rate + 10) * 2 FROM BillDetTable;');
 parserAssert(
-    !$groupedResult['success'] && $groupedResult['error']['stage'] === 'capability',
-    'Nested arithmetic should parse and then report the public-contract capability limit.'
+    $groupedResult['success'] && $groupedResult['request']['fields'][0] === ['expression' => [
+        'left' => ['expression' => ['left' => ['field' => 'Item_Rate'], 'operator' => '+', 'right' => ['literal' => 10]]],
+        'operator' => '*', 'right' => ['literal' => 2],
+    ]],
+    'Nested arithmetic did not preserve parentheses and typed operands.'
 );
 
 $nestedArithmeticAst = parsed(
@@ -234,8 +238,7 @@ parserAssert(
     'Multiple CTEs were not parsed and reported as a public capability limit.'
 );
 
-// Both mandatory sales-query forms must parse completely. Mapping then fails at
-// the exact public limitation: ROUND.field cannot contain SUM/arithmetic.
+// Both sales-query join forms must retain the same supported expression mapping.
 $salesSelect = 'SELECT TOP 10 CAT.Cat_Desc AS Category, '
     . 'ROUND(SUM(BIL.Item_Rate) / 100000, 0) AS Sales ';
 $salesTail = 'WHERE BIL.Bill_NETT > 0 '
@@ -254,14 +257,12 @@ foreach ($salesQueries as $salesSql) {
     parserAssert($salesAst['type'] === 'select' && $salesAst['top'] === 10, 'Sales SQL did not parse completely.');
     $sales = generated($salesSql);
     parserAssert(
-        !$sales['success']
-        && $sales['error']['stage'] === 'capability'
+        $sales['success']
         && in_array('ROUND', $sales['analysis']['detected']['functions'], true)
         && in_array('SUM', $sales['analysis']['detected']['functions'], true)
         && in_array('BETWEEN', $sales['analysis']['detected']['filters'], true)
-        && $sales['analysis']['detected']['sorting'] === ['Sales']
-        && str_contains($sales['error']['details'][0]['message'], 'direct field identifier'),
-        'Sales SQL was not parsed/analyzed before its exact mapping limitation was reported.'
+        && $sales['analysis']['detected']['sorting'] === ['Sales'],
+        'Sales SQL failed recursive mapping or changed join analysis.'
     );
 }
 
@@ -399,8 +400,14 @@ foreach ($reportedExamples as $number => $sql) {
         parserAssert(in_array($type, $types, true), "Reported example {$number} is missing AST node {$type}.");
     }
     $analysis = (new SqlCapabilityAnalyzer())->analyze($ast);
-    parserAssert($analysis['unsupported'] !== [], "Reported example {$number} unexpectedly had no contract limitation.");
     $result = generated($sql);
+    if ($number <= 6) {
+        parserAssert($analysis['unsupported'] === [] && $result['success'], "Reported example {$number} failed: " . json_encode($result));
+        (new QueryRequestValidator())->validate($result['request']);
+        $normalized = (new QueryRequestNormalizer())->normalize($result['request']);
+        parserAssert($normalized['controller'] === 'Query' && $normalized['columns'] !== [], "Example {$number} failed normalization.");
+        continue;
+    }
     parserAssert(
         !$result['success']
         && $result['error']['stage'] === 'capability'
@@ -410,14 +417,155 @@ foreach ($reportedExamples as $number => $sql) {
     );
     $messages = array_column($result['error']['details'], 'message');
     parserAssert(
-        count($messages) === count(array_unique($messages)),
-        "Reported example {$number} returned duplicate capability errors."
+        $messages === [
+            'Multiple CTE definitions are unsupported: the public with property accepts exactly one CTE definition.',
+            'Expression-valued BETWEEN endpoints are unsupported.',
+        ],
+        'Query 7 must report exactly the two remaining limitations: ' . json_encode($messages)
     );
 }
 
-// Pin the production validator rules responsible for the reported capability
-// results. These assertions prevent the generator from inventing recursive JSON
-// shapes that the real API rejects.
+// Golden public JSON: expected trees are constructed independently of the mapper.
+$fieldNode = fn (string $name): array => ['field' => $name];
+$literalNode = fn ($value): array => ['literal' => $value];
+$binaryNode = fn (array $left, string $operator, array $right): array => [
+    'expression' => ['left' => $left, 'operator' => $operator, 'right' => $right],
+];
+$sumNode = fn (string $field): array => ['function' => 'SUM', 'field' => $fieldNode($field)];
+$roundNode = fn (array $input, string $alias): array => [
+    'function' => 'ROUND', 'field' => $input, 'precision' => 0, 'alias' => $alias,
+];
+$monthNode = fn (string $field, int $start = 5, int $length = 2): array => [
+    'function' => 'SUBSTRING',
+    'field' => ['function' => 'CONVERT', 'datatype' => 'VARCHAR', 'field' => $fieldNode($field)],
+    'start' => $start, 'length' => $length,
+];
+$joinNode = [
+    'type' => 'INNER', 'source' => ['table' => 'CategoryTable', 'alias' => 'CAT'],
+    'on' => ['left' => 'BIL.Cat_Code', 'operator' => '=', 'right' => 'CAT.Cat_Code'],
+];
+$rangeNode = fn (string $field): array => [
+    'field' => $field, 'operator' => 'BETWEEN', 'value' => [20210401, 20220331],
+];
+$categoryNode = ['field' => 'CAT.Cat_Desc', 'alias' => 'Category'];
+$sales6Node = $roundNode($binaryNode($sumNode('BIL.Item_Rate'), '/', $literalNode(1000)), 'Sales');
+$having6Node = $sales6Node;
+unset($having6Node['alias']);
+$goldenRequests = [
+    1 => [
+        'action' => 'select', 'source' => ['table' => 'ItemMasterTable'],
+        'fields' => ['Item_Code', 'Item_Desc', 'Sale_Rate', 'Item_MRP', 'Std_Vat', 'cl_stock', [
+            'function' => 'ROUND', 'field' => $binaryNode($fieldNode('Cl_Stock'), '*', $fieldNode('Sale_Rate')),
+            'precision' => 2, 'alias' => 'stock_value',
+        ]],
+    ],
+    2 => [
+        'action' => 'select', 'source' => ['table' => 'ItemMasterTable'], 'fields' => [
+            ['function' => 'COUNT', 'field' => 'Item_Code', 'alias' => 'TotalItems'],
+            ['function' => 'MIN', 'field' => 'Sale_Rate', 'alias' => 'MinimumSP'],
+            ['function' => 'MAX', 'field' => 'Sale_Rate', 'alias' => 'MaximumSP'],
+            ['function' => 'SUM', 'field' => $binaryNode($fieldNode('Sale_Rate'), '*', $fieldNode('Cl_Stock')), 'alias' => 'StockValue'],
+        ],
+    ],
+    3 => [
+        'action' => 'select', 'source' => ['table' => 'BillDetTable', 'alias' => 'BIL'],
+        'fields' => [$categoryNode, $roundNode($binaryNode($sumNode('BIL.Item_Rate'), '/', $literalNode(100000)), 'Sales')],
+        'limit' => 10, 'joins' => [$joinNode],
+        'filters' => [['field' => 'BIL.Bill_NETT', 'operator' => '>', 'value' => 0], $rangeNode('BIL.Bill_Date')],
+        'filterLogic' => 'AND', 'groupBy' => ['CAT.Cat_Desc'], 'sort' => [['field' => 'Sales', 'direction' => 'DESC']],
+    ],
+    4 => [
+        'action' => 'select', 'source' => ['table' => 'billmasttable'],
+        'fields' => [$monthNode('BILL_DATE') + ['alias' => 'Month'], $roundNode($sumNode('BILL_AMT'), 'Sales')],
+        'filters' => [$rangeNode('Bill_Date')], 'groupBy' => [$monthNode('BILL_DATE')],
+        'sort' => [['expression' => $monthNode('BILL_DATE'), 'direction' => 'DESC']],
+    ],
+    5 => [
+        'action' => 'select', 'source' => ['table' => 'PurMastTable'],
+        'fields' => [$monthNode('GIN_DATE') + ['alias' => 'Month'], $roundNode($sumNode('Inv_Value'), 'Purchases')],
+        'filters' => [$rangeNode('GIN_DATE')], 'groupBy' => [$monthNode('GIN_DATE', 1, 4), $monthNode('GIN_DATE')],
+        'sort' => [
+            ['expression' => $monthNode('GIN_DATE', 1, 4), 'direction' => 'ASC'],
+            ['expression' => $monthNode('GIN_DATE'), 'direction' => 'DESC'],
+        ],
+    ],
+    6 => [
+        'action' => 'select', 'source' => ['table' => 'BillDetTable', 'alias' => 'BIL'],
+        'fields' => [$monthNode('BIL.Bill_Date') + ['alias' => 'Month'], $categoryNode, $sales6Node],
+        'joins' => [$joinNode], 'filters' => [$rangeNode('BIL.Bill_Date')],
+        'groupBy' => [$monthNode('BIL.Bill_Date'), 'CAT.Cat_Desc'],
+        'having' => [['expression' => $having6Node, 'operator' => '>', 'value' => 15]],
+        'sort' => [['field' => 'Month', 'direction' => 'ASC'], ['field' => 'Category', 'direction' => 'ASC']],
+    ],
+];
+// Object key order is irrelevant in JSON; list order and scalar types are not.
+$canonicalJson = function ($value) use (&$canonicalJson) {
+    if (!is_array($value)) return $value;
+    if (!array_is_list($value)) ksort($value);
+    return array_map($canonicalJson, $value);
+};
+foreach ($goldenRequests as $number => $expected) {
+    parserAssert(
+        $canonicalJson(generated($reportedExamples[$number])['request']) === $canonicalJson($expected),
+        "Query {$number} golden Universal JSON changed."
+    );
+}
+
+// Verify Query 7's now-supported subtrees separately without adding CTE/predicate support.
+$recursiveCaseNode = ['case' => [
+    'when' => [[
+        'condition' => ['left' => $fieldNode('Status'), 'operator' => '=', 'right' => $literalNode('S')],
+        'then' => $fieldNode('Item_Value'),
+    ]],
+    'else' => $binaryNode(['unary' => ['operator' => '-', 'operand' => $literalNode(1)]], '*', $fieldNode('Item_Value')),
+]];
+$caseAggregate = generated("SELECT SUM(CASE WHEN Status = 'S' THEN Item_Value ELSE -1 * Item_Value END) AS Sales FROM Items;");
+parserAssert($caseAggregate['success'] && $caseAggregate['request']['fields'] === [[
+    'function' => 'SUM', 'field' => $recursiveCaseNode, 'alias' => 'Sales',
+]], 'CASE inside aggregate lost recursive branches or unary minus.');
+$partitionWindow = generated('SELECT DENSE_RANK() OVER (PARTITION BY Month ORDER BY Sales DESC) AS RowNo FROM SalesData;');
+parserAssert($partitionWindow['success'] && $partitionWindow['request']['fields'] === [[
+    'function' => 'DENSE_RANK', 'sort' => [['field' => 'Sales', 'direction' => 'DESC']],
+    'partitionBy' => ['Month'], 'alias' => 'RowNo',
+]], 'Window PARTITION BY golden mapping failed.');
+$expressionWindow = generated('SELECT LAG(Amount + 1, 2, 0) OVER (PARTITION BY Category + 2 ORDER BY Amount * 3 DESC) AS Previous FROM Items;');
+parserAssert($expressionWindow['success'] && $expressionWindow['request']['fields'] === [[
+    'function' => 'LAG', 'sort' => [['expression' => $binaryNode($fieldNode('Amount'), '*', $literalNode(3)), 'direction' => 'DESC']],
+    'partitionBy' => [$binaryNode($fieldNode('Category'), '+', $literalNode(2))],
+    'field' => $binaryNode($fieldNode('Amount'), '+', $literalNode(1)), 'offset' => 2, 'default' => 0, 'alias' => 'Previous',
+]], 'Window expression input/partition/order mapping failed.');
+$dateTree = generated("SELECT CONVERT(NUMERIC, CONVERT(VARCHAR, YEAR(GETDATE()) - 5) + '04' + '01') AS Boundary FROM Items;");
+parserAssert($dateTree['success'] && $dateTree['request']['fields'] === [[
+    'function' => 'CONVERT', 'datatype' => 'NUMERIC', 'field' => $binaryNode(
+        $binaryNode(['function' => 'CONVERT', 'datatype' => 'VARCHAR', 'field' => $binaryNode(
+            ['function' => 'YEAR', 'field' => ['function' => 'GETDATE']], '-', $literalNode(5)
+        )], '+', $literalNode('04')), '+', $literalNode('01')
+    ), 'alias' => 'Boundary',
+]], 'Query 7 date expression subtree failed mapping.');
+$expressionCte = generated('WITH SalesData AS (SELECT ROUND(SUM(Item_Rate) / 1000, 0) AS Sales FROM BillDetTable) SELECT Sales FROM SalesData;');
+parserAssert($expressionCte['success'] && $expressionCte['request']['with']['query']['fields'] === [
+    $roundNode($binaryNode($sumNode('Item_Rate'), '/', $literalNode(1000)), 'Sales'),
+], 'Expression inside a single supported CTE failed.');
+$expressionUnion = generated('SELECT Amount + 1 AS Value FROM CurrentRows UNION ALL SELECT Amount * 2 AS Value FROM ArchiveRows;');
+parserAssert($expressionUnion['success'] && $expressionUnion['request']['action'] === 'unionAll', 'Expressions inside UNION ALL failed.');
+
+// Pin legacy generator output, including one-level arithmetic and simple CASE.
+parserAssert($oneLevelArithmetic['request']['fields'] === [[
+    'expression' => ['left' => 'Item_Rate', 'operator' => '/', 'right' => 100], 'alias' => 'Rate',
+]], 'Legacy arithmetic output changed unnecessarily.');
+parserAssert($round['request']['fields'] === [['function' => 'ROUND', 'field' => 'Item_Rate', 'precision' => 2]], 'Legacy ROUND changed.');
+parserAssert($sum['request']['fields'] === [['function' => 'SUM', 'field' => 'Item_Rate']], 'Legacy SUM changed.');
+parserAssert($case['request']['fields'] === [['case' => ['when' => [[
+    'condition' => ['field' => 'Status', 'operator' => '=', 'value' => 'A'], 'then' => 'Active',
+]], 'else' => 'Inactive'], 'alias' => 'StatusText']], 'Legacy CASE changed.');
+parserAssert($having['request']['having'] === [[
+    'function' => 'SUM', 'field' => 'Amount', 'operator' => '>', 'value' => 100,
+]], 'Legacy HAVING changed.');
+parserAssert($window['request']['fields'] === [[
+    'function' => 'ROW_NUMBER', 'sort' => [['field' => 'Bill_Date', 'direction' => 'DESC']], 'alias' => 'RowNo',
+]], 'Legacy window output changed.');
+
+// Old ambiguous recursive shapes must still fail production validation.
 $invalidPublicShapes = [
     'nested function field' => [
         [
@@ -428,7 +576,7 @@ $invalidPublicShapes = [
                 'precision' => 2,
             ]],
         ],
-        'fields.0.field',
+        'fields.0.field.expression.left',
     ],
     'nested top-level arithmetic' => [
         [
@@ -438,7 +586,7 @@ $invalidPublicShapes = [
                 'operator' => '*', 'right' => 2,
             ]]],
         ],
-        'fields.0.expression.left',
+        'fields.0.expression.left.expression.left',
     ],
     'expression groupBy' => [
         'action' => 'select', 'source' => ['table' => 'Items'], 'fields' => ['Amount'],
@@ -452,13 +600,6 @@ $invalidPublicShapes = [
         'action' => 'select', 'source' => ['table' => 'Items'], 'fields' => ['Amount'],
         'having' => [[
             'function' => 'ROUND', 'field' => 'Amount', 'operator' => '>', 'value' => 1,
-        ]],
-    ],
-    'window partitionBy' => [
-        'action' => 'select', 'source' => ['table' => 'Items'],
-        'fields' => [[
-            'function' => 'DENSE_RANK', 'sort' => [['field' => 'Amount']],
-            'partitionBy' => ['Category'],
         ]],
     ],
 ];
@@ -484,6 +625,72 @@ parserAssert(
     && $normalizedRound['columns'][0]['column'] === 'Item_Rate',
     'A representable function did not survive production normalization.'
 );
+
+// Security and intentional capability restrictions remain fail-closed.
+$rejectedSql = [
+    'SELECT [Amount; DROP TABLE Items] FROM Items;',
+    'SELECT Amount AS [Alias];DROP] FROM Items;',
+    'SELECT Amount AS [Bad Alias] FROM Items;',
+    'SELECT [Bad;Function](Amount) FROM Items;',
+    'SELECT UnknownFunction(Amount) FROM Items;',
+    'SELECT Amount | 1 FROM Items;',
+    'SELECT CAST(Amount AS [INT);DROP TABLE Items;--]) FROM Items;',
+    'SELECT CONVERT([VARCHAR);DROP], Amount + 1) FROM Items;',
+    'SELECT Amount FROM [Items;DROP TABLE Other];',
+    'SELECT Amount FROM Items; DROP TABLE Items;',
+    'SELECT ROUND((Amount +), 2) FROM Items;',
+    'SELECT SUM(SUM(Amount)) FROM Items;',
+    'SELECT SUM(ROW_NUMBER() OVER (ORDER BY Amount)) FROM Items;',
+    'SELECT Amount FROM Items GROUP BY SUM(Amount);',
+    'SELECT ROW_NUMBER() OVER (PARTITION BY SUM(Amount) ORDER BY Amount) FROM Items;',
+    'SELECT Amount FROM Items HAVING Amount + 1 > 2;',
+    'SELECT Amount FROM Items HAVING SUM(Amount) > 1 OR SUM(Amount) < 0;',
+    'SELECT Amount FROM Items WHERE Amount > ROUND(OtherAmount, 0);',
+    'SELECT Amount FROM Items WHERE Amount BETWEEN ABS(OtherAmount) AND 10;',
+    'SELECT Amount FROM Items WHERE Amount NOT BETWEEN 1 AND ABS(OtherAmount);',
+    'SELECT Amount FROM Items ORDER BY 1;',
+    'SELECT ROW_NUMBER() OVER (ORDER BY 1) FROM Items;',
+    'SELECT Amount FROM Items ORDER BY (1);',
+    'SELECT ROUND(COUNT(*), 2) FROM Items;',
+    'SELECT ABS(COALESCE(Amount, OtherAmount, 0)) FROM Items;',
+];
+foreach ($rejectedSql as $sql) {
+    try {
+        $result = generated($sql);
+        parserAssert(!$result['success'] && !isset($result['request']) && !isset($result['candidate']),
+            'Unsafe/unsupported SQL emitted a request or partial candidate: ' . $sql);
+    } catch (SqlParserException $exception) {
+        // Invalid SQL syntax must never reach mapping.
+    }
+}
+$unsafeAlias = generated('SELECT Amount + 1 AS [Bad Alias] FROM Items;');
+parserAssert(!$unsafeAlias['success'] && $unsafeAlias['error']['stage'] === 'validation'
+    && $unsafeAlias['candidate'] === null, 'Final production validation was bypassed or leaked rejected JSON.');
+$literalText = generated("SELECT 'x''; DROP TABLE Items;--' AS TextValue, NULL AS EmptyValue, -1.25 AS NegativeValue FROM Items;");
+parserAssert($literalText['success'] && $literalText['request']['fields'] === [
+    ['literal' => "x'; DROP TABLE Items;--", 'alias' => 'TextValue'],
+    ['literal' => null, 'alias' => 'EmptyValue'],
+    ['unary' => ['operator' => '-', 'operand' => ['literal' => 1.25]], 'alias' => 'NegativeValue'],
+], 'Literal text, NULL, and negative decimal were confused with SQL syntax.');
+$malformedAstNodes = [
+    ['type' => 'raw', 'sql' => 'DROP TABLE Items'],
+    ['type' => 'predicate', 'left' => ['type' => 'identifier', 'name' => 'Amount'], 'operator' => '=', 'right' => ['type' => 'literal', 'value' => 1]],
+    ['type' => 'binary', 'left' => ['type' => 'literal', 'value' => 1], 'operator' => '+'],
+    ['type' => 'binary', 'left' => ['type' => 'literal', 'value' => 1], 'operator' => ';DROP', 'right' => ['type' => 'literal', 'value' => 2]],
+    ['type' => 'unary', 'operator' => 'EXEC', 'expression' => ['type' => 'literal', 'value' => 1]],
+    ['type' => 'group'],
+    ['type' => 'literal', 'value' => ['sql' => 'DROP TABLE Items']],
+    ['type' => 'function', 'name' => 'ABS', 'arguments' => 'Amount'],
+];
+foreach ($malformedAstNodes as $node) {
+    try {
+        (new SqlToApiMapper())->mapExpression($node);
+        throw new RuntimeException('Unexpected/malformed recursive AST node was accepted.');
+    } catch (SqlMappingException $exception) {}
+}
+$deepSql = 'SELECT ' . str_repeat('ABS(', 35) . 'Amount' . str_repeat(')', 35) . ' FROM Items;';
+parserAssert(!generated($deepSql)['success'], 'Backend expression depth restriction was bypassed by SQL generation.');
+parserAssert(SqlBackendCapabilities::functions() === QueryFunctionRegistry::all(), 'Parser duplicated or changed registry admission.');
 
 // Error categories and endpoint hardening.
 [$invalidStatus, $invalid] = (new SqlParserRequestHandler())->handle('POST', '{broken', 7);

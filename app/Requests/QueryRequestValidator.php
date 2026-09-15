@@ -3,9 +3,18 @@
 require_once __DIR__ . '/ApiRequestException.php';
 require_once __DIR__ . '/SqlRequestValidator.php';
 require_once __DIR__ . '/WriteRequestValidator.php';
+require_once __DIR__ . '/../Repositories/Query/QueryFunctionRegistry.php';
 
 class QueryRequestValidator
 {
+    private const MAX_EXPRESSION_DEPTH = 32;
+    private const DATATYPES = [
+        'BIGINT', 'BINARY', 'BIT', 'CHAR', 'DATE', 'DATETIME', 'DATETIME2',
+        'DATETIMEOFFSET', 'DECIMAL', 'FLOAT', 'IMAGE', 'INT', 'MONEY',
+        'NCHAR', 'NTEXT', 'NUMERIC', 'NVARCHAR', 'REAL', 'SMALLDATETIME',
+        'SMALLINT', 'SMALLMONEY', 'TEXT', 'TIME', 'TINYINT',
+        'UNIQUEIDENTIFIER', 'VARBINARY', 'VARCHAR', 'XML',
+    ];
     private const ACTIONS = [
         'select', 'sql', 'union', 'unionAll', 'procedure', 'function', 'tableFunction',
         'insert', 'update', 'delete', 'upsert',
@@ -19,26 +28,14 @@ class QueryRequestValidator
         'EXISTS', 'NOT EXISTS'
     ];
 
-    private const FUNCTIONS = [
-        'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STRING_AGG',
-        'UPPER', 'LOWER', 'LTRIM', 'RTRIM', 'TRIM', 'LEN', 'COALESCE',
-        'ISNULL', 'CAST', 'CONVERT', 'NULLIF', 'CONCAT', 'LEFT', 'RIGHT',
-        'SUBSTRING', 'REPLACE', 'CHARINDEX', 'PATINDEX', 'FORMAT', 'CHOOSE',
-        'YEAR', 'MONTH', 'DAY', 'DATEPART', 'DATENAME', 'GETDATE', 'DATEADD',
-        'DATEDIFF', 'EOMONTH', 'ISDATE', 'DATEFROMPARTS',
-        'DATETIMEFROMPARTS', 'TIMEFROMPARTS', 'SYSDATETIME',
-        'CURRENT_TIMESTAMP', 'IIF', 'ABS', 'ROUND', 'CEILING', 'FLOOR',
-        'POWER', 'SQRT', 'EXP', 'LOG', 'ROW_NUMBER', 'RANK', 'DENSE_RANK',
-        'NTILE', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE'
-    ];
-
     private const FIELD_KEYS = [
         'field', 'fields', 'function', 'alias', 'sort', 'case', 'expression',
         'buckets', 'offset', 'default', 'separator', 'datatype', 'style',
         'value', 'values', 'index', 'datepart', 'number', 'start', 'end',
         'year', 'month', 'day', 'hour', 'minute', 'second', 'millisecond',
         'precision', 'power', 'part', 'length', 'search', 'replace',
-        'pattern', 'format', 'condition', 'true', 'false'
+        'pattern', 'format', 'condition', 'true', 'false', 'literal', 'unary',
+        'partitionBy'
     ];
 
     public function validate(array $request): void
@@ -135,21 +132,51 @@ class QueryRequestValidator
                     $errors[] = ['path' => $path, 'message' => 'Field must be a string or object.'];
                 } else {
                     $this->rejectUnknown($field, self::FIELD_KEYS, $path . '.', $errors);
+                    $discriminators = array_values(array_filter(
+                        ['field', 'function', 'case', 'expression', 'unary', 'literal'],
+                        fn (string $key): bool => array_key_exists($key, $field)
+                    ));
+                    if (count($discriminators) !== 1
+                        && !(isset($field['function']) && array_key_exists('field', $field))) {
+                        $errors[] = ['path' => $path, 'message' => 'Field object must contain exactly one expression type.'];
+                    }
+                    if (!isset($field['function']) && count($discriminators) === 1) {
+                        $this->rejectUnknown($field, [$discriminators[0], 'alias'], $path . '.', $errors);
+                    }
                     if (isset($field['function'])
                         && (!is_string($field['function'])
-                            || !in_array(strtoupper($field['function']), self::FUNCTIONS, true))) {
+                            || !QueryFunctionRegistry::supports($field['function']))) {
                         $errors[] = ['path' => $path . '.function', 'message' => 'Unsupported function.'];
+                    } elseif (isset($field['function']) && is_string($field['function'])) {
+                        $this->rejectUnknown(
+                            $field,
+                            array_merge(QueryFunctionRegistry::allowedProperties($field['function']), ['alias']),
+                            $path . '.',
+                            $errors
+                        );
                     }
-                    if (isset($field['field']) && $field['field'] !== '*'
-                        && (!is_string($field['field']) || !$this->isIdentifier($field['field']))) {
-                        $errors[] = ['path' => $path . '.field', 'message' => 'Field must be a valid identifier.'];
+                    if (isset($field['field']) && $field['field'] !== '*') {
+                        if (is_array($field['field']) && isset($field['function'])
+                            && is_string($field['function'])
+                            && QueryFunctionRegistry::acceptsExpressionInput($field['function'])) {
+                            $this->validateExpressionNode(
+                                $field['field'],
+                                $path . '.field',
+                                $errors,
+                                1,
+                                QueryFunctionRegistry::isAggregate($field['function']) ? 1 : 0
+                            );
+                        } elseif (!is_string($field['field']) || !$this->isIdentifier($field['field'])) {
+                            $errors[] = ['path' => $path . '.field', 'message' => 'Field must be a valid identifier or expression node.'];
+                        }
                     }
                     if (isset($field['alias']) && !$this->isIdentifier($field['alias'])) {
                         $errors[] = ['path' => $path . '.alias', 'message' => 'Alias must be a valid identifier.'];
                     }
                     if (!isset($field['field']) && !isset($field['function'])
-                        && !isset($field['case']) && !isset($field['expression'])) {
-                        $errors[] = ['path' => $path, 'message' => 'Field object requires field, function, case, or expression.'];
+                        && !isset($field['case']) && !isset($field['expression'])
+                        && !array_key_exists('literal', $field) && !isset($field['unary'])) {
+                        $errors[] = ['path' => $path, 'message' => 'Field object requires field, function, case, expression, unary, or literal.'];
                     }
                     if (isset($field['fields'])
                         && (!is_array($field['fields'])
@@ -158,6 +185,9 @@ class QueryRequestValidator
                     }
                     if (isset($field['sort'])) {
                         $this->validateSort($field['sort'], $path . '.sort', $errors);
+                    }
+                    if (isset($field['partitionBy'])) {
+                        $this->validateExpressionList($field['partitionBy'], $path . '.partitionBy', $errors, 'partition');
                     }
                     if (isset($field['function'])
                         && in_array(strtoupper((string)$field['function']), [
@@ -168,8 +198,7 @@ class QueryRequestValidator
                         $errors[] = ['path' => $path . '.sort', 'message' => 'Window functions require sort.'];
                     }
                     if (isset($field['datatype'])
-                        && (!is_string($field['datatype'])
-                            || preg_match('/^[A-Za-z]+(?:\([0-9]+(?:,[0-9]+)?\))?$/', $field['datatype']) !== 1)) {
+                        && !$this->isDatatype($field['datatype'])) {
                         $errors[] = ['path' => $path . '.datatype', 'message' => 'Datatype is invalid.'];
                     }
                     if (isset($field['expression'])) {
@@ -178,8 +207,14 @@ class QueryRequestValidator
                     if (isset($field['case'])) {
                         $this->validateCase($field['case'], $path . '.case', $errors);
                     }
+                    if (isset($field['unary'])) {
+                        $this->validateUnary($field['unary'], $path . '.unary', $errors, 1, 0);
+                    }
+                    if (array_key_exists('literal', $field) && !$this->isLiteral($field['literal'])) {
+                        $errors[] = ['path' => $path . '.literal', 'message' => 'Literal must be a JSON scalar or null.'];
+                    }
                     if (isset($field['function']) && is_string($field['function'])
-                        && in_array(strtoupper($field['function']), self::FUNCTIONS, true)) {
+                        && QueryFunctionRegistry::supports($field['function'])) {
                         $this->validateFunctionField($field, $path, $errors);
                     }
                 }
@@ -205,10 +240,8 @@ class QueryRequestValidator
                 }
             }
         }
-        if (isset($request['groupBy'])
-            && (!is_array($request['groupBy'])
-                || array_filter($request['groupBy'], fn ($field) => !is_string($field) || !$this->isIdentifier($field)))) {
-            $errors[] = ['path' => $prefix . 'groupBy', 'message' => 'Group fields must be valid identifiers.'];
+        if (isset($request['groupBy'])) {
+            $this->validateExpressionList($request['groupBy'], $prefix . 'groupBy', $errors, 'group');
         }
         if (isset($request['joins'])) {
             if (!is_array($request['joins'])) {
@@ -239,15 +272,31 @@ class QueryRequestValidator
             } else {
                 foreach ($request['having'] as $index => $condition) {
                     $path = $prefix . "having.{$index}";
-                    if (is_array($condition)) {
-                        $this->rejectUnknown($condition, ['function', 'field', 'operator', 'value'], $path . '.', $errors);
+                    if (!is_array($condition)) {
+                        $errors[] = ['path' => $path, 'message' => 'Invalid HAVING condition.'];
+                        continue;
                     }
-                    if (!is_array($condition)
-                        || !in_array(strtoupper((string)($condition['function'] ?? '')), ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STRING_AGG'], true)
-                        || (($condition['field'] ?? null) !== '*' && !$this->isIdentifier($condition['field'] ?? null))
-                        || !in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)
-                        || !array_key_exists('value', $condition)) {
-                        $errors[] = ['path' => $path, 'message' => 'Invalid aggregate HAVING condition.'];
+                    if (isset($condition['expression'])) {
+                        $this->rejectUnknown($condition, ['expression', 'operator', 'value'], $path . '.', $errors);
+                        $this->validateExpressionNode($condition['expression'], $path . '.expression', $errors, 1, 0, 'having');
+                        if (!$this->containsAggregate($condition['expression'])) {
+                            $errors[] = ['path' => $path . '.expression', 'message' => 'HAVING expression must contain an aggregate function.'];
+                        }
+                        if (!in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)) {
+                            $errors[] = ['path' => $path . '.operator', 'message' => 'Unsupported HAVING operator.'];
+                        }
+                        if (!array_key_exists('value', $condition) || !$this->isLiteral($condition['value'] ?? null)) {
+                            $errors[] = ['path' => $path . '.value', 'message' => 'HAVING value must be a JSON scalar or null.'];
+                        }
+                    } else {
+                        $this->rejectUnknown($condition, ['function', 'field', 'operator', 'value'], $path . '.', $errors);
+                        if (!in_array(strtoupper((string)($condition['function'] ?? '')), ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STRING_AGG'], true)
+                            || (($condition['field'] ?? null) !== '*' && !$this->isIdentifier($condition['field'] ?? null))
+                            || !in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)
+                            || !array_key_exists('value', $condition)
+                            || !$this->isLiteral($condition['value'] ?? null)) {
+                            $errors[] = ['path' => $path, 'message' => 'Invalid aggregate HAVING condition.'];
+                        }
                     }
                 }
             }
@@ -316,13 +365,15 @@ class QueryRequestValidator
                             ];
                         }
                     }
-                } elseif (!isset($filter['value']) || !is_array($filter['value']) || $filter['value'] === []) {
+                } elseif (!isset($filter['value']) || !is_array($filter['value']) || $filter['value'] === []
+                    || array_filter($filter['value'], fn ($value) => !$this->isLiteral($value)) !== []) {
                     $errors[] = ['path' => $itemPath . '.value', 'message' => 'IN requires a non-empty value array or query.'];
                 }
                 continue;
             }
             if (in_array($operator, ['BETWEEN', 'NOT BETWEEN'], true)) {
-                if (!isset($filter['value']) || !is_array($filter['value']) || count($filter['value']) !== 2) {
+                if (!isset($filter['value']) || !is_array($filter['value']) || count($filter['value']) !== 2
+                    || array_filter($filter['value'], fn ($value) => !$this->isLiteral($value)) !== []) {
                     $errors[] = ['path' => $itemPath . '.value', 'message' => 'BETWEEN requires exactly two values.'];
                 }
                 if (isset($filter['query'])) {
@@ -332,6 +383,8 @@ class QueryRequestValidator
             }
             if (!array_key_exists('value', $filter)) {
                 $errors[] = ['path' => $itemPath . '.value', 'message' => 'A value is required.'];
+            } elseif (!$this->isLiteral($filter['value'])) {
+                $errors[] = ['path' => $itemPath . '.value', 'message' => 'Filter value must be a JSON scalar or null.'];
             }
             if (isset($filter['query'])) {
                 $errors[] = ['path' => $itemPath . '.query', 'message' => 'This operator does not support a subquery.'];
@@ -600,7 +653,7 @@ class QueryRequestValidator
         }
     }
 
-    private function validateSort($sort, string $path, array &$errors): void
+    private function validateSort($sort, string $path, array &$errors, int $depth = 1): void
     {
         if (!is_array($sort)) {
             $errors[] = ['path' => $path, 'message' => 'Sort must be an array.'];
@@ -608,12 +661,23 @@ class QueryRequestValidator
         }
         foreach ($sort as $index => $item) {
             if (is_array($item)) {
-                $this->rejectUnknown($item, ['field', 'direction'], "{$path}.{$index}.", $errors);
+                $this->rejectUnknown($item, ['field', 'expression', 'direction'], "{$path}.{$index}.", $errors);
             }
-            if (!is_array($item) || !$this->isIdentifier($item['field'] ?? null)
-                || ctype_digit((string)($item['field'] ?? ''))
-                || !in_array(strtoupper((string)($item['direction'] ?? 'ASC')), ['ASC', 'DESC'], true)) {
+            if (!is_array($item)) {
                 $errors[] = ['path' => "{$path}.{$index}", 'message' => 'Sort requires a logical field and ASC or DESC direction.'];
+                continue;
+            }
+            $hasField = array_key_exists('field', $item);
+            $hasExpression = array_key_exists('expression', $item);
+            if ($hasField === $hasExpression) {
+                $errors[] = ['path' => "{$path}.{$index}", 'message' => 'Sort requires exactly one field or expression.'];
+            } elseif ($hasField && (!$this->isIdentifier($item['field']) || ctype_digit((string)$item['field']))) {
+                $errors[] = ['path' => "{$path}.{$index}.field", 'message' => 'Sort field must be a non-positional logical identifier.'];
+            } elseif ($hasExpression) {
+                $this->validateExpressionNode($item['expression'], "{$path}.{$index}.expression", $errors, $depth + 1, 0, 'order');
+            }
+            if (!in_array(strtoupper((string)($item['direction'] ?? 'ASC')), ['ASC', 'DESC'], true)) {
+                $errors[] = ['path' => "{$path}.{$index}.direction", 'message' => 'Sort direction must be ASC or DESC.'];
             }
         }
     }
@@ -628,15 +692,33 @@ class QueryRequestValidator
         if (!in_array($expression['operator'] ?? null, ['+', '-', '*', '/', '%'], true)) {
             $errors[] = ['path' => $path . '.operator', 'message' => 'Unsupported expression operator.'];
         }
+        $legacy = true;
         foreach (['left', 'right'] as $side) {
             $value = $expression[$side] ?? null;
             if (!is_int($value) && !is_float($value) && !$this->isIdentifier($value)) {
-                $errors[] = ['path' => $path . '.' . $side, 'message' => 'Expression operand must be a number or field.'];
+                $legacy = false;
             }
+        }
+        if ($legacy) {
+            return;
+        }
+        foreach (['left', 'right'] as $side) {
+            if (!is_array($expression[$side] ?? null)) {
+                $errors[] = ['path' => $path . '.' . $side, 'message' => 'Recursive operands must use explicit expression nodes.'];
+                continue;
+            }
+            $this->validateExpressionNode($expression[$side], $path . '.' . $side, $errors, 1, 0);
         }
     }
 
-    private function validateCase($case, string $path, array &$errors): void
+    private function validateCase(
+        $case,
+        string $path,
+        array &$errors,
+        int $depth = 1,
+        int $aggregateDepth = 0,
+        string $context = 'case'
+    ): void
     {
         if (!is_array($case)) {
             $errors[] = ['path' => $path, 'message' => 'Case must be an object.'];
@@ -655,19 +737,212 @@ class QueryRequestValidator
             }
             $this->rejectUnknown($when, ['condition', 'then'], $itemPath . '.', $errors);
             $condition = $when['condition'];
-            $this->rejectUnknown($condition, ['field', 'operator', 'value'], $itemPath . '.condition.', $errors);
-            if (!$this->isIdentifier($condition['field'] ?? null)
-                || !in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)
-                || !array_key_exists('value', $condition)
-                || !array_key_exists('then', $when)
-                || !$this->isLiteral($condition['value'] ?? null)
-                || !$this->isLiteral($when['then'] ?? null)) {
-                $errors[] = ['path' => $itemPath, 'message' => 'Invalid CASE WHEN clause.'];
+            if (array_key_exists('field', $condition)) {
+                $this->rejectUnknown($condition, ['field', 'operator', 'value'], $itemPath . '.condition.', $errors);
+                if (!$this->isIdentifier($condition['field'] ?? null)
+                    || !in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)
+                    || !array_key_exists('value', $condition)
+                    || !array_key_exists('then', $when)
+                    || !$this->isLiteral($condition['value'] ?? null)
+                    || !$this->isLiteral($when['then'] ?? null)) {
+                    $errors[] = ['path' => $itemPath, 'message' => 'Invalid CASE WHEN clause.'];
+                }
+                continue;
+            }
+            $this->rejectUnknown($condition, ['left', 'operator', 'right'], $itemPath . '.condition.', $errors);
+            if (!in_array(strtoupper((string)($condition['operator'] ?? '')), ['=', '!=', '<>', '>', '<', '>=', '<='], true)) {
+                $errors[] = ['path' => $itemPath . '.condition.operator', 'message' => 'Invalid CASE comparison operator.'];
+            }
+            foreach (['left', 'right'] as $side) {
+                $this->validateExpressionNode($condition[$side] ?? null, $itemPath . '.condition.' . $side, $errors, $depth + 1, $aggregateDepth, $context);
+            }
+            if (!array_key_exists('then', $when)) {
+                $errors[] = ['path' => $itemPath . '.then', 'message' => 'CASE WHEN requires a THEN expression.'];
+            } else {
+                $this->validateExpressionNode($when['then'], $itemPath . '.then', $errors, $depth + 1, $aggregateDepth, $context);
             }
         }
         if (array_key_exists('else', $case) && !$this->isLiteral($case['else'])) {
-            $errors[] = ['path' => $path . '.else', 'message' => 'CASE ELSE must be a literal value.'];
+            $this->validateExpressionNode($case['else'], $path . '.else', $errors, $depth + 1, $aggregateDepth, $context);
         }
+    }
+
+    private function validateExpressionList(
+        $value,
+        string $path,
+        array &$errors,
+        string $context,
+        int $depth = 1
+    ): void
+    {
+        if (!is_array($value)) {
+            $errors[] = ['path' => $path, 'message' => 'Expression list must be an array.'];
+            return;
+        }
+        foreach ($value as $index => $item) {
+            if (is_string($item)) {
+                if (!$this->isIdentifier($item)) {
+                    $errors[] = ['path' => "{$path}.{$index}", 'message' => 'Field must be a valid identifier.'];
+                }
+                continue;
+            }
+            $this->validateExpressionNode($item, "{$path}.{$index}", $errors, $depth + 1, 0, $context);
+        }
+    }
+
+    private function validateExpressionNode(
+        $node,
+        string $path,
+        array &$errors,
+        int $depth,
+        int $aggregateDepth = 0,
+        string $context = 'expression'
+    ): void {
+        if ($depth > self::MAX_EXPRESSION_DEPTH) {
+            $errors[] = ['path' => $path, 'message' => 'Expression exceeds maximum depth of ' . self::MAX_EXPRESSION_DEPTH . '.'];
+            return;
+        }
+        if (!is_array($node) || array_is_list($node)) {
+            $errors[] = ['path' => $path, 'message' => 'Expression node must be an object.'];
+            return;
+        }
+        $types = array_values(array_filter(
+            ['field', 'literal', 'expression', 'unary', 'function', 'case'],
+            fn (string $key): bool => array_key_exists($key, $node)
+        ));
+        if (isset($node['function']) && array_key_exists('field', $node)) {
+            $types = array_values(array_diff($types, ['field']));
+        }
+        if (count($types) !== 1) {
+            $errors[] = ['path' => $path, 'message' => 'Expression node must contain exactly one expression type.'];
+            return;
+        }
+        $type = $types[0];
+        if ($type === 'field') {
+            $this->rejectUnknown($node, ['field'], $path . '.', $errors);
+            if (!$this->isIdentifier($node['field'])) {
+                $errors[] = ['path' => $path . '.field', 'message' => 'Field must be a valid identifier.'];
+            }
+            return;
+        }
+        if ($type === 'literal') {
+            $this->rejectUnknown($node, ['literal'], $path . '.', $errors);
+            if (!$this->isLiteral($node['literal'])) {
+                $errors[] = ['path' => $path . '.literal', 'message' => 'Literal must be a JSON scalar or null.'];
+            }
+            return;
+        }
+        if ($type === 'expression') {
+            $this->rejectUnknown($node, ['expression'], $path . '.', $errors);
+            $binary = $node['expression'];
+            if (!is_array($binary)) {
+                $errors[] = ['path' => $path . '.expression', 'message' => 'Expression must be an object.'];
+                return;
+            }
+            $this->rejectUnknown($binary, ['left', 'operator', 'right'], $path . '.expression.', $errors);
+            if (!in_array($binary['operator'] ?? null, ['+', '-', '*', '/', '%'], true)) {
+                $errors[] = ['path' => $path . '.expression.operator', 'message' => 'Unsupported expression operator.'];
+            }
+            foreach (['left', 'right'] as $side) {
+                $this->validateExpressionNode($binary[$side] ?? null, $path . '.expression.' . $side, $errors, $depth + 1, $aggregateDepth, $context);
+            }
+            return;
+        }
+        if ($type === 'unary') {
+            $this->rejectUnknown($node, ['unary'], $path . '.', $errors);
+            $this->validateUnary($node['unary'], $path . '.unary', $errors, $depth + 1, $aggregateDepth, $context);
+            return;
+        }
+        if ($type === 'case') {
+            $this->rejectUnknown($node, ['case'], $path . '.', $errors);
+            $this->validateCase($node['case'], $path . '.case', $errors, $depth + 1, $aggregateDepth, $context);
+            return;
+        }
+
+        $name = strtoupper((string)$node['function']);
+        if (!QueryFunctionRegistry::supports($name)) {
+            $errors[] = ['path' => $path . '.function', 'message' => 'Unsupported function.'];
+            return;
+        }
+        if (!QueryFunctionRegistry::isRecursivelyRenderable($name)) {
+            $errors[] = ['path' => $path . '.function', 'message' => "{$name} is not supported in a recursive expression."];
+        }
+        if (QueryFunctionRegistry::isWindow($name)) {
+            $errors[] = ['path' => $path . '.function', 'message' => 'Window functions cannot be nested inside expressions.'];
+        }
+        if (in_array($context, ['group', 'partition'], true)
+            && (QueryFunctionRegistry::isAggregate($name) || QueryFunctionRegistry::isWindow($name))) {
+            $errors[] = ['path' => $path . '.function', 'message' => 'Aggregate and window functions are not allowed in this expression context.'];
+        }
+        if (QueryFunctionRegistry::isAggregate($name) && $aggregateDepth > 0) {
+            $errors[] = ['path' => $path . '.function', 'message' => 'Aggregate functions cannot be nested.'];
+        }
+        if (isset($node['alias'])) {
+            $errors[] = ['path' => $path . '.alias', 'message' => 'Aliases are allowed only on selected fields.'];
+        }
+        $this->rejectUnknown($node, QueryFunctionRegistry::allowedProperties($name), $path . '.', $errors);
+        if (isset($node['datatype'])
+            && !$this->isDatatype($node['datatype'])) {
+            $errors[] = ['path' => $path . '.datatype', 'message' => 'Datatype is invalid.'];
+        }
+        if (isset($node['fields'])
+            && (!is_array($node['fields'])
+                || array_filter($node['fields'], fn ($item) => !$this->isIdentifier($item)) !== [])) {
+            $errors[] = ['path' => $path . '.fields', 'message' => 'Function fields must be valid identifiers.'];
+        }
+        if (isset($node['sort'])) {
+            $this->validateSort($node['sort'], $path . '.sort', $errors, $depth + 1);
+        }
+        if (isset($node['partitionBy'])) {
+            $this->validateExpressionList($node['partitionBy'], $path . '.partitionBy', $errors, 'partition', $depth + 1);
+        }
+        if (array_key_exists('field', $node)) {
+            if (!QueryFunctionRegistry::acceptsExpressionInput($name)) {
+                $errors[] = ['path' => $path . '.field', 'message' => "{$name} does not accept an expression input."];
+            } elseif (is_array($node['field'])) {
+                $nextAggregateDepth = $aggregateDepth + (QueryFunctionRegistry::isAggregate($name) ? 1 : 0);
+                $this->validateExpressionNode($node['field'], $path . '.field', $errors, $depth + 1, $nextAggregateDepth, $context);
+            } elseif ($node['field'] !== '*' && !$this->isIdentifier($node['field'])) {
+                $errors[] = ['path' => $path . '.field', 'message' => 'Function field must be an identifier or expression node.'];
+            }
+        }
+        $this->validateFunctionField($node, $path, $errors);
+    }
+
+    private function validateUnary(
+        $unary,
+        string $path,
+        array &$errors,
+        int $depth,
+        int $aggregateDepth,
+        string $context = 'expression'
+    ): void {
+        if (!is_array($unary)) {
+            $errors[] = ['path' => $path, 'message' => 'Unary expression must be an object.'];
+            return;
+        }
+        $this->rejectUnknown($unary, ['operator', 'operand'], $path . '.', $errors);
+        if (!in_array($unary['operator'] ?? null, ['+', '-'], true)) {
+            $errors[] = ['path' => $path . '.operator', 'message' => 'Unsupported unary operator.'];
+        }
+        $this->validateExpressionNode($unary['operand'] ?? null, $path . '.operand', $errors, $depth + 1, $aggregateDepth, $context);
+    }
+
+    private function containsAggregate($node): bool
+    {
+        if (!is_array($node)) {
+            return false;
+        }
+        if (isset($node['function']) && is_string($node['function'])
+            && QueryFunctionRegistry::isAggregate($node['function'])) {
+            return true;
+        }
+        foreach ($node as $value) {
+            if (is_array($value) && $this->containsAggregate($value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isLiteral($value): bool
@@ -693,6 +968,15 @@ class QueryRequestValidator
     {
         return is_string($value)
             && preg_match('/^[A-Za-z_][A-Za-z0-9_.]*$/', $value) === 1;
+    }
+
+    private function isDatatype($value): bool
+    {
+        if (!is_string($value)
+            || preg_match('/^([A-Za-z]+)(?:\([0-9]+(?:,[0-9]+)?\))?$/', $value, $matches) !== 1) {
+            return false;
+        }
+        return in_array(strtoupper($matches[1]), self::DATATYPES, true);
     }
 
     private function rejectUnknown(

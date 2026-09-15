@@ -5,8 +5,30 @@ Query Mode. Function names are case-insensitive during validation and normalized
 for SQL generation. Each entry is a `fields[]` object; add an identifier `alias`
 for a stable frontend column name.
 
-`F` below means a column identifier string. Literal options are validated by
-function-specific rules; referenced fields are checked against metadata.
+`F` below means a column identifier string. For functions whose primary public
+property is `field`, that property also accepts a recursive ExpressionNode. This
+enables `SUM(expression)`, `ROUND(expression, precision)`,
+`SUBSTRING(expression, start, length)`, `CONVERT(datatype, expression)`, and
+similar nesting while preserving every direct-field form. Literal options are
+validated by function-specific rules; referenced fields are checked against
+metadata.
+
+For example:
+
+```json
+{
+  "function": "ROUND",
+  "field": {
+    "expression": {
+      "left": {"function":"SUM","field":{"field":"Amount"}},
+      "operator": "/",
+      "right": {"literal":1000}
+    }
+  },
+  "precision": 0,
+  "alias": "Sales"
+}
+```
 
 ## Aggregates
 
@@ -51,8 +73,9 @@ by the builder; they are not raw SQL fragments.
 | CAST | `{"function":"CAST","field":"Amount","datatype":"decimal(10,2)","alias":"DecimalAmount"}` | Simple allowlisted type syntax only. |
 | CONVERT | `{"function":"CONVERT","field":"BillDate","datatype":"date","style":112,"alias":"DateValue"}` | Optional style is an integer. |
 
-`datatype` is a simple type name optionally followed by numeric size/precision,
-such as `date`, `varchar(50)`, or `decimal(10,2)`. It is not free-form SQL.
+`datatype` is an approved SQL Server base type optionally followed by numeric
+size/precision, such as `date`, `varchar(50)`, or `decimal(10,2)`. It is not
+free-form SQL; unapproved type names are rejected.
 
 ## Date and time
 
@@ -104,8 +127,9 @@ The non-function CASE field shape is documented in [JSON Query Mode](Query-Mode.
 
 ## Window functions
 
-All window functions require a non-empty `sort` array using logical fields and
-ASC/DESC. Numeric ordering and `partitionBy` are not public.
+All window functions require a non-empty `sort` array using logical fields or
+ExpressionNodes and ASC/DESC. Numeric ordering is not public. Optional
+`partitionBy` accepts logical fields or ExpressionNodes.
 
 | Function | Public JSON field object |
 |---|---|

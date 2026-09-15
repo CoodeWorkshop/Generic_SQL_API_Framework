@@ -132,9 +132,10 @@ $validator->validate($advancedFields);
 $advancedSql = $builder->build($normalizer->normalize($advancedFields))['sql'];
 contractAssert(strpos($advancedSql, 'DISTINCT TOP 5') !== false, 'DISTINCT/limit failed.');
 contractAssert(strpos($advancedSql, 'END AS [StatusLabel]') !== false, 'CASE alias failed.');
-contractAssert(strpos($advancedSql, "Status = 'O''Brien'") !== false, 'CASE escaping failed.');
-contractAssert(strpos($advancedSql, '(Amount + 1) AS [AdjustedAmount]') !== false, 'Expression failed.');
+contractAssert(strpos($advancedSql, 'Status = ?') !== false, 'CASE parameterization failed.');
+contractAssert(strpos($advancedSql, '(Amount + ?) AS [AdjustedAmount]') !== false, 'Expression failed.');
 contractAssert(strpos($advancedSql, 'COALESCE(ItemCode, Description') !== false, 'Multi-field function failed.');
+contractAssert($builder->build($normalizer->normalize($advancedFields))['params'] === ["O'Brien", 'Open', 'Closed', 1], 'Expression parameter order changed.');
 
 $subquery = [
     'action' => 'select', 'source' => ['table' => 'Items'], 'fields' => ['ItemCode'],

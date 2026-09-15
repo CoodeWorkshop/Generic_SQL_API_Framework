@@ -111,7 +111,10 @@ selection, or client override for identity insertion.
 | `distinct` | boolean | no | `false` | Adds DISTINCT |
 | `limit` | integer | no | none; minimum 1 | SQL Server TOP |
 
-A field object requires at least one of `field`, `function`, `case`, or `expression`. Allowed field-object properties are `field`, `fields`, `function`, `alias`, `sort`, `case`, `expression`, `buckets`, `offset`, `default`, `separator`, `datatype`, `style`, `value`, `values`, `index`, `datepart`, `number`, `start`, `end`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `precision`, `power`, `part`, `length`, `search`, `replace`, `pattern`, `format`, `condition`, `true`, and `false`.
+A field object requires one expression type: `field`, `function`, `case`,
+`expression`, `unary`, or `literal`. Function objects additionally use only the
+properties defined for that function. `alias` is accepted only on the selected
+field envelope, not inside a recursive expression.
 
 ### Aliases and expressions
 
@@ -131,7 +134,41 @@ A field object requires at least one of `field`, `function`, `case`, or `express
 }
 ```
 
-Arithmetic permits one number-or-identifier operand on each side and one of `+`, `-`, `*`, `/`, `%`. CASE requires a non-empty `when` list. Each condition permits `=`, `!=`, `<>`, `>`, `<`, `>=`, or `<=`, requires `field` and `value`, and each branch requires `then`; `else` is optional.
+The displayed arithmetic and CASE forms are retained legacy shorthands. New
+recursive operands use explicit nodes so string fields cannot be confused with
+string values:
+
+```json
+{
+  "expression": {
+    "left": {"field":"Amount"},
+    "operator": "/",
+    "right": {
+      "expression": {
+        "left": {"field":"Units"},
+        "operator": "+",
+        "right": {"literal":1}
+      }
+    }
+  }
+}
+```
+
+An expression node is exactly one of `{"field":identifier}`,
+`{"literal":scalar-or-null}`, `{"expression":{left,operator,right}}`,
+`{"unary":{operator,operand}}`, an allowlisted function object, or a CASE
+object. Recursive binary children must use explicit nodes; operators are `+`,
+`-`, `*`, `/`, and `%`. Unary operators are `+` and `-`. Expression depth is
+limited to 32. Literal nodes are prepared parameters except a finite numeric
+literal used directly as a division divisor: that structural expression constant
+is emitted as a SQL number to avoid SQL Server/ODBC parameter-type inference
+failures. Strings (including numeric strings), booleans, and null never use this
+exception. Runtime filter/BETWEEN and HAVING comparison values remain prepared
+parameters, including numeric values.
+
+Recursive CASE conditions use `{left,operator,right}` expression nodes and
+`then`/`else` expression nodes. The legacy `{field,operator,value}` condition
+and literal branches remain accepted.
 
 ## Functions
 
@@ -171,7 +208,14 @@ Every function object uses `function` and normally an `alias`. Requirements belo
 
 Function-specific required options are validated before normalization. Lengths, window offsets/buckets, and `CHOOSE.index` are positive integers (`SUBSTRING.length` may be zero); styles and numeric precisions use JSON integers. Date endpoints are either `{"field":"DateField"}` with an optional integer `style`, or `{"function":"GETDATE"}`. Nested field/arithmetic expressions used by conditional and date-part constructors are shape-checked and their referenced columns are validated through metadata.
 
-`datatype` must match a simple type name optionally followed by numeric size/precision, such as `date`, `varchar(50)`, or `decimal(10,2)`. `TIMEFROMPARTS` cannot currently be expressed publicly because the validator rejects its builder-required `fractions` property.
+`datatype` must use an approved SQL Server type name, optionally followed by
+numeric size/precision, such as `date`, `varchar(50)`, or `decimal(10,2)`.
+Approved base names are BIGINT, BINARY, BIT, CHAR, DATE, DATETIME, DATETIME2,
+DATETIMEOFFSET, DECIMAL, FLOAT, IMAGE, INT, MONEY, NCHAR, NTEXT, NUMERIC,
+NVARCHAR, REAL, SMALLDATETIME, SMALLINT, SMALLMONEY, TEXT, TIME, TINYINT,
+UNIQUEIDENTIFIER, VARBINARY, VARCHAR, and XML. `TIMEFROMPARTS` cannot currently
+be expressed publicly because the validator rejects its builder-required
+`fractions` property.
 
 ## Filters
 
@@ -195,14 +239,16 @@ Ordinary values, IN lists, BETWEEN bounds, and HAVING values become prepared par
 | `joins[].source` | object | yes | `table`, optional `alias` |
 | `joins[].on.left/right` | identifier | yes | Logical fields |
 | `joins[].on.operator` | string | no | `=` only; defaults to `=` |
-| `groupBy` | identifier array | no | empty |
+| `groupBy` | identifier/ExpressionNode array | no | empty; aggregate/window nodes rejected |
 | `having` | array | no | empty; combined with AND |
 | `having[].function` | string | yes | `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STRING_AGG` |
 | `having[].field` | identifier or `*` | yes | none |
 | `having[].operator` | string | yes | `=`, `!=`, `<>`, `>`, `<`, `>=`, `<=` |
 | `having[].value` | any | yes | Prepared parameter |
+| `having[].expression` | ExpressionNode | alternative to `function`/`field` | Must contain an aggregate |
 | `sort` | array | no | empty/default builder ordering |
 | `sort[].field` | identifier | yes | Logical source field or selected top-level alias; numeric position rejected |
+| `sort[].expression` | ExpressionNode | alternative to `field` | Rendered expression; numeric position still rejected |
 | `sort[].direction` | string | no | `ASC`; also `DESC` |
 
 FULL/CROSS joins, non-equality join predicates, multiple ON predicates, HAVING OR logic, and public positional ordering are unsupported.
@@ -219,14 +265,17 @@ There is no implicit page or page size. Pagination normally returns a total from
 
 ## Window fields
 
-All window functions require `sort`, whose entries have the same public shape as top-level sorting. `partitionBy` is not accepted.
+All window functions require `sort`, whose entries have the same public
+field-or-expression shape as top-level sorting. Optional `partitionBy` is an
+array of logical field strings and/or ExpressionNodes. Aggregate and window
+nodes are rejected inside partitions.
 
 | Function | Additional properties |
 |---|---|
-| `ROW_NUMBER`, `RANK`, `DENSE_RANK` | `sort` |
-| `NTILE` | positive `buckets`, `sort` |
-| `LAG`, `LEAD` | `field`, `sort`; optional positive `offset` default 1 and optional `default` |
-| `FIRST_VALUE`, `LAST_VALUE` | `field`, `sort` |
+| `ROW_NUMBER`, `RANK`, `DENSE_RANK` | `sort`; optional `partitionBy` |
+| `NTILE` | positive `buckets`, `sort`; optional `partitionBy` |
+| `LAG`, `LEAD` | `field`, `sort`; optional positive `offset`, `default`, and `partitionBy` |
+| `FIRST_VALUE`, `LAST_VALUE` | `field`, `sort`; optional `partitionBy` |
 
 ## CTE and subquery bodies
 
@@ -285,3 +334,10 @@ Metadata requests are exactly `{"action":"metadata.tables"}`, `metadata.views`, 
 | routine `parameters` | `params` |
 
 Clients must use the left column only.
+
+Recursive expressions, including legacy arithmetic and CASE shorthands, normalize
+to the private type-tagged `node` AST (`field`, `literal`, `binary`, `unary`,
+`function`, or `case`). Direct columns and non-recursive legacy function objects
+retain their established private builder keys because repository-level callers
+and compatibility tests use that internal surface. Both paths share identifier
+metadata validation; only the canonical node path accepts recursive children.

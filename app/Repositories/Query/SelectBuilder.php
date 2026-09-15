@@ -34,12 +34,16 @@ class SelectBuilder
         $this->expressionBuilder = new SqlExpressionBuilder();
         $this->orderByBuilder = new OrderByBuilder(
             $this->metadataRepository,
-            fn (string $column): array => $this->expressionBuilder->resolveColumn($column)
+            fn (string $column): array => $this->expressionBuilder->resolveColumn($column),
+            $this->expressionBuilder
         );
         $this->paginationBuilder = new PaginationBuilder($queryEngine);
         $this->windowFunctionBuilder = new WindowFunctionBuilder(
             $this->orderByBuilder,
-            fn ($value): string => $this->expressionBuilder->buildValue($value)
+            fn ($value): string => $this->expressionBuilder->buildValue($value),
+            $this->metadataRepository,
+            fn (string $column): array => $this->expressionBuilder->resolveColumn($column),
+            $this->expressionBuilder
         );
         $resolver = fn (string $column): array => $this->expressionBuilder->resolveColumn($column);
         $this->joinBuilder = new JoinBuilder($this->metadataRepository, $resolver);
@@ -48,8 +52,16 @@ class SelectBuilder
             $resolver,
             fn (array $request, bool $isUnion): array => $this->buildNested($request, $isUnion)
         );
-        $this->groupByBuilder = new GroupByBuilder($this->metadataRepository, $resolver);
-        $this->havingBuilder = new HavingBuilder($this->metadataRepository, $resolver);
+        $this->groupByBuilder = new GroupByBuilder(
+            $this->metadataRepository,
+            $resolver,
+            $this->expressionBuilder
+        );
+        $this->havingBuilder = new HavingBuilder(
+            $this->metadataRepository,
+            $resolver,
+            $this->expressionBuilder
+        );
     }
 
 /*
@@ -215,6 +227,11 @@ if (isset($request['cte'])) {
         foreach ($request['columns'] as $column) {
 
         if (is_array($column)) {
+
+if (isset($column['node'])) {
+    $this->validateCanonicalExpressionColumns($column['node'], $request);
+    continue;
+}
 
 /*
  * CASE Expression Validation
@@ -1357,6 +1374,12 @@ if (
         if (is_string($column)) {
 
             $selectColumns[] = $column;
+            continue;
+        }
+
+        if (isset($column['node'])) {
+            $alias = $column['alias'] ?? $this->defaultNodeAlias($column['node']);
+            $selectColumns[] = $this->renderCanonicalProjection($column['node'], $request, $alias, $params);
             continue;
         }
 
@@ -2583,7 +2606,8 @@ $windowSql = $this->windowFunctionBuilder->build(
     $column,
     $request,
     $alias,
-    $resolvedColumn
+    $resolvedColumn,
+    $params
 );
 if ($windowSql !== null) {
     $selectColumns[] = $windowSql;
@@ -2702,7 +2726,7 @@ if ($function == "STRING_AGG") {
         $sql .= $where['sql'];
         $params = $where['params'];
 
-        $sql .= $this->groupByBuilder->build($request);
+        $sql .= $this->groupByBuilder->build($request, $params);
 
         $having = $this->havingBuilder->build($request, $params);
         $sql .= $having['sql'];
@@ -2712,6 +2736,7 @@ if ($function == "STRING_AGG") {
      * ORDER BY
      */
     $sqlWithoutOrderBy = $sql;
+    $paramsWithoutOrderBy = $params;
     $paginationOrderBy = null;
 
     if (!$isUnion) {
@@ -2721,7 +2746,10 @@ if ($function == "STRING_AGG") {
         $orders = $this->orderByBuilder->buildItems(
             $request['sort'],
             $request,
-            true
+            true,
+            false,
+            false,
+            $params
         );
 
         $paginationOrders = $this->orderByBuilder->buildItems(
@@ -2739,11 +2767,19 @@ if ($function == "STRING_AGG") {
     }
     elseif (!empty($request['groupBy'])) {
 
-        $sql .= " ORDER BY " . $request['groupBy'][0];
-
-        $resolved = $this->expressionBuilder->resolveColumn($request['groupBy'][0]);
-        $paginationOrderBy =
-            "ORDER BY [" . $resolved['column'] . "] ASC";
+        if (is_array($request['groupBy'][0])) {
+            $sql .= " ORDER BY "
+                . $this->expressionBuilder->renderNode($request['groupBy'][0], $params)
+                . " ASC";
+            $paginationOrderBy = "ORDER BY "
+                . $this->orderByBuilder->getDefaultColumn($request)
+                . " ASC";
+        } else {
+            $sql .= " ORDER BY " . $request['groupBy'][0];
+            $resolved = $this->expressionBuilder->resolveColumn($request['groupBy'][0]);
+            $paginationOrderBy =
+                "ORDER BY [" . $resolved['column'] . "] ASC";
+        }
 
     }
     else {
@@ -2773,7 +2809,9 @@ $pagination = $this->paginationBuilder->apply(
             $request,
             $paginationOrderBy,
             true,
-            $cteSql
+            $cteSql,
+            '',
+            $paramsWithoutOrderBy
         );
         $sql = $cteSql . $pagination['sql'];
         $totalRows = $pagination['totalRows'];
@@ -2821,6 +2859,8 @@ $pagination = $this->paginationBuilder->apply(
             }
             if (!empty($column['alias'])) {
                 $columns[] = $column['alias'];
+            } elseif (isset($column['node'])) {
+                $columns[] = $this->defaultNodeAlias($column['node']);
             } elseif (isset($column['case'])) {
                 $columns[] = $column['case']['alias'] ?? 'CaseValue';
             } elseif (isset($column['expression'])) {
@@ -2861,5 +2901,63 @@ $pagination = $this->paginationBuilder->apply(
                 $this->validateExpressionColumns($item, $request);
             }
         }
+    }
+
+    private function validateCanonicalExpressionColumns(array $node, array $request): void
+    {
+        foreach ($this->expressionBuilder->fieldNames($node) as $column) {
+            $resolved = $this->expressionBuilder->resolveColumn($column);
+            $table = $resolved['table'] ?? $request['table'];
+            if (!$this->metadataRepository->columnExists($table, $resolved['column'])) {
+                throw new Exception("Invalid expression column: {$column}");
+            }
+        }
+    }
+
+    private function defaultNodeAlias(array $node): string
+    {
+        if (($node['type'] ?? null) === 'function') {
+            return strtolower((string)$node['name']);
+        }
+        if (($node['type'] ?? null) === 'case') {
+            return 'CaseValue';
+        }
+        if (($node['type'] ?? null) === 'field') {
+            $parts = explode('.', (string)$node['name']);
+            return (string)end($parts);
+        }
+        return 'Expression';
+    }
+
+    private function renderCanonicalProjection(
+        array $node,
+        array $request,
+        string $alias,
+        array &$params
+    ): string {
+        if (($node['type'] ?? null) !== 'function'
+            || !QueryFunctionRegistry::isWindow((string)($node['name'] ?? ''))) {
+            return $this->expressionBuilder->renderNode($node, $params) . ' AS [' . $alias . ']';
+        }
+
+        $column = [
+            'orderBy' => $node['orderBy'] ?? [],
+            'partitionBy' => $node['partitionBy'] ?? [],
+        ] + ($node['options'] ?? []);
+        $input = isset($node['input'])
+            ? $this->expressionBuilder->renderNode($node['input'], $params)
+            : null;
+        $sql = $this->windowFunctionBuilder->build(
+            strtoupper((string)$node['name']),
+            $column,
+            $request,
+            $alias,
+            $input,
+            $params
+        );
+        if ($sql === null) {
+            throw new Exception('Unsupported canonical window function.');
+        }
+        return $sql;
     }
 }

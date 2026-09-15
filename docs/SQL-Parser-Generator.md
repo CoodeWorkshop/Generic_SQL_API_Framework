@@ -56,58 +56,135 @@ expressions. Unsupported grammar fails explicitly rather than being guessed.
   one unambiguous AND equality predicate connecting it to an earlier source;
 - flat WHERE conditions using one AND or OR logic;
 - comparisons, LIKE/NOT LIKE, BETWEEN/NOT BETWEEN, IN/NOT IN, and NULL tests;
-- GROUP BY identifiers;
-- supported aggregate HAVING comparisons;
-- ORDER BY fields or selected aliases with ASC/DESC;
+- GROUP BY identifiers or recursive scalar expressions;
+- supported aggregate HAVING comparisons, including scalar/arithmetic expressions
+  containing aggregates compared with a literal value (AND only);
+- ORDER BY fields, selected aliases, or recursive expressions with ASC/DESC;
 - COUNT, SUM, AVG, MIN, MAX and selected simple scalar functions when their
   arguments match the exact public function schema;
-- recursive function, unary, arithmetic, grouping, comparison, AND, and OR AST
-  parsing with SQL precedence; mapping remains limited to shapes the public
-  contract can preserve;
-- simple searched CASE expressions;
-- supported window `OVER (ORDER BY ...)` functions without `PARTITION BY`;
+- recursive arithmetic, unary arithmetic, nested functions, and aggregate over
+  expression/CASE mapping with AST precedence and parentheses preserved;
+- searched CASE with one comparison per WHEN and recursive expression branches;
+- supported window `OVER (PARTITION BY ... ORDER BY ...)` functions, including
+  scalar expression inputs, partitions, and ordering;
 - one standard CTE and the existing two-branch recursive CTE form;
 - homogeneous UNION or UNION ALL chains using the existing public actions;
 - quoted strings, numeric literals, comments, bracketed identifiers, and a
   trailing semicolon.
 
 Every successful result is passed through the production
-`QueryRequestValidator`. A developer can copy it directly to the normal API,
+`QueryRequestValidator` and `QueryRequestNormalizer`. A developer can copy it directly to the normal API,
 subject to the API's usual live table/column metadata validation at execution.
 
 ## Deliberate limitations
 
 The generator rejects or explains constructs that the public JSON contract cannot
 represent, including FULL/CROSS/APPLY joins, non-equality or multi-term JOIN ON,
-mixed AND/OR filters, HAVING OR, ORDER BY expressions, mixed UNION/UNION ALL
+mixed AND/OR filters, HAVING OR, positional/literal ORDER BY, mixed UNION/UNION ALL
 chains, branch ordering, derived tables, subqueries not covered by the mapper,
-multiple CTE definitions, CTE column-name lists, and window `PARTITION BY`.
+multiple CTE definitions, CTE column-name lists, and expression-valued
+WHERE comparison values or BETWEEN endpoints. WHERE still requires a direct
+field on the left; reviewed comma-join equality edges use the existing safe
+join conversion rather than expanding the WHERE expression contract.
 
 Nested functions and arithmetic are always parsed recursively. A generic AST
 expression dispatcher preserves identifiers, literals, grouping, unary/binary
 operators, functions, CASE, and windows. Positional function arguments are
-translated through declarative public-property schemas; function admission is
-read from the production validator's allowlist.
+translated through declarative public-property schemas; function admission,
+recursive-input eligibility, and window/aggregate categories come from the
+backend's `QueryFunctionRegistry`, exposed through `SqlBackendCapabilities`.
+Structural arguments retain their existing named properties and restrictions.
+There is no unrestricted public `arguments` array.
 
-The capability analyzer stops translation where the public field schema cannot
-preserve an AST. A top-level public `expression` permits one binary level, and
-most public function shapes require a direct `field`; deeper valid SQL is
-therefore reported as a capability limitation, not a parser failure or partial
-JSON result. `CAST(expression AS datatype)` has dedicated SQL Server grammar and
-maps when its expression is a direct field.
+The capability analyzer checks mapped expression probes with the real backend
+validator in their clause contexts instead of maintaining a second recursive
+function/signature/context allowlist. Thus nested aggregates, illegal window
+contexts, invalid datatypes, and excessive expression depth remain rejected.
+The generator additionally validates and normalizes the complete mapped request,
+including aliases and CTE/set-operation envelopes. Rejected requests never
+expose a partial candidate. The parser AST itself is unchanged in Phase 4.
 
-For example, the parser fully detects the joins, filters, grouping, sorting,
-`ROUND`, and `SUM` in:
+For example:
 
 ```sql
 ROUND(SUM(BIL.Item_Rate) / 100000, 0)
 ```
 
-However, JSON Query Mode requires ROUND to receive a direct field and supports
-only one arithmetic level. The generator therefore recommends SQL Resource Mode
-instead of emitting JSON that the API would reject. Save such reviewed business
-SQL beneath `queries/` and call its discovered resource ID; pasted SQL is never
-automatically written or executed.
+now generates this public projection node:
+
+```json
+{
+  "function": "ROUND",
+  "field": {
+    "expression": {
+      "left": { "function": "SUM", "field": { "field": "BIL.Item_Rate" } },
+      "operator": "/",
+      "right": { "literal": 100000 }
+    }
+  },
+  "precision": 0
+}
+```
+
+Fields use `{ "field": "..." }`; values use `{ "literal": ... }` in recursive
+positions. Unary nodes use `{ "unary": { "operator": "-", "operand": ... } }`.
+CASE comparisons use `{left,operator,right}` nodes and recursive `then`/`else`.
+The same mapper emits GROUP BY entries, HAVING `expression`, ORDER BY
+`expression`, and window partition/order expressions. Qualification is retained;
+projection aliases stay outside expression trees.
+
+Legacy identifier projections, simple functions (for example
+`ROUND(Sale_Rate,2)`), one-level numeric/identifier arithmetic, simple literal
+CASE, aggregate HAVING, alias sorting, and unpartitioned windows keep their
+established compatible JSON. One standard CTE or the existing recursive CTE
+object remains supported, with recursive expressions inside its SELECT bodies;
+homogeneous UNION/UNION ALL branches also reuse projection mapping.
+
+### Current implementation boundaries
+
+Phase 2 is a historical design, not the runtime authority. Phase 3 retains old
+private normalized shapes for simple fields/functions while new recursive nodes
+normalize to a type-tagged AST with function `input` and named `options` (not the
+design's ideal positional internal arguments). Phase 4 emits only public JSON
+and leaves this compatibility adapter untouched.
+
+Not every allowlisted function has a safe SQL reverse mapping or recursive
+renderer. For example, direct CONCAT/COALESCE conversion is retained but nesting
+these functions inside a recursive expression remains unsupported. Their
+non-primary structural arguments are not expanded to arbitrary expressions.
+Direct `COUNT(*)` remains supported, but a wildcard input inside a recursive
+function tree is rejected: the current canonical backend field renderer cannot
+render `*`. This pre-existing validator/renderer discrepancy is deliberately not
+fixed by changing backend expression behavior in this parser phase.
+
+### Phase 4 regression matrix
+
+| Query | Result |
+|---|---|
+| 1: ROUND(stock × rate) | SUPPORTED |
+| 2: aggregate over stock × rate | SUPPORTED |
+| 3: ROUND(SUM(rate) / 100000), safe comma join, TOP and alias ordering | SUPPORTED |
+| 4: nested SUBSTRING/CONVERT in SELECT, GROUP BY and ORDER BY | SUPPORTED |
+| 5: year/month expression grouping and mixed sort directions | SUPPORTED |
+| 6: recursive aggregate expression HAVING | SUPPORTED |
+| 7: full two-CTE ranked sales query with computed BETWEEN bounds | REJECTED: multiple CTE definitions and expression-valued BETWEEN endpoints only |
+
+`tests/SqlParserGeneratorTest.php` pins complete golden public JSON for Queries
+1–6, real validator/normalizer round trips, Query 7's exact two diagnostics, and
+separately supported CASE/aggregate, date-boundary projection, partitioned-window,
+CTE, and UNION expression fixtures. Security fixtures cover malicious identifiers,
+aliases, function names, operators and datatypes, statement/raw fragments,
+malformed AST nodes, ambiguous public nodes, depth limits, and illegal aggregate
+or window contexts. These tests never load database execution infrastructure.
+
+Run `php tests/run.php` and `php -n tests/run.php`; the parser suite is also
+independently runnable with `php tests/SqlParserGeneratorTest.php`.
+The existing suite runner launches child PHP processes without forwarding `-n`;
+therefore the second command checks the no-INI runner, not extension-free child
+execution. The parser's pre-existing lexer requires `ctype`: directly running
+`php -n tests/SqlParserGeneratorTest.php` without that extension fails at
+`ctype_space()`. Neither the runner nor this runtime dependency is changed in
+Phase 4.
 
 ## Relationship to the API
 
