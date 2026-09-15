@@ -10,6 +10,7 @@ $tests = [
     __DIR__ . '/SqlResourceCapabilityTest.php',
     __DIR__ . '/SqlResourceFilteringTest.php',
     __DIR__ . '/SqlResourceDiscoveryTest.php',
+    __DIR__ . '/SqlParserGeneratorTest.php',
     __DIR__ . '/QueryExecutionIsolationTest.php',
     __DIR__ . '/LoggerTest.php',
     __DIR__ . '/DatabaseCredentialEncryptionTest.php',

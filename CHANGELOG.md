@@ -6,6 +6,9 @@ All notable backend changes are recorded here. The project follows semantic vers
 
 ### Added
 
+- An independently hosted, non-executing SQL → Universal API JSON developer tool
+  with lexical parsing, AST/capability analysis, production request validation,
+  browser UI, structured errors, and database-independent tests.
 - Recursive SQL Resource auto-discovery with safe path-derived IDs, excluded
   internal directories, collision checks, and unique-basename compatibility.
 - Strict frontend execution metadata for output columns, output/source/HAVING

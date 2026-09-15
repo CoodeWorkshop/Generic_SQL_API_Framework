@@ -19,6 +19,7 @@ web root or `/index.php` when `api/` itself is the document root.
 
 - [JSON Query Mode](Query-Mode.md)
 - [Query examples](Query-Examples.md)
+- [SQL → API JSON Generator](SQL-Parser-Generator.md)
 - [Query function reference](Query-Functions.md)
 - [Filtering, sorting, and pagination](Filtering-Sorting-Pagination.md)
 - [Set operations](Set-Operations.md)

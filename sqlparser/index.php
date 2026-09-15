@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+$method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
+
+if ($method !== 'GET') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('Allow: GET, POST');
+    require_once __DIR__ . '/src/SqlParserRequestHandler.php';
+    $raw=(string)file_get_contents('php://input',false,null,0,200001);
+    [$status,$payload]=(new SqlParserRequestHandler())->handle($method,$raw,(int)($_SERVER['CONTENT_LENGTH']??strlen($raw)));
+    http_response_code($status);
+    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+header("Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'");
+header('X-Content-Type-Options: nosniff');
+?>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SQL → API JSON Generator</title><link rel="stylesheet" href="assets/css/app.css"></head>
+<body><main>
+<header><p class="eyebrow">Generic SQL API Framework · Developer Tool</p><h1>SQL → API JSON Generator</h1><p>Parse SQL into the existing Universal API contract. SQL is analyzed only and never executed.</p></header>
+<section class="grid"><article><label for="sql">SQL Input</label><textarea id="sql" spellcheck="false" placeholder="SELECT Item_Code, Item_Desc FROM ItemMasterTable"></textarea><div class="actions"><button id="parse">Parse SQL</button><button id="clear" class="secondary">Clear</button></div></article>
+<article><label for="json">Generated API JSON</label><textarea id="json" spellcheck="false" readonly></textarea><div class="actions"><button id="copy">Copy JSON</button><button id="format" class="secondary">Format JSON</button></div></article></section>
+<section class="analysis"><h2>Analysis / Result</h2><div id="status" class="status idle">Ready</div><dl id="analysis"></dl><ul id="messages"></ul></section>
+</main><script src="assets/js/app.js"></script></body></html>

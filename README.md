@@ -151,6 +151,9 @@ The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md
 
 Start at the [backend documentation map](docs/README.md).
 
+Developers can translate supported SQL into validated public request JSON with
+the independently hosted [SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
+
 Getting started:
 
 - [Introduction](docs/Introduction.md)
