@@ -71,12 +71,12 @@ class SqlResourceRegistry
             }
             $seen[$canonical] = true;
             $placement = $mapping['placement'] ?? 'output';
-            $expression = $mapping['expression'] ?? $field;
+            $expression = $mapping['expression'] ?? ($placement === 'source' ? null : $field);
             $valueType = $mapping['valueType'] ?? null;
             $valid = $placement === 'output'
                 ? $this->isIdentifier($expression) && $this->contains($columns, $expression)
                 : ($placement === 'source'
-                    ? is_string($expression) && $this->isQualifiedIdentifier($expression)
+                    ? $expression === null || (is_string($expression) && $this->isQualifiedIdentifier($expression))
                     : is_string($expression) && $this->isAggregate($expression));
             if (!in_array($placement, ['output', 'source', 'having'], true)
                 || !$valid || ($valueType !== null && $valueType !== 'integer-date')) {
@@ -84,18 +84,27 @@ class SqlResourceRegistry
             }
             $filters[$canonical] = $this->filter(
                 $field,
-                trim($expression),
+                $expression === null ? $field : trim($expression),
                 $placement === 'source' ? 'where' : $placement,
                 $valueType,
-                $placement !== 'output'
+                $placement !== 'output',
+                $placement === 'source' && $expression === null
             );
         }
         return ['columns' => $columns, 'filters' => $filters, 'defaultSort' => $defaultSort];
     }
 
-    private function filter(string $field, string $expression, string $location, ?string $valueType, bool $mapped): array
+    private function filter(
+        string $field,
+        string $expression,
+        string $location,
+        ?string $valueType,
+        bool $mapped,
+        bool $resolveSource = false
+    ): array
     {
-        return compact('field', 'expression', 'location', 'valueType') + ['mappedExpression' => $mapped];
+        return compact('field', 'expression', 'location', 'valueType', 'resolveSource')
+            + ['mappedExpression' => $mapped];
     }
 
     private function isIdentifierList($value): bool

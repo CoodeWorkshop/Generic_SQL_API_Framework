@@ -107,9 +107,7 @@ alias or filtering must occur before aggregation:
     ],
     "filters": {
       "StDate": {
-        "expression": "StDate",
-        "placement": "source",
-        "valueType": "integer-date"
+        "placement": "source"
       },
       "MinimumCustomers": {
         "expression": "COUNT(*)",
@@ -124,7 +122,8 @@ alias or filtering must occur before aggregation:
     {
       "field": "StDate",
       "operator": "BETWEEN",
-      "value": ["2021-04-01", "2022-03-31"]
+      "value": ["2021-04-01", "2022-03-31"],
+      "type": "daterange"
     },
     {
       "field": "MinimumCustomers",
@@ -148,7 +147,7 @@ WHERE predicate before GROUP BY. `having` inserts a top-level HAVING predicate.
 |---|---:|---|
 | logical filter key | yes | Unqualified identifier sent later as `filters[].field`. |
 | `placement` | no | `output` (default), `source`, or `having`. |
-| `expression` | conditional | Defaults to logical key for output; required otherwise. |
+| `expression` | conditional | Defaults to logical key for output; optional for source auto-resolution; required for HAVING. |
 | `valueType` | no | Only `integer-date`. |
 
 Execution metadata arrives over the public request and is therefore not treated
@@ -156,7 +155,8 @@ as arbitrary trusted SQL. The validator permits only:
 
 - output expressions that exactly name an `execution.columns` identifier;
 - source expressions that are identifiers, optionally qualified, such as
-  `BIL.Bill_Date`;
+  `BIL.Bill_Date`, or an omitted expression resolved uniquely from SQL sources
+  and validated through database metadata;
 - HAVING expressions using COUNT, SUM, AVG, MIN, or MAX over one identifier or `*`.
 
 Semicolons, comments, placeholders, Boolean clauses, function nesting, operators,
@@ -171,14 +171,17 @@ Runtime filters remain separate from execution metadata:
 {
   "field": "StDate",
   "operator": "BETWEEN",
-  "value": ["2021-04-01", "2022-03-31"]
+  "value": ["2021-04-01", "2022-03-31"],
+  "type": "daterange"
 }
 ```
 
 Supported operators are `=`, `!=`, `<>`, `>`, `<`, `>=`, `<=`, `LIKE`,
 `NOT LIKE`, `IN`, `NOT IN`, `BETWEEN`, `NOT BETWEEN`, `IS NULL`, and
-`IS NOT NULL`. Values become positional prepared parameters. `integer-date`
-validates real `YYYY-MM-DD` or `YYYYMMDD` input and binds an integer.
+`IS NOT NULL`. Values become positional prepared parameters. Semantic `date`
+and `daterange` filters are validated; database metadata converts them to
+`YYYYMMDD` integers only for integer-backed source columns. Native date/time
+columns keep ISO values. Legacy `integer-date` mappings remain supported.
 
 AND may span output/source/HAVING stages. OR is accepted only when all requested
 filters resolve to one SQL stage; otherwise `INVALID_SQL_RUNTIME_FILTER` prevents

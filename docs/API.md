@@ -91,9 +91,12 @@ projections. `execution.defaultSort` requires columns and is used when runtime
 authored top-level ORDER BY.
 
 `execution.filters` adds logical mappings. Output mappings must resolve to an
-execution column. `source` expressions are limited to identifiers such as
-`BIL.Bill_Date`; `having` expressions are limited to COUNT/SUM/AVG/MIN/MAX
-over one identifier or `*`. The only custom value type is `integer-date`.
+execution column. A `source` mapping may omit its expression so the backend can
+resolve a unique physical column from the approved SQL and database metadata;
+explicit expressions remain limited to identifiers such as `BIL.Bill_Date`.
+`having` expressions are limited to COUNT/SUM/AVG/MIN/MAX over one identifier
+or `*`. Runtime `date`/`daterange` types activate physical date normalization;
+the legacy custom value type is `integer-date`.
 Placement, expressions, field names, types, operators, and directions are
 validated; values remain prepared parameters.
 

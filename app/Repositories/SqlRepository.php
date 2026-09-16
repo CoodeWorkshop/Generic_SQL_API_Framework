@@ -5,6 +5,8 @@ require_once __DIR__ . '/../Resources/SqlResourceRegistry.php';
 require_once __DIR__ . '/Query/PaginationBuilder.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../Resources/SqlResourceStatement.php';
+require_once __DIR__ . '/MetadataRepository.php';
+require_once __DIR__ . '/Query/DatabaseDateValueNormalizer.php';
 
 class SqlRepository
 {
@@ -12,16 +14,19 @@ class SqlRepository
     private SqlResourceRegistry $registry;
     private PaginationBuilder $paginationBuilder;
     private Logger $logger;
+    private MetadataRepository $metadataRepository;
 
     public function __construct(
         ?QueryEngine $queryEngine = null,
         ?SqlResourceRegistry $registry = null,
-        ?Logger $logger = null
+        ?Logger $logger = null,
+        ?MetadataRepository $metadataRepository = null
     ) {
         $this->logger = $logger ?? new Logger();
         $this->queryEngine = $queryEngine ?? new QueryEngine(null, $this->logger);
         $this->registry = $registry ?? new SqlResourceRegistry();
         $this->paginationBuilder = new PaginationBuilder($this->queryEngine);
+        $this->metadataRepository = $metadataRepository ?? new MetadataRepository($this->queryEngine);
     }
 
     public function execute(array $request): array
@@ -33,6 +38,7 @@ class SqlRepository
         );
         $sql = trim($this->queryEngine->getQuery($definition['file']));
         $sql = rtrim($sql, "; \t\n\r\0\x0B");
+        $statement = SqlResourceStatement::analyze($sql);
         $allowedColumns = [];
         foreach ($definition['columns'] as $column) {
             $allowedColumns[strtolower($column)] = $column;
@@ -41,6 +47,30 @@ class SqlRepository
         $filtersByLocation = ['output' => [], 'source' => [], 'where' => [], 'having' => []];
         foreach ($request['filters'] ?? [] as $filter) {
             $filterDefinition = $this->requireAllowedFilterColumn($filter['field'], $allowedFilters);
+            $semanticDate = in_array($filter['type'] ?? null, ['date', 'daterange'], true);
+            if (($filterDefinition['resolveSource'] ?? false) || $semanticDate) {
+                $source = $this->resolveSourceColumn(
+                    $statement,
+                    $filter['field'],
+                    !($filterDefinition['resolveSource'] ?? false)
+                );
+                if ($source === null && ($filterDefinition['resolveSource'] ?? false)) {
+                    throw new ApiRequestException(
+                        'SQL runtime source field could not be resolved.',
+                        'INVALID_SQL_RUNTIME_FIELD',
+                        [['path' => 'filter', 'message' => "Source field is unavailable or ambiguous: {$filter['field']}"]]
+                    );
+                }
+                if ($source !== null) {
+                    $filterDefinition = array_replace($filterDefinition, [
+                        'expression' => $source['expression'],
+                        'location' => 'where',
+                        'mappedExpression' => true,
+                        'physicalDataType' => $source['dataType'],
+                    ]);
+                    $allowedFilters[strtolower($filter['field'])] = $filterDefinition;
+                }
+            }
             $filtersByLocation[$filterDefinition['location']][] = $filter;
         }
         $usedLocations = array_keys(array_filter($filtersByLocation));
@@ -72,7 +102,6 @@ class SqlRepository
             $allowedFilters
         );
         $params = array_merge($whereParams, $havingParams, $outputParams);
-        $statement = SqlResourceStatement::analyze($sql);
         $queryPrefix = $statement->prefix();
         $sql = $statement->injectMappedFilters(
             $mappedWhereSql === '' ? null : $mappedWhereSql,
@@ -294,17 +323,17 @@ class SqlRepository
             if (in_array($operator, ['IS NULL', 'IS NOT NULL'], true)) {
                 $conditions[] = "{$column} {$operator}";
             } elseif (in_array($operator, ['IN', 'NOT IN'], true)) {
-                $values = $this->normalizeFilterValues($filter['value'], $filterField['valueType']);
+                $values = $this->normalizeFilterValues($filter['value'], $filterField, $filter['type'] ?? null);
                 $conditions[] = "{$column} {$operator} ("
                     . implode(', ', array_fill(0, count($values), '?')) . ')';
                 array_push($params, ...$values);
             } elseif (in_array($operator, ['BETWEEN', 'NOT BETWEEN'], true)) {
-                $values = $this->normalizeFilterValues($filter['value'], $filterField['valueType']);
+                $values = $this->normalizeFilterValues($filter['value'], $filterField, $filter['type'] ?? null);
                 $conditions[] = "{$column} {$operator} ? AND ?";
                 array_push($params, ...$values);
             } else {
                 $conditions[] = "{$column} {$operator} ?";
-                $params[] = $this->normalizeFilterValue($filter['value'], $filterField['valueType']);
+                $params[] = $this->normalizeFilterValue($filter['value'], $filterField, $filter['type'] ?? null);
             }
         }
 
@@ -353,16 +382,28 @@ class SqlRepository
         return $definition;
     }
 
-    private function normalizeFilterValues(array $values, ?string $valueType): array
+    private function normalizeFilterValues(array $values, array $definition, ?string $semanticType): array
     {
         return array_map(
-            fn ($value) => $this->normalizeFilterValue($value, $valueType),
+            fn ($value) => $this->normalizeFilterValue($value, $definition, $semanticType),
             $values
         );
     }
 
-    private function normalizeFilterValue($value, ?string $valueType)
+    private function normalizeFilterValue($value, array $definition, ?string $semanticType)
     {
+        if (in_array($semanticType, ['date', 'daterange'], true)) {
+            try {
+                return DatabaseDateValueNormalizer::normalizeSemanticValue(
+                    $value,
+                    $definition['physicalDataType'] ?? null
+                );
+            } catch (InvalidArgumentException $exception) {
+                $this->rejectInvalidIntegerDate();
+            }
+        }
+
+        $valueType = $definition['valueType'] ?? null;
         if ($valueType !== 'integer-date' || $value === null) {
             return $value;
         }
@@ -379,6 +420,27 @@ class SqlRepository
             $this->rejectInvalidIntegerDate();
         }
         return (int)$date;
+    }
+
+    private function resolveSourceColumn(
+        SqlResourceStatement $statement,
+        string $field,
+        bool $requireDirectProjection
+    ): ?array
+    {
+        $matches = [];
+        foreach ($statement->sourceCandidates($field, $requireDirectProjection) as $candidate) {
+            if (!$this->metadataRepository->columnExists($candidate['table'], $candidate['column'])) {
+                continue;
+            }
+            $candidate['dataType'] = $this->metadataRepository->getColumnDataType(
+                $candidate['table'],
+                $candidate['column']
+            );
+            $matches[] = $candidate;
+        }
+
+        return count($matches) === 1 ? $matches[0] : null;
     }
 
     private function rejectInvalidIntegerDate(): void

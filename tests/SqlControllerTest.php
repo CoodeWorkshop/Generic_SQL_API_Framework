@@ -101,11 +101,34 @@ sqlAssert($normalized['controller'] === 'SQL' && $normalized['action'] === 'exec
 sqlAssert($normalized['resource'] === 'reports/item', 'SQL resource normalization failed.');
 sqlAssert($normalized['execution'] === $publicRequest['execution'], 'SQL execution metadata normalization failed.');
 
+$semanticDateRequest = [
+    'action' => 'sql',
+    'resource' => 'reports/customer',
+    'execution' => [
+        'columns' => ['Cust_Name'],
+        'filters' => ['StDate' => ['placement' => 'source']],
+    ],
+    'filters' => [[
+        'field' => 'StDate',
+        'operator' => 'BETWEEN',
+        'value' => ['2026-01-01', '2026-12-31'],
+        'type' => 'daterange',
+    ]],
+];
+$validator->validate($semanticDateRequest);
+sqlAssert(
+    $normalizer->normalize($semanticDateRequest)['filters'][0]['type'] === 'daterange',
+    'SQL semantic filter type was dropped during normalization.'
+);
+
 expectSqlRequestInvalid($validator, ['action' => 'sql', 'resource' => '../../secret']);
 expectSqlRequestInvalid($validator, ['action' => 'sql', 'resource' => 'item', 'sql' => 'SELECT * FROM Users']);
 expectSqlRequestInvalid($validator, ['action' => 'sql', 'resource' => 'item', 'sort' => [['field' => 'Id', 'direction' => 'DROP']]]);
 expectSqlRequestInvalid($validator, ['action' => 'sql', 'resource' => 'item', 'filters' => [[
     'field' => 'Item_Desc]; DROP TABLE Users;--', 'operator' => '=', 'value' => 'x'
+]]]);
+expectSqlRequestInvalid($validator, ['action' => 'sql', 'resource' => 'item', 'filters' => [[
+    'field' => 'Item_Desc', 'operator' => '=', 'value' => 'x', 'type' => 'integer-date'
 ]]]);
 
 $registry = new SqlResourceRegistry();

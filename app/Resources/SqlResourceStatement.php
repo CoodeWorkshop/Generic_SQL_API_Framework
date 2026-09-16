@@ -96,6 +96,127 @@ class SqlResourceStatement
         return $this->authoredPagination;
     }
 
+    /**
+     * Return conservative physical-column candidates from the main SELECT's
+     * top-level FROM/JOIN sources. Callers must confirm column existence via
+     * database metadata and reject ambiguous matches.
+     */
+    public function sourceCandidates(string $column, bool $requireDirectProjection = false): array
+    {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column) !== 1) {
+            return [];
+        }
+
+        $tokens = self::topLevelTokens($this->body);
+        $fromIndex = null;
+        foreach ($tokens as $index => $token) {
+            if ($token['value'] === 'FROM') {
+                $fromIndex = $index;
+                break;
+            }
+        }
+        if ($fromIndex === null) {
+            return [];
+        }
+
+        $projection = $requireDirectProjection
+            ? $this->directProjection($column, $tokens[$fromIndex]['start'])
+            : null;
+        if ($requireDirectProjection && $projection === null) {
+            return [];
+        }
+        $physicalColumn = $projection['column'] ?? $column;
+        $qualifiers = $projection['qualifiers'] ?? null;
+
+        $from = $tokens[$fromIndex];
+        $start = $from['start'] + strlen('FROM');
+        $end = strlen($this->body);
+        foreach (array_slice($tokens, $fromIndex + 1) as $token) {
+            if (in_array($token['value'], ['WHERE', 'GROUP', 'HAVING', 'ORDER', 'OFFSET', 'FETCH', 'FOR'], true)) {
+                $end = $token['start'];
+                break;
+            }
+        }
+        $segment = substr($this->body, $start, $end - $start);
+        $starts = [0];
+        self::scan($segment, function (string $type, int $position, string $value) use (&$starts): void {
+            if ($type === 'comma') {
+                $starts[] = $position + 1;
+            } elseif ($type === 'word' && strtoupper($value) === 'JOIN') {
+                $starts[] = $position + strlen($value);
+            }
+        });
+
+        $sources = [];
+        foreach ($starts as $position) {
+            $source = $this->parseSource(substr($segment, $position));
+            if ($source === null) {
+                continue;
+            }
+            $key = strtolower($source['table'] . '|' . $source['qualifier']);
+            $sources[$key] = $source;
+        }
+
+        if ($qualifiers !== null && $qualifiers !== []) {
+            $sources = array_filter(
+                $sources,
+                fn (array $source): bool => in_array(strtolower($source['qualifier']), $qualifiers, true)
+            );
+        }
+
+        return array_values(array_map(
+            fn (array $source): array => [
+                'table' => $source['table'],
+                'column' => $physicalColumn,
+                'expression' => $source['qualifier'] . '.' . $physicalColumn,
+            ],
+            $sources
+        ));
+    }
+
+    private function directProjection(string $field, int $fromPosition): ?array
+    {
+        $selectEnd = stripos($this->body, 'SELECT') + strlen('SELECT');
+        $projection = substr($this->body, $selectEnd, $fromPosition - $selectEnd);
+        $starts = [0];
+        self::scan($projection, function (string $type, int $position) use (&$starts): void {
+            if ($type === 'comma') {
+                $starts[] = $position + 1;
+            }
+        });
+        $ends = array_map(fn (int $start): int => $start - 1, array_slice($starts, 1));
+        $ends[] = strlen($projection);
+        $identifier = '(?:[A-Za-z_][A-Za-z0-9_]*|\[[A-Za-z_][A-Za-z0-9_]*\])';
+
+        foreach ($starts as $index => $start) {
+            $item = trim(substr($projection, $start, $ends[$index] - $start));
+            if ($index === 0) {
+                $item = preg_replace('/^(?:DISTINCT\s+)?(?:TOP\s*(?:\(\s*\d+\s*\)|\d+)\s+)?/i', '', $item);
+            }
+            if (preg_match(
+                '/^((?:' . $identifier . '\s*\.\s*)?' . $identifier . ')'
+                    . '(?:\s+(?:AS\s+)?(' . $identifier . '))?$/i',
+                $item,
+                $matches
+            ) !== 1) {
+                continue;
+            }
+            $parts = preg_split('/\s*\.\s*/', $matches[1]);
+            $parts = array_map(fn (string $part): string => trim($part, '[]'), $parts ?: []);
+            $column = end($parts);
+            $alias = isset($matches[2]) ? trim($matches[2], '[]') : $column;
+            if (!is_string($column) || strcasecmp($alias, $field) !== 0) {
+                continue;
+            }
+            return [
+                'column' => $column,
+                'qualifiers' => count($parts) === 2 ? [strtolower($parts[0])] : [],
+            ];
+        }
+
+        return null;
+    }
+
     public function injectMappedFilters(?string $whereCondition, ?string $havingCondition): string
     {
         if ($whereCondition === null && $havingCondition === null) {
@@ -166,6 +287,37 @@ class SqlResourceStatement
             }
         }
         return null;
+    }
+
+    private function parseSource(string $sql): ?array
+    {
+        $identifier = '(?:[A-Za-z_][A-Za-z0-9_]*|\[[A-Za-z_][A-Za-z0-9_]*\])';
+        if (preg_match(
+            '/^\s*((?:' . $identifier . '\s*\.\s*){0,2}' . $identifier . ')'
+                . '(?:\s+(?:AS\s+)?(' . $identifier . '))?/i',
+            $sql,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+
+        $parts = preg_split('/\s*\.\s*/', $matches[1]);
+        $parts = array_map(fn (string $part): string => trim($part, '[]'), $parts ?: []);
+        $table = end($parts);
+        $alias = isset($matches[2]) ? trim($matches[2], '[]') : null;
+        if ($alias !== null && in_array(strtoupper($alias), [
+            'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'JOIN', 'ON',
+            'WHERE', 'GROUP', 'HAVING', 'ORDER', 'OFFSET', 'FETCH', 'FOR',
+        ], true)) {
+            $alias = null;
+        }
+        if (!is_string($table)
+            || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1
+            || ($alias !== null && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias) !== 1)) {
+            return null;
+        }
+
+        return ['table' => $table, 'qualifier' => $alias ?? $table];
     }
 
     private static function topLevelTokens(string $sql): array
@@ -245,6 +397,11 @@ class SqlResourceStatement
             }
             if ($depth === 0 && $character === ';') {
                 $visitor('semicolon', $index, ';');
+                $index++;
+                continue;
+            }
+            if ($depth === 0 && $character === ',') {
+                $visitor('comma', $index, ',');
                 $index++;
                 continue;
             }

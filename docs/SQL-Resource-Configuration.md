@@ -156,14 +156,15 @@ contain `action: "sql"` and `resource`.
 |---|---:|---|
 | map key | yes | Unique unqualified logical identifier. |
 | `placement` | no | `output` default, `source`, or `having`. |
-| `expression` | output: no; otherwise yes | Constrained grammar described below. |
+| `expression` | output/source: no; HAVING: yes | Source omission requests conservative backend resolution. |
 | `valueType` | no | Only `integer-date`. |
 
 Execution metadata is request data, even when it originates in a reviewed
 frontend report definition. It is never concatenated as arbitrary SQL:
 
 - output expression: one identifier and a member of `execution.columns`;
-- source expression: one identifier, optionally dot-qualified;
+- source expression: one identifier, optionally dot-qualified; when omitted,
+  the backend requires one metadata-confirmed source column;
 - HAVING expression: COUNT/SUM/AVG/MIN/MAX over one identifier or `*`.
 
 The validator rejects comments, semicolons, placeholders, Boolean expressions,

@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/DatabaseDateValueNormalizer.php';
+
 class WhereBuilder
 {
     private MetadataRepository $metadataRepository;
@@ -81,13 +83,11 @@ class WhereBuilder
                 $resolved = ($this->columnResolver)($filter['column']);
                 $table = $resolved['table'] ?? $request['table'];
                 $dataType = $this->metadataRepository->getColumnDataType($table, $resolved['column']);
-                if (in_array(strtolower((string)$dataType), ['int', 'bigint', 'smallint', 'tinyint'], true)) {
-                    foreach ([0, 1] as $index) {
-                        $value = $filter['value'][$index];
-                        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-                            $filter['value'][$index] = (int)str_replace('-', '', $value);
-                        }
-                    }
+                foreach ([0, 1] as $index) {
+                    $filter['value'][$index] = DatabaseDateValueNormalizer::normalizeLegacyValue(
+                        $filter['value'][$index],
+                        $dataType
+                    );
                 }
                 $conditions[] = "{$filter['column']} {$filter['operator']} ? AND ?";
                 $params[] = $filter['value'][0];

@@ -38,6 +38,26 @@ class SqlResourceFilteringEngine extends QueryEngine
     }
 }
 
+class SqlResourceFilteringMetadata extends MetadataRepository
+{
+    public function __construct() {}
+
+    public function columnExists($table, $column)
+    {
+        return isset($this->types[strtolower($table)][strtolower($column)]);
+    }
+
+    public function getColumnDataType($table, $column)
+    {
+        return $this->types[strtolower($table)][strtolower($column)] ?? null;
+    }
+
+    private array $types = [
+        'numericevents' => ['storeddate' => 'int', 'description' => 'varchar'],
+        'nativeevents' => ['eventdate' => 'datetime2', 'description' => 'varchar'],
+    ];
+}
+
 function filteringExecution(?array $filters = null): array
 {
     $execution = [
@@ -106,6 +126,236 @@ try {
             && str_contains($customerData['sql'], '(StDate) BETWEEN ? AND ?')
             && $customerData['params'] === ['A%', 20210401, 20220331],
         'Customer execution-metadata filtering changed.'
+    );
+
+    $integerDateFile = $testDirectory . DIRECTORY_SEPARATOR . 'integer-dates.sql';
+    file_put_contents(
+        $integerDateFile,
+        'SELECT StoredDate, Description, SUM(Amount) AS Total FROM NumericEvents '
+        . 'GROUP BY StoredDate, Description'
+    );
+    $files[] = $integerDateFile;
+
+    // Output integer-date filters retain the derived-table behavior while
+    // converting semantic frontend dates to integer prepared parameters.
+    $outputDateEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($outputDateEngine, new SqlResourceRegistry([], $testDirectory)))->execute([
+        'resource' => 'integer-dates',
+        'execution' => [
+            'columns' => ['StoredDate', 'Description', 'Total'],
+            'filters' => [
+                'StoredDate' => [
+                    'expression' => 'StoredDate',
+                    'placement' => 'output',
+                    'valueType' => 'integer-date',
+                ],
+            ],
+        ],
+        'filters' => [[
+            'field' => 'StoredDate',
+            'operator' => 'BETWEEN',
+            'value' => ['2026-09-30', '2026-10-01'],
+        ]],
+    ]);
+    $outputDateData = end($outputDateEngine->executions);
+    filteringAssert(
+        str_contains($outputDateData['sql'], 'SqlResource.[StoredDate] BETWEEN ? AND ?')
+            && $outputDateData['params'] === [20260930, 20261001],
+        'Output integer-date filtering changed.'
+    );
+
+    // Semantic date metadata triggers conservative source resolution and uses
+    // the real SQL Server column type without a per-resource date mapping.
+    $sourceDateRegistry = new SqlResourceRegistry([], $testDirectory);
+    $dateMetadata = new SqlResourceFilteringMetadata();
+    $sourceDateCases = [
+        '=' => ['2026-09-30', '(NumericEvents.StoredDate) = ?', [20260930]],
+        'BETWEEN' => [
+            ['2026-09-30', '2026-10-01'],
+            '(NumericEvents.StoredDate) BETWEEN ? AND ?',
+            [20260930, 20261001],
+        ],
+        'NOT BETWEEN' => [
+            ['2026-09-30', '2026-10-01'],
+            '(NumericEvents.StoredDate) NOT BETWEEN ? AND ?',
+            [20260930, 20261001],
+        ],
+        'IN' => [
+            ['2026-09-30', 20261001],
+            '(NumericEvents.StoredDate) IN (?, ?)',
+            [20260930, 20261001],
+        ],
+        'NOT IN' => [
+            ['2026-09-30', '20261001'],
+            '(NumericEvents.StoredDate) NOT IN (?, ?)',
+            [20260930, 20261001],
+        ],
+    ];
+    foreach ($sourceDateCases as $operator => [$value, $sqlFragment, $expectedParams]) {
+        $sourceDateEngine = new SqlResourceFilteringEngine();
+        (new SqlRepository($sourceDateEngine, $sourceDateRegistry, null, $dateMetadata))->execute([
+            'resource' => 'integer-dates',
+            'execution' => ['columns' => ['StoredDate', 'Description', 'Total']],
+            'filters' => [[
+                'field' => 'StoredDate',
+                'operator' => $operator,
+                'value' => $value,
+                'type' => 'daterange',
+            ]],
+        ]);
+        $sourceDateData = end($sourceDateEngine->executions);
+        filteringAssert(
+            str_contains($sourceDateData['sql'], $sqlFragment)
+                && !str_contains($sourceDateData['sql'], 'SqlResource.[NumericEvents.StoredDate]')
+                && strpos($sourceDateData['sql'], $sqlFragment) < strpos($sourceDateData['sql'], 'GROUP BY')
+                && $sourceDateData['params'] === $expectedParams,
+            "Source integer-date {$operator} filtering failed."
+        );
+    }
+
+    $mixedDateEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($mixedDateEngine, $sourceDateRegistry, null, $dateMetadata))->execute([
+        'resource' => 'integer-dates',
+        'execution' => ['columns' => ['StoredDate', 'Description', 'Total']],
+        'filters' => [
+            ['field' => 'StoredDate', 'operator' => 'BETWEEN', 'value' => ['2026-09-30', '2026-10-01'], 'type' => 'daterange'],
+            ['field' => 'Description', 'operator' => 'LIKE', 'value' => '%paper%'],
+        ],
+    ]);
+    $mixedDateData = end($mixedDateEngine->executions);
+    filteringAssert(
+        str_contains($mixedDateData['sql'], '(NumericEvents.StoredDate) BETWEEN ? AND ?')
+            && str_contains($mixedDateData['sql'], 'SqlResource.[Description] LIKE ?')
+            && $mixedDateData['params'] === [20260930, 20261001, '%paper%'],
+        'Integer-date normalization changed normal non-date filtering.'
+    );
+
+    $nativeDateFile = $testDirectory . DIRECTORY_SEPARATOR . 'native-dates.sql';
+    file_put_contents(
+        $nativeDateFile,
+        'SELECT EventDate, Description FROM NativeEvents'
+    );
+    $files[] = $nativeDateFile;
+    $nativeDateRegistry = new SqlResourceRegistry([], $testDirectory);
+    $nativeDateEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($nativeDateEngine, $nativeDateRegistry, null, $dateMetadata))->execute([
+        'resource' => 'native-dates',
+        'execution' => ['columns' => ['EventDate', 'Description']],
+        'filters' => [[
+            'field' => 'EventDate',
+            'operator' => 'BETWEEN',
+            'value' => ['2026-09-30', '2026-10-01'],
+            'type' => 'daterange',
+        ]],
+    ]);
+    $nativeDateData = end($nativeDateEngine->executions);
+    filteringAssert(
+        str_contains($nativeDateData['sql'], '(NativeEvents.EventDate) BETWEEN ? AND ?')
+            && $nativeDateData['params'] === ['2026-09-30', '2026-10-01'],
+        'Native SQL Server date values must remain ISO prepared parameters.'
+    );
+
+    $aliasedDateFile = $testDirectory . DIRECTORY_SEPARATOR . 'aliased-date.sql';
+    file_put_contents(
+        $aliasedDateFile,
+        'SELECT E.StoredDate AS ReportDate, Description FROM NumericEvents E'
+    );
+    $files[] = $aliasedDateFile;
+    $aliasedDateRegistry = new SqlResourceRegistry([], $testDirectory);
+    $aliasedDateEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($aliasedDateEngine, $aliasedDateRegistry, null, $dateMetadata))->execute([
+        'resource' => 'aliased-date',
+        'execution' => ['columns' => ['ReportDate', 'Description']],
+        'filters' => [[
+            'field' => 'ReportDate',
+            'operator' => '=',
+            'value' => '2026-09-30',
+            'type' => 'date',
+        ]],
+    ]);
+    $aliasedDateData = end($aliasedDateEngine->executions);
+    filteringAssert(
+        str_contains($aliasedDateData['sql'], '(E.StoredDate) = ?')
+            && $aliasedDateData['params'] === [20260930],
+        'An aliased direct date projection did not resolve to its physical source column.'
+    );
+
+    $outputDateFile = $testDirectory . DIRECTORY_SEPARATOR . 'derived-date.sql';
+    file_put_contents(
+        $outputDateFile,
+        'SELECT CONVERT(date, EventDate) AS ReportDate, Description FROM NativeEvents'
+    );
+    $files[] = $outputDateFile;
+    $outputDateRegistry = new SqlResourceRegistry([], $testDirectory);
+    $derivedDateEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($derivedDateEngine, $outputDateRegistry, null, $dateMetadata))->execute([
+        'resource' => 'derived-date',
+        'execution' => ['columns' => ['ReportDate', 'Description']],
+        'filters' => [[
+            'field' => 'ReportDate',
+            'operator' => '=',
+            'value' => '2026-09-30',
+            'type' => 'date',
+        ]],
+    ]);
+    $derivedDateData = end($derivedDateEngine->executions);
+    filteringAssert(
+        str_contains($derivedDateData['sql'], 'SqlResource.[ReportDate] = ?')
+            && $derivedDateData['params'] === ['2026-09-30'],
+        'A genuine derived output filter was incorrectly moved into the source query.'
+    );
+
+    $sourceOnlyFile = $testDirectory . DIRECTORY_SEPARATOR . 'source-only-date.sql';
+    file_put_contents(
+        $sourceOnlyFile,
+        'SELECT Description, SUM(Amount) AS Total FROM NumericEvents E GROUP BY Description'
+    );
+    $files[] = $sourceOnlyFile;
+    $sourceOnlyRegistry = new SqlResourceRegistry([], $testDirectory);
+    $sourceOnlyEngine = new SqlResourceFilteringEngine();
+    (new SqlRepository($sourceOnlyEngine, $sourceOnlyRegistry, null, $dateMetadata))->execute([
+        'resource' => 'source-only-date',
+        'execution' => [
+            'columns' => ['Description', 'Total'],
+            'filters' => ['StoredDate' => ['placement' => 'source']],
+        ],
+        'filters' => [[
+            'field' => 'StoredDate',
+            'operator' => 'BETWEEN',
+            'value' => ['2026-09-30', '2026-10-01'],
+            'type' => 'daterange',
+        ]],
+    ]);
+    $sourceOnlyData = end($sourceOnlyEngine->executions);
+    filteringAssert(
+        str_contains($sourceOnlyData['sql'], '(E.StoredDate) BETWEEN ? AND ?')
+            && strpos($sourceOnlyData['sql'], 'E.StoredDate') < strpos($sourceOnlyData['sql'], 'GROUP BY')
+            && $sourceOnlyData['params'] === [20260930, 20261001],
+        'An auto-resolved source-only date filter was not injected before GROUP BY.'
+    );
+
+    $invalidDate = filteringFailure(
+        fn () => (new SqlRepository(
+            new SqlResourceFilteringEngine(),
+            $sourceDateRegistry,
+            null,
+            $dateMetadata
+        ))->execute([
+            'resource' => 'integer-dates',
+            'execution' => ['columns' => ['StoredDate', 'Description', 'Total']],
+            'filters' => [[
+                'field' => 'StoredDate',
+                'operator' => '=',
+                'value' => '2026-02-30',
+                'type' => 'date',
+            ]],
+        ]),
+        'An invalid semantic date was accepted.'
+    );
+    filteringAssert(
+        $invalidDate instanceof ApiRequestException
+            && $invalidDate->getErrorCode() === 'INVALID_SQL_RUNTIME_VALUE',
+        'Invalid semantic date returned the wrong error.'
     );
 
     $complexSql = <<<'SQL'

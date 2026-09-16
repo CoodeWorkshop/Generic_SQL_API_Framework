@@ -128,7 +128,7 @@ class SqlRequestValidator
                 $errors[] = ['path' => $path . '.expression', 'message' => 'Output filter expression must be an execution output column.'];
             }
         } elseif ($placement === 'source') {
-            if (!is_string($expression) || !$this->isQualifiedIdentifier($expression)) {
+            if ($expression !== null && (!is_string($expression) || !$this->isQualifiedIdentifier($expression))) {
                 $errors[] = ['path' => $path . '.expression', 'message' => 'Source filter expression must be an optionally qualified identifier.'];
             }
         } elseif (!is_string($expression) || !$this->isSafeAggregateExpression($expression)) {
@@ -148,9 +148,12 @@ class SqlRequestValidator
             $errors[] = ['path' => $path, 'message' => 'Filter must be an object.'];
             return;
         }
-        $this->rejectUnknown($filter, ['field', 'operator', 'value'], $errors, $path . '.');
+        $this->rejectUnknown($filter, ['field', 'operator', 'value', 'type'], $errors, $path . '.');
         if (!$this->isIdentifier($filter['field'] ?? null)) {
             $errors[] = ['path' => $path . '.field', 'message' => 'Field must be a valid identifier.'];
+        }
+        if (isset($filter['type']) && !in_array($filter['type'], ['date', 'daterange'], true)) {
+            $errors[] = ['path' => $path . '.type', 'message' => 'Unsupported semantic filter type.'];
         }
         $operator = strtoupper((string)($filter['operator'] ?? ''));
         if (!in_array($operator, self::OPERATORS, true)) {
