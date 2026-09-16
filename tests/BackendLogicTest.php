@@ -144,13 +144,20 @@ $functionFields = [
     ['function' => 'CONVERT', 'field' => 'NumericDate', 'datatype' => 'date', 'style' => 112, 'alias' => 'DateValue'],
     ['function' => 'DATEADD', 'field' => 'NumericDate', 'datepart' => 'day', 'number' => 1, 'style' => 112, 'alias' => 'Tomorrow'],
     ['function' => 'DATEDIFF', 'datepart' => 'day', 'start' => ['field' => 'NumericDate'], 'end' => ['function' => 'GETDATE'], 'alias' => 'Age'],
+    ['function' => 'EOMONTH', 'start' => ['field' => 'NumericDate'], 'month' => 1, 'alias' => 'MonthEnd'],
+    ['function' => 'DATEFROMPARTS', 'year' => ['field' => 'YearValue'], 'month' => 9, 'day' => 16, 'alias' => 'PartDate'],
+    ['function' => 'DATETIMEFROMPARTS', 'year' => 2026, 'month' => 9, 'day' => 16,
+        'hour' => 10, 'minute' => 30, 'second' => 0, 'millisecond' => 0, 'alias' => 'PartDateTime'],
     ['function' => 'ABS', 'field' => 'Amount', 'alias' => 'AbsoluteAmount'],
     ['function' => 'POWER', 'field' => 'Amount', 'power' => 2, 'alias' => 'Squared'],
-    ['function' => 'IIF', 'condition' => ['left' => ['field' => 'Amount'], 'operator' => '>', 'right' => 0], 'true' => 'yes', 'false' => 'no', 'alias' => 'Positive']
+    ['function' => 'IIF', 'condition' => ['left' => ['field' => 'Amount'], 'operator' => '>', 'right' => 0], 'true' => 'yes', 'false' => 'no', 'alias' => 'Positive'],
+    ['function' => 'CHOOSE', 'index' => 2, 'values' => [['field' => 'Name'], ['field' => 'Description']], 'alias' => 'Chosen']
 ];
 $functionQuery = $buildPublic(['action' => 'select', 'source' => ['table' => 'Items'], 'fields' => $functionFields]);
 foreach (['COUNT(*)', "STRING_AGG(Name, ',')", 'UPPER(Name)', 'ISNULL(Name', 'CAST(Amount AS DECIMAL(10,2))',
-    'CONVERT(DATE, NumericDate, 112)', 'DATEADD(DAY, 1', 'DATEDIFF(DAY', 'ABS(Amount)', 'POWER(Amount, 2)', 'IIF(Amount > 0'] as $fragment) {
+    'CONVERT(DATE, NumericDate, 112)', 'DATEADD(DAY, 1', 'DATEDIFF(DAY', 'EOMONTH(NumericDate, 1)',
+    'DATEFROMPARTS(YearValue, 9, 16)', 'DATETIMEFROMPARTS(2026, 9, 16, 10, 30, 0, 0)',
+    'ABS(Amount)', 'POWER(Amount, 2)', 'IIF(Amount > 0', 'CHOOSE(2, Name, Description)'] as $fragment) {
     logicContains($fragment, $functionQuery['sql'], "Function SQL generation failed for {$fragment}.");
 }
 

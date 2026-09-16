@@ -12,7 +12,15 @@ class SqlParserRequestHandler
         catch(JsonException){ return [400,['success'=>false,'message'=>'Invalid JSON request.','error'=>['code'=>'INVALID_JSON','details'=>[]]]]; }
         if(!is_array($input)||array_keys($input)!==['sql']||!is_string($input['sql']))return [400,['success'=>false,'message'=>'Request must contain only a string sql property.','error'=>['code'=>'INVALID_REQUEST','details'=>[]]]];
         try { $result=(new SqlGenerator())->generate($input['sql']); return [$result['success']?200:422,$result]; }
-        catch(SqlParserException $exception){return [400,['success'=>false,'message'=>'SQL parse error.','analysis'=>['pipeline'=>['parser'=>$exception->getMessage(),'capability'=>'Not started.','mapping'=>'Not started.','validation'=>'Not started.']],'error'=>['code'=>'SQL_PARSE_ERROR','stage'=>'parser','details'=>[['path'=>'sql','position'=>$exception->position,'message'=>$exception->getMessage()]]]]];}
+        catch(SqlParserException $exception){
+            $sql=$input['sql'];
+            $before=substr($sql,0,max(0,$exception->position));
+            $line=substr_count($before,"\n")+1;
+            $lastNewline=strrpos($before,"\n");
+            $column=$exception->position-($lastNewline===false?-1:$lastNewline);
+            $fragment=substr($sql,max(0,$exception->position-20),60);
+            return [400,['success'=>false,'message'=>'SQL parse error.','analysis'=>['pipeline'=>['parser'=>$exception->getMessage(),'capability'=>'Not started.','mapping'=>'Not started.','validation'=>'Not started.']],'error'=>['code'=>'SQL_PARSE_ERROR','stage'=>'parser','details'=>[['path'=>'sql','position'=>$exception->position,'line'=>$line,'column'=>$column,'fragment'=>$fragment,'message'=>$exception->getMessage()]]]]];
+        }
         catch(Throwable){return [500,['success'=>false,'message'=>'SQL parser failed.','error'=>['code'=>'PARSER_ERROR','details'=>[]]]];}
     }
 }

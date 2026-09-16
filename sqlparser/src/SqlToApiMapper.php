@@ -46,6 +46,16 @@ class SqlToApiMapper
 
     public function map(array $ast): array
     {
+        if (($ast['type'] ?? null) === 'routine') {
+            if (($ast['action'] ?? null) !== 'procedure') {
+                throw new SqlMappingException('Unsupported routine AST action.');
+            }
+            return [
+                'action' => 'procedure',
+                'source' => ['procedure' => $ast['name']],
+                'parameters' => array_map(fn (array $argument) => $this->literal($argument), $ast['arguments']),
+            ];
+        }
         if ($ast['type'] === 'with') {
             return $this->mapWith($ast);
         }
@@ -119,6 +129,19 @@ class SqlToApiMapper
         }
         if ($ast['top'] !== null) {
             $request['limit'] = $ast['top'];
+        }
+        if (($ast['pagination'] ?? null) !== null) {
+            if (!$topLevel) {
+                throw new SqlMappingException('Nested SELECT and set-operation branches cannot contain OFFSET/FETCH.');
+            }
+            $offset = $ast['pagination']['offset'];
+            $pageSize = $ast['pagination']['pageSize'];
+            if ($offset % $pageSize !== 0) {
+                throw new SqlMappingException(
+                    'OFFSET must be an exact multiple of FETCH to map to page/pageSize pagination.'
+                );
+            }
+            $request['pagination'] = ['page' => intdiv($offset, $pageSize) + 1, 'pageSize' => $pageSize];
         }
 
         $joins = array_merge(
@@ -477,9 +500,17 @@ class SqlToApiMapper
             ];
         }
         if ($name === 'COALESCE') {
+            if (count($arguments) < 2) {
+                throw new SqlMappingException('COALESCE requires at least two arguments for valid SQL Server output.');
+            }
             $default = null;
             if (($arguments[count($arguments) - 1]['type'] ?? null) === 'literal') {
                 $default = array_pop($arguments)['value'];
+                if ($default === null) {
+                    throw new SqlMappingException(
+                        'COALESCE with a NULL fallback cannot be preserved by the current backend default property.'
+                    );
+                }
             }
             if ($arguments === []) {
                 throw new SqlMappingException('COALESCE requires at least one direct field.');
@@ -537,12 +568,64 @@ class SqlToApiMapper
             if (count($arguments) < 2 || count($arguments) > 3) {
                 throw new SqlMappingException('CONVERT requires datatype, field, and optional style.');
             }
-            $mapped['datatype'] = $this->directField($arguments[0], 'CONVERT');
+            if (($arguments[0]['type'] ?? null) !== 'datatype') {
+                throw new SqlMappingException('CONVERT requires a validated datatype token.');
+            }
+            $mapped['datatype'] = $arguments[0]['name'];
             $mapped['field'] = $this->functionInput($arguments[1], 'CONVERT', $recursive);
             if (isset($arguments[2])) {
                 $mapped['style'] = $this->integerLiteral($arguments[2], 'CONVERT style');
             }
             return $mapped;
+        }
+        if ($name === 'DATEDIFF') {
+            if (count($arguments) !== 3) {
+                throw new SqlMappingException('DATEDIFF requires datepart, start, and end.');
+            }
+            return $mapped + [
+                'datepart' => strtoupper($this->directField($arguments[0], 'DATEDIFF')),
+                'start' => $this->dateEndpoint($arguments[1], 'DATEDIFF start'),
+                'end' => $this->dateEndpoint($arguments[2], 'DATEDIFF end'),
+            ];
+        }
+        if ($name === 'EOMONTH') {
+            if (count($arguments) < 1 || count($arguments) > 2) {
+                throw new SqlMappingException('EOMONTH requires a start field and optional integer month offset.');
+            }
+            $mapped['start'] = $this->dateEndpoint($arguments[0], 'EOMONTH start');
+            if (isset($arguments[1])) {
+                $mapped['month'] = $this->integerLiteral($arguments[1], 'EOMONTH month');
+            }
+            return $mapped;
+        }
+        if ($name === 'DATEFROMPARTS') {
+            return $this->mapPartsFunction($mapped, $arguments, ['year', 'month', 'day']);
+        }
+        if ($name === 'DATETIMEFROMPARTS') {
+            return $this->mapPartsFunction(
+                $mapped,
+                $arguments,
+                ['year', 'month', 'day', 'hour', 'minute', 'second', 'millisecond']
+            );
+        }
+        if ($name === 'IIF') {
+            if (count($arguments) !== 3 || ($arguments[0]['type'] ?? null) !== 'predicate') {
+                throw new SqlMappingException('IIF requires one comparison and true/false expressions.');
+            }
+            return $mapped + [
+                'condition' => $this->safeCondition($arguments[0]),
+                'true' => $this->safeFunctionValue($arguments[1]),
+                'false' => $this->safeFunctionValue($arguments[2]),
+            ];
+        }
+        if ($name === 'CHOOSE') {
+            if (count($arguments) < 3) {
+                throw new SqlMappingException('CHOOSE requires a positive literal index and at least two values.');
+            }
+            return $mapped + [
+                'index' => $this->integerLiteral(array_shift($arguments), 'CHOOSE index'),
+                'values' => array_map(fn (array $argument) => $this->safeFunctionValue($argument), $arguments),
+            ];
         }
 
         throw new SqlMappingException(
@@ -679,6 +762,12 @@ class SqlToApiMapper
 
     private function filter(array $predicate): array
     {
+        if (in_array($predicate['operator'], ['EXISTS', 'NOT EXISTS'], true)) {
+            return [
+                'operator' => $predicate['operator'],
+                'query' => $this->mapSubquery($predicate['right'] ?? null),
+            ];
+        }
         $left = $this->unwrapGroup($predicate['left']);
         if ($left['type'] !== 'identifier') {
             throw new SqlMappingException('WHERE requires a direct field on the left side in the public contract.');
@@ -686,11 +775,93 @@ class SqlToApiMapper
         $result = ['field' => $left['name'], 'operator' => $predicate['operator']];
         if (!in_array($predicate['operator'], ['IS NULL', 'IS NOT NULL'], true)) {
             $right = $predicate['right'];
-            $result['value'] = is_array($right) && array_is_list($right)
-                ? array_map(fn (array $value) => $this->literal($value), $right)
-                : $this->literal($right);
+            if (($right['type'] ?? null) === 'subquery') {
+                $result['query'] = $this->mapSubquery($right);
+            } else {
+                $result['value'] = is_array($right) && array_is_list($right)
+                    ? array_map(fn (array $value) => $this->literal($value), $right)
+                    : $this->literal($right);
+            }
         }
         return $result;
+    }
+
+    private function mapSubquery($expression): array
+    {
+        if (!is_array($expression) || ($expression['type'] ?? null) !== 'subquery'
+            || !is_array($expression['query'] ?? null)
+            || ($expression['query']['type'] ?? null) !== 'select') {
+            throw new SqlMappingException('Filter subquery must contain one SELECT body.');
+        }
+        return $this->mapSelect($expression['query'], false);
+    }
+
+    private function dateEndpoint(array $expression, string $context): array
+    {
+        $expression = $this->unwrapGroup($expression);
+        if ($expression['type'] === 'identifier') {
+            return ['field' => $expression['name']];
+        }
+        if ($expression['type'] === 'function'
+            && $expression['name'] === 'GETDATE'
+            && $expression['arguments'] === []) {
+            return ['function' => 'GETDATE'];
+        }
+        throw new SqlMappingException("{$context} must be a field or GETDATE().");
+    }
+
+    private function mapPartsFunction(array $mapped, array $arguments, array $properties): array
+    {
+        if (count($arguments) !== count($properties)) {
+            throw new SqlMappingException(
+                $mapped['function'] . ' requires exactly ' . count($properties) . ' arguments.'
+            );
+        }
+        foreach ($properties as $index => $property) {
+            $mapped[$property] = $this->safeFunctionValue($arguments[$index]);
+        }
+        return $mapped;
+    }
+
+    private function safeCondition(array $predicate): array
+    {
+        while (($predicate['type'] ?? null) === 'boolean_group') {
+            $predicate = $predicate['expression'];
+        }
+        if (($predicate['type'] ?? null) !== 'predicate'
+            || !in_array($predicate['operator'] ?? null, ['=', '!=', '<>', '>', '<', '>=', '<=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN'], true)) {
+            throw new SqlMappingException('Conditional function requires one supported comparison.');
+        }
+        $right = $predicate['right'] ?? null;
+        return [
+            'left' => $this->safeFunctionValue($predicate['left']),
+            'operator' => $predicate['operator'],
+            'right' => is_array($right) && array_is_list($right)
+                ? array_map(fn (array $item) => $this->safeFunctionValue($item), $right)
+                : $this->safeFunctionValue($right),
+        ];
+    }
+
+    private function safeFunctionValue(array $expression)
+    {
+        $expression = $this->unwrapGroup($expression);
+        if ($expression['type'] === 'identifier') {
+            return ['field' => $expression['name']];
+        }
+        if ($expression['type'] === 'literal' || $expression['type'] === 'unary') {
+            return $this->literal($expression);
+        }
+        if ($expression['type'] === 'binary') {
+            if (!in_array($expression['operator'], ['+', '-', '*', '/', '%'], true)) {
+                throw new SqlMappingException('Unsupported conditional/constructor arithmetic operator.');
+            }
+            return ['expression' => [
+                'left' => $this->safeFunctionValue($expression['left']),
+                'operator' => $expression['operator'],
+                'right' => $this->safeFunctionValue($expression['right']),
+            ]];
+        }
+        throw new SqlMappingException('This function argument cannot be represented by its public named property.');
     }
 
     public function having(array $predicate): array

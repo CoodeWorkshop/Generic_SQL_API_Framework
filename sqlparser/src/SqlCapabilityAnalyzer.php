@@ -14,6 +14,17 @@ class SqlCapabilityAnalyzer
             'filters' => [], 'grouping' => [], 'sorting' => [],
         ];
 
+        if (($ast['type'] ?? null) === 'routine') {
+            return [
+                'supported' => ['PROCEDURE CALL'], 'warnings' => [], 'unsupported' => [],
+                'detected' => [
+                    'action' => 'procedure', 'tables' => [], 'columns' => [],
+                    'joins' => [], 'filters' => [], 'grouping' => [],
+                    'sorting' => [], 'functions' => [],
+                ],
+            ];
+        }
+
         $root = $ast;
         if ($ast['type'] === 'with') {
             $state['supported'][] = 'CTE / WITH';
@@ -121,6 +132,12 @@ class SqlCapabilityAnalyzer
         if ($query['top'] !== null) {
             $state['supported'][] = 'TOP';
         }
+        if (($query['pagination'] ?? null) !== null) {
+            $state['supported'][] = 'OFFSET/FETCH pagination';
+            if ($query['pagination']['offset'] % $query['pagination']['pageSize'] !== 0) {
+                $state['unsupported'][] = 'OFFSET must be an exact multiple of FETCH to map to page/pageSize pagination.';
+            }
+        }
     }
 
     private function inspectBoolean(array $node, array &$state, bool $recordFilter = false): void
@@ -140,7 +157,9 @@ class SqlCapabilityAnalyzer
         if ($recordFilter) {
             $state['filters'][] = $node['operator'];
         }
-        $this->inspectExpression($node['left'], $state);
+        if (is_array($node['left'] ?? null)) {
+            $this->inspectExpression($node['left'], $state);
+        }
         $right = $node['right'] ?? null;
         foreach (is_array($right) && array_is_list($right) ? $right : [$right] as $expression) {
             if (is_array($expression)) {
@@ -151,6 +170,15 @@ class SqlCapabilityAnalyzer
 
     private function inspectExpression(array $expression, array &$state): void
     {
+        if ($expression['type'] === 'subquery') {
+            $state['supported'][] = 'FILTER SUBQUERY';
+            $this->inspectQuery($expression['query'], $state);
+            return;
+        }
+        if ($expression['type'] === 'predicate') {
+            $this->inspectBoolean($expression, $state);
+            return;
+        }
         if ($expression['type'] === 'identifier') {
             $state['columns'][] = $expression['name'];
             return;
@@ -266,6 +294,9 @@ class SqlCapabilityAnalyzer
             $this->inspectWhereCompatibility($node['right'], $state, $commaSources);
             return;
         }
+        if (in_array($node['operator'], ['EXISTS', 'NOT EXISTS'], true)) {
+            return;
+        }
         $left = $this->unwrapGroup($node['left']);
         if ($left['type'] !== 'identifier') {
             $state['unsupported'][] = 'Expression-valued WHERE inputs are unsupported; the left side must be a direct field.';
@@ -276,6 +307,10 @@ class SqlCapabilityAnalyzer
                 continue;
             }
             $endpoint = $this->unwrapGroup($endpoint);
+            if ($endpoint['type'] === 'subquery'
+                && in_array($node['operator'], ['IN', 'NOT IN'], true)) {
+                continue;
+            }
             // Leave candidate comma-join edges to the existing safe join mapper.
             if ($commaSources && $node['operator'] === '=' && $left['type'] === 'identifier'
                 && $endpoint['type'] === 'identifier') {

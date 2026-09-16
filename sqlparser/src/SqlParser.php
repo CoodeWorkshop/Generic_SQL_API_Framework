@@ -7,7 +7,8 @@ class SqlParser
     private const RESERVED_ALIASES = [
         'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS',
         'OUTER', 'APPLY', 'ON', 'GROUP', 'HAVING', 'ORDER', 'UNION', 'AND',
-        'OR', 'ASC', 'DESC', 'WHEN', 'THEN', 'ELSE', 'END', 'OVER',
+        'OR', 'ASC', 'DESC', 'WHEN', 'THEN', 'ELSE', 'END', 'OVER', 'OFFSET',
+        'FETCH', 'NEXT', 'FIRST', 'ROW', 'ROWS', 'ONLY',
     ];
 
     private array $tokens = [];
@@ -24,7 +25,9 @@ class SqlParser
 
         $this->tokens = (new SqlLexer())->tokenize($sql);
         $this->index = 0;
-        $statement = $this->withOrQuery();
+        $statement = ($this->peekWord('EXEC') || $this->peekWord('EXECUTE'))
+            ? $this->procedureCall()
+            : $this->withOrQuery();
 
         $terminated = $this->symbol(';');
         if (!$this->is('eof')) {
@@ -35,6 +38,21 @@ class SqlParser
         }
 
         return $statement;
+    }
+
+    private function procedureCall(): array
+    {
+        if (!$this->word('EXEC')) {
+            $this->expectWord('EXECUTE');
+        }
+        $name = $this->identifier();
+        $arguments = [];
+        if (!$this->is('eof') && $this->peek()['value'] !== ';') {
+            do {
+                $arguments[] = $this->unaryExpression();
+            } while ($this->symbol(','));
+        }
+        return ['type' => 'routine', 'action' => 'procedure', 'name' => $name, 'arguments' => $arguments];
     }
 
     private function withOrQuery(): array
@@ -163,9 +181,36 @@ class SqlParser
             } while ($this->symbol(','));
         }
 
+        $pagination = null;
+        if ($this->word('OFFSET')) {
+            if ($order === []) {
+                $this->fail('OFFSET/FETCH requires ORDER BY.');
+            }
+            $offset = $this->expect('number')['value'];
+            if (!is_int($offset) || $offset < 0) {
+                $this->fail('OFFSET requires a non-negative integer literal.');
+            }
+            if (!$this->word('ROW')) {
+                $this->expectWord('ROWS');
+            }
+            $this->expectWord('FETCH');
+            if (!$this->word('NEXT')) {
+                $this->expectWord('FIRST');
+            }
+            $pageSize = $this->expect('number')['value'];
+            if (!is_int($pageSize) || $pageSize < 1) {
+                $this->fail('FETCH requires a positive integer literal.');
+            }
+            if (!$this->word('ROW')) {
+                $this->expectWord('ROWS');
+            }
+            $this->expectWord('ONLY');
+            $pagination = compact('offset', 'pageSize');
+        }
+
         return compact(
             'distinct', 'top', 'fields', 'source', 'commaSources', 'joins',
-            'where', 'group', 'having', 'order'
+            'where', 'group', 'having', 'order', 'pagination'
         ) + ['type' => 'select'];
     }
 
@@ -222,6 +267,16 @@ class SqlParser
 
     private function predicate(): array
     {
+        $savedIndex = $this->index;
+        $existsNot = $this->word('NOT');
+        if ($this->word('EXISTS')) {
+            return [
+                'type' => 'predicate', 'left' => null,
+                'operator' => $existsNot ? 'NOT EXISTS' : 'EXISTS',
+                'right' => $this->subqueryExpression(),
+            ];
+        }
+        $this->index = $savedIndex;
         $left = $this->expression();
         if ($this->word('IS')) {
             $not = $this->word('NOT');
@@ -242,6 +297,15 @@ class SqlParser
         }
         if ($this->word('IN')) {
             $this->expectSymbol('(');
+            if ($this->peekWord('SELECT')) {
+                $query = $this->select();
+                $this->expectSymbol(')');
+                return [
+                    'type' => 'predicate', 'left' => $left,
+                    'operator' => $not ? 'NOT IN' : 'IN',
+                    'right' => ['type' => 'subquery', 'query' => $query],
+                ];
+            }
             $values = [];
             do {
                 $values[] = $this->expression();
@@ -329,6 +393,21 @@ class SqlParser
             $this->expectWord('AS');
             $arguments[] = ['type' => 'datatype', 'name' => $this->datatype()];
             $this->expectSymbol(')');
+        } elseif ($function === 'CONVERT') {
+            $arguments = [['type' => 'datatype', 'name' => $this->datatype()]];
+            $this->expectSymbol(',');
+            $arguments[] = $this->expression();
+            if ($this->symbol(',')) {
+                $arguments[] = $this->expression();
+            }
+            $this->expectSymbol(')');
+        } elseif ($function === 'IIF') {
+            $arguments = [$this->booleanExpression()];
+            $this->expectSymbol(',');
+            $arguments[] = $this->expression();
+            $this->expectSymbol(',');
+            $arguments[] = $this->expression();
+            $this->expectSymbol(')');
         } else {
             $arguments = [];
             if (!$this->symbol(')')) {
@@ -344,6 +423,17 @@ class SqlParser
             $expression = $this->windowExpression($expression);
         }
         return $expression;
+    }
+
+    private function subqueryExpression(): array
+    {
+        $this->expectSymbol('(');
+        if (!$this->peekWord('SELECT')) {
+            $this->fail('EXISTS requires a SELECT subquery.');
+        }
+        $query = $this->select();
+        $this->expectSymbol(')');
+        return ['type' => 'subquery', 'query' => $query];
     }
 
     private function caseExpression(): array

@@ -56,6 +56,8 @@ expressions. Unsupported grammar fails explicitly rather than being guessed.
   one unambiguous AND equality predicate connecting it to an earlier source;
 - flat WHERE conditions using one AND or OR logic;
 - comparisons, LIKE/NOT LIKE, BETWEEN/NOT BETWEEN, IN/NOT IN, and NULL tests;
+- `IN (SELECT ...)`, `NOT IN (SELECT ...)`, `EXISTS (SELECT ...)`, and
+  `NOT EXISTS (SELECT ...)` using the backend's existing nested filter query;
 - GROUP BY identifiers or recursive scalar expressions;
 - supported aggregate HAVING comparisons, including scalar/arithmetic expressions
   containing aggregates compared with a literal value (AND only);
@@ -69,6 +71,12 @@ expressions. Unsupported grammar fails explicitly rather than being guessed.
   scalar expression inputs, partitions, and ordering;
 - one standard CTE and the existing two-branch recursive CTE form;
 - homogeneous UNION or UNION ALL chains using the existing public actions;
+- page-aligned SQL Server `ORDER BY ... OFFSET n ROWS FETCH NEXT m ROWS ONLY`,
+  mapped to public `pagination.page` and `pagination.pageSize`;
+- safe named-property mappings for DATEDIFF, EOMONTH, DATEFROMPARTS,
+  DATETIMEFROMPARTS, IIF, and CHOOSE, plus sized CONVERT datatypes;
+- `EXEC`/`EXECUTE` stored procedure authoring with comma-separated positional
+  scalar literal parameters, mapped to the existing `procedure` action;
 - quoted strings, numeric literals, comments, bracketed identifiers, and a
   trailing semicolon.
 
@@ -87,6 +95,15 @@ WHERE comparison values or BETWEEN endpoints. WHERE still requires a direct
 field on the left; reviewed comma-join equality edges use the existing safe
 join conversion rather than expanding the WHERE expression contract.
 
+Filter subqueries are SELECT bodies only. IN/NOT IN must return exactly one
+explicit field. Nested SELECT bodies cannot contain action, sort, pagination, or
+WITH properties, so set-operation subqueries, correlated field-to-field filters,
+derived tables, and scalar projection subqueries remain unsupported. Boolean
+grouping is not preserved: one WHERE may use flat AND or flat OR, not a mixed
+tree. OFFSET must be an exact multiple of FETCH because the public contract is
+page-based; OFFSET/FETCH also requires ORDER BY. SQL placeholders such as
+`:name` have no public parameter-reference node and remain unsupported.
+
 Nested functions and arithmetic are always parsed recursively. A generic AST
 expression dispatcher preserves identifiers, literals, grouping, unary/binary
 operators, functions, CASE, and windows. Positional function arguments are
@@ -103,6 +120,10 @@ contexts, invalid datatypes, and excessive expression depth remain rejected.
 The generator additionally validates and normalizes the complete mapped request,
 including aliases and CTE/set-operation envelopes. Rejected requests never
 expose a partial candidate. The parser AST itself is unchanged in Phase 4.
+
+Parser syntax errors include the byte position plus one-based line and column
+and a nearby SQL fragment. Capability failures explain the backend/public
+contract boundary; unsupported syntax never becomes a raw JSON or SQL fragment.
 
 For example:
 

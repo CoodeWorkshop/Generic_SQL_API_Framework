@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../sqlparser/src/SqlParserRequestHandler.php';
+require_once __DIR__ . '/../app/Repositories/Query/RoutineBuilder.php';
 
 function parserAssert(bool $condition, string $message): void
 {
@@ -565,6 +566,195 @@ parserAssert($window['request']['fields'] === [[
     'function' => 'ROW_NUMBER', 'sort' => [['field' => 'Bill_Date', 'direction' => 'DESC']], 'alias' => 'RowNo',
 ]], 'Legacy window output changed.');
 
+// Backend-parity filter subqueries use the existing public filter.query shape.
+$inSubquery = generated(
+    'SELECT C.Id FROM Customers C WHERE C.Id IN '
+    . '(SELECT O.CustomerId FROM Orders O WHERE O.Status = 1);'
+);
+parserAssert($inSubquery['success'] && $inSubquery['request']['filters'] === [[
+    'field' => 'C.Id', 'operator' => 'IN', 'query' => [
+        'source' => ['table' => 'Orders', 'alias' => 'O'],
+        'fields' => ['O.CustomerId'],
+        'filters' => [['field' => 'O.Status', 'operator' => '=', 'value' => 1]],
+    ],
+]], 'IN SELECT subquery did not map to the public filter query.');
+$notInSubquery = generated(
+    'SELECT Id FROM Customers WHERE Id NOT IN (SELECT CustomerId FROM BlockedCustomers);'
+);
+parserAssert($notInSubquery['success'] && $notInSubquery['request']['filters'][0]['operator'] === 'NOT IN', 'NOT IN subquery failed.');
+$existsSubquery = generated(
+    "SELECT Id FROM Customers WHERE EXISTS (SELECT 1 FROM Orders WHERE Status = 'Open');"
+);
+parserAssert($existsSubquery['success'] && $existsSubquery['request']['filters'] === [[
+    'operator' => 'EXISTS', 'query' => [
+        'source' => ['table' => 'Orders'], 'fields' => [['literal' => 1]],
+        'filters' => [['field' => 'Status', 'operator' => '=', 'value' => 'Open']],
+    ],
+]], 'EXISTS subquery failed.');
+$notExistsSubquery = generated('SELECT Id FROM Customers WHERE NOT EXISTS (SELECT 1 FROM Orders);');
+parserAssert($notExistsSubquery['success'] && $notExistsSubquery['request']['filters'][0]['operator'] === 'NOT EXISTS', 'NOT EXISTS subquery failed.');
+foreach ([$inSubquery, $notInSubquery, $existsSubquery, $notExistsSubquery] as $subqueryResult) {
+    (new QueryRequestValidator())->validate($subqueryResult['request']);
+    $normalizedSubquery = (new QueryRequestNormalizer())->normalize($subqueryResult['request']);
+    parserAssert(isset($normalizedSubquery['where'][0]['subquery']), 'Filter subquery did not survive production normalization.');
+}
+$invalidInProjection = generated('SELECT Id FROM Customers WHERE Id IN (SELECT Id, Name FROM OtherCustomers);');
+parserAssert(!$invalidInProjection['success'] && $invalidInProjection['error']['stage'] === 'validation', 'Multi-column IN subquery bypassed production validation.');
+$correlatedSubquery = generated('SELECT C.Id FROM Customers C WHERE EXISTS (SELECT 1 FROM Orders O WHERE O.CustomerId = C.Id);');
+parserAssert(!$correlatedSubquery['success'] && in_array(
+    'Expression-valued WHERE comparison values are unsupported.',
+    $correlatedSubquery['analysis']['unsupported'],
+    true
+), 'Correlated subquery was not rejected at the public WHERE boundary.');
+
+// SQL Server OFFSET/FETCH maps only when it exactly represents page/pageSize.
+$pagedSql = generated('SELECT Id FROM Customers ORDER BY Id OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY;');
+parserAssert($pagedSql['success'] && $pagedSql['request']['pagination'] === [
+    'page' => 3, 'pageSize' => 10,
+], 'Aligned OFFSET/FETCH pagination failed.');
+(new QueryRequestValidator())->validate($pagedSql['request']);
+$normalizedPage = (new QueryRequestNormalizer())->normalize($pagedSql['request']);
+parserAssert($normalizedPage['page'] === 3 && $normalizedPage['pageSize'] === 10, 'Pagination failed normalization.');
+$misalignedPage = generated('SELECT Id FROM Customers ORDER BY Id OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY;');
+parserAssert(!$misalignedPage['success'] && $misalignedPage['error']['stage'] === 'capability'
+    && str_contains($misalignedPage['error']['details'][0]['message'], 'exact multiple'), 'Misaligned OFFSET was not rejected clearly.');
+try {
+    parsed('SELECT Id FROM Customers OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;');
+    throw new RuntimeException('OFFSET/FETCH without ORDER BY was accepted.');
+} catch (SqlParserException $exception) {
+    parserAssert(str_contains($exception->getMessage(), 'requires ORDER BY'), 'Missing pagination ORDER BY diagnostic changed.');
+}
+
+// Missing reverse mappings now cover only public, builder-backed named shapes.
+$functionParity = [
+    'SELECT CONVERT(VARCHAR(20), BillDate, 112) AS DateText FROM Events;' => [
+        'function' => 'CONVERT', 'datatype' => 'VARCHAR(20)',
+        'field' => 'BillDate', 'style' => 112, 'alias' => 'DateText',
+    ],
+    'SELECT DATEDIFF(DAY, StartDate, GETDATE()) AS Days FROM Events;' => [
+        'function' => 'DATEDIFF', 'datepart' => 'DAY',
+        'start' => ['field' => 'StartDate'], 'end' => ['function' => 'GETDATE'], 'alias' => 'Days',
+    ],
+    'SELECT EOMONTH(BillDate, 1) AS EndDate FROM Bills;' => [
+        'function' => 'EOMONTH', 'start' => ['field' => 'BillDate'], 'month' => 1, 'alias' => 'EndDate',
+    ],
+    'SELECT DATEFROMPARTS(YearValue, 1, 2) AS CreatedDate FROM Items;' => [
+        'function' => 'DATEFROMPARTS', 'year' => ['field' => 'YearValue'],
+        'month' => 1, 'day' => 2, 'alias' => 'CreatedDate',
+    ],
+    'SELECT DATETIMEFROMPARTS(2026, 9, 16, 10, 30, 0, 0) AS CreatedAt FROM Items;' => [
+        'function' => 'DATETIMEFROMPARTS', 'year' => 2026, 'month' => 9, 'day' => 16,
+        'hour' => 10, 'minute' => 30, 'second' => 0, 'millisecond' => 0, 'alias' => 'CreatedAt',
+    ],
+    'SELECT IIF(Status = 1, Amount + 1, 0) AS Value FROM Items;' => [
+        'function' => 'IIF',
+        'condition' => ['left' => ['field' => 'Status'], 'operator' => '=', 'right' => 1],
+        'true' => ['expression' => ['left' => ['field' => 'Amount'], 'operator' => '+', 'right' => 1]],
+        'false' => 0, 'alias' => 'Value',
+    ],
+    'SELECT CHOOSE(2, Name, Description) AS Label FROM Items;' => [
+        'function' => 'CHOOSE', 'index' => 2,
+        'values' => [['field' => 'Name'], ['field' => 'Description']], 'alias' => 'Label',
+    ],
+];
+foreach ($functionParity as $sql => $expectedField) {
+    $result = generated($sql);
+    parserAssert($result['success'] && $result['request']['fields'] === [$expectedField], 'Named function parity failed: ' . $sql);
+    (new QueryRequestValidator())->validate($result['request']);
+    (new QueryRequestNormalizer())->normalize($result['request']);
+}
+$nestedParity = [
+    'SELECT UPPER(LTRIM(Name)) AS CleanName FROM Items;' => [[
+        'function' => 'UPPER', 'field' => ['function' => 'LTRIM', 'field' => ['field' => 'Name']], 'alias' => 'CleanName',
+    ]],
+    'SELECT COALESCE(Name, 0) AS SafeName FROM Items;' => [[
+        'function' => 'COALESCE', 'fields' => ['Name'], 'default' => 0, 'alias' => 'SafeName',
+    ]],
+    'SELECT ISNULL(ROUND(Amount, 2), 0) AS SafeAmount FROM Items;' => [[
+        'function' => 'ISNULL',
+        'field' => ['function' => 'ROUND', 'field' => ['field' => 'Amount'], 'precision' => 2],
+        'default' => 0, 'alias' => 'SafeAmount',
+    ]],
+    'SELECT YEAR(CONVERT(VARCHAR(8), Bill_Date)) AS BillYear FROM Bills;' => [[
+        'function' => 'YEAR',
+        'field' => ['function' => 'CONVERT', 'datatype' => 'VARCHAR(8)', 'field' => ['field' => 'Bill_Date']],
+        'alias' => 'BillYear',
+    ]],
+];
+foreach ($nestedParity as $sql => $expectedFields) {
+    $result = generated($sql);
+    parserAssert($result['success'] && $result['request']['fields'] === $expectedFields, 'Nested function parity failed: ' . $sql);
+}
+$functionCase = generated(
+    "SELECT CASE WHEN Status = 'S' THEN ROUND(Value / 1000, 2) ELSE 0 END AS Adjusted FROM Items;"
+);
+parserAssert($functionCase['success']
+    && $functionCase['request']['fields'][0]['case']['when'][0]['then']['function'] === 'ROUND',
+    'Function expression inside CASE failed parity mapping.');
+
+// Procedure authoring reuses the existing positional routine contract and
+// accepts only scalar literal arguments. The compiler never executes it.
+$procedure = generated("EXEC dbo.RunReport 2026, 'North', NULL;");
+$expectedProcedure = [
+    'action' => 'procedure',
+    'source' => ['procedure' => 'dbo.RunReport'],
+    'parameters' => [2026, 'North', null],
+];
+parserAssert(
+    $procedure['success'] && $procedure['request'] === $expectedProcedure,
+    'EXEC procedure mapping failed.'
+);
+(new QueryRequestValidator())->validate($procedure['request']);
+$normalizedProcedure = (new QueryRequestNormalizer())->normalize($procedure['request']);
+parserAssert($normalizedProcedure === [
+    'controller' => 'Query',
+    'action' => 'procedure',
+    'procedure' => 'dbo.RunReport',
+    'params' => [2026, 'North', null],
+], 'Generated procedure request failed normalization parity.');
+$builtProcedure = (new RoutineBuilder())->buildProcedure($normalizedProcedure);
+parserAssert($builtProcedure === [
+    'sql' => 'EXEC dbo.RunReport ?, ?, ?',
+    'params' => [2026, 'North', null],
+], 'Generated procedure request did not reach prepared routine SQL generation.');
+
+$executeProcedure = generated('EXECUTE RunReport -1, +2.5;');
+parserAssert(
+    $executeProcedure['success']
+        && $executeProcedure['request']['parameters'] === [-1, 2.5],
+    'EXECUTE signed numeric parameters failed mapping.'
+);
+
+foreach ([
+    'EXEC RunReport OtherField;',
+    'EXEC RunReport @named = 1;',
+    'EXEC [dbo.RunReport;DROP] 1;',
+] as $sql) {
+    try {
+        $result = generated($sql);
+        parserAssert(!$result['success'] && !isset($result['request']), 'Unsafe procedure SQL emitted JSON: ' . $sql);
+    } catch (SqlParserException $exception) {}
+}
+
+// These remain outside the executable backend/public contract.
+$parityLimitations = [
+    'SELECT T.* FROM Items T;',
+    'SELECT SUM(Amount) OVER (ORDER BY Id) AS RunningTotal FROM Items;',
+    'SELECT Id FROM Customers WHERE Id IN (SELECT Id FROM A UNION SELECT Id FROM B);',
+    'SELECT Id FROM (SELECT Id FROM Customers) X;',
+    'SELECT (SELECT Id FROM Other) AS Value FROM Customers;',
+    'SELECT COALESCE(SUM(Amount), 0) FROM Items;',
+    'SELECT COALESCE(Name) FROM Items;',
+    'SELECT COALESCE(Name, NULL) FROM Items;',
+    'SELECT TIMEFROMPARTS(10, 20, 30, 0, 0) FROM Items;',
+];
+foreach ($parityLimitations as $sql) {
+    try {
+        $result = generated($sql);
+        parserAssert(!$result['success'] && !isset($result['request']), 'Unsupported parity boundary emitted JSON: ' . $sql);
+    } catch (SqlParserException $exception) {}
+}
+
 // Old ambiguous recursive shapes must still fail production validation.
 $invalidPublicShapes = [
     'nested function field' => [
@@ -703,9 +893,19 @@ parserAssert($largeStatus === 413, 'Body limit failed.');
 parserAssert(
     $parseStatus === 400
     && $parseError['error']['stage'] === 'parser'
-    && isset($parseError['analysis']['pipeline']['parser']),
+    && isset($parseError['analysis']['pipeline']['parser'])
+    && $parseError['error']['details'][0]['line'] === 1
+    && $parseError['error']['details'][0]['column'] >= 1
+    && isset($parseError['error']['details'][0]['fragment']),
     'Parser errors were not categorized.'
 );
+[$lineStatus, $lineError] = (new SqlParserRequestHandler())->handle(
+    'POST',
+    json_encode(['sql' => "SELECT Id\nFROM Items\nWHERE Id = ;"]),
+    44
+);
+parserAssert($lineStatus === 400 && $lineError['error']['details'][0]['line'] === 3,
+    'Multiline parser error did not report its source line.');
 $unsupported = generated('SELECT A.Id FROM A FULL JOIN B ON A.Id = B.Id;');
 parserAssert(
     !$unsupported['success']
