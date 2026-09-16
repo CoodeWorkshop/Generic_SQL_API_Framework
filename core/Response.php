@@ -59,10 +59,11 @@ class Response
     {
         $started = microtime(true);
         $payload = self::successPayload($data, (string)$message);
+        $json = self::encodePayload($payload);
         self::logResponseTiming($started, true);
         http_response_code($code);
         header('Content-Type: application/json');
-        echo json_encode($payload, JSON_PRETTY_PRINT);
+        echo $json;
         exit;
     }
 
@@ -74,11 +75,20 @@ class Response
     ) {
         $started = microtime(true);
         $payload = self::errorPayload((string)$message, $errorCode, $details);
+        $json = self::encodePayload($payload);
         self::logResponseTiming($started, false, $errorCode);
         http_response_code($code);
         header('Content-Type: application/json');
-        echo json_encode($payload, JSON_PRETTY_PRINT);
+        echo $json;
         exit;
+    }
+
+    private static function encodePayload(array $payload): string
+    {
+        return json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
+        );
     }
 
     private static function logResponseTiming(float $started, bool $success, ?string $errorCode = null): void

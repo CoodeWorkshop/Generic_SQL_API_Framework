@@ -222,5 +222,17 @@ $empty = Response::successPayload(['executionTime' => 1.2, 'rowsReturned' => 0, 
 contractAssert($empty['data'] === [] && $empty['meta']['totalRows'] === 0, 'Empty result contract failed.');
 $error = Response::errorPayload('Query execution failed.', 'QUERY_ERROR');
 contractAssert($error['data'] === [] && $error['error']['code'] === 'QUERY_ERROR', 'Database error contract failed.');
+$encodePayload = new ReflectionMethod(Response::class, 'encodePayload');
+$encoded = $encodePayload->invoke(null, Response::successPayload([
+    'data' => [['Category' => "Kitchen \x96 Ware", 'StockValue' => 10.5]],
+    'rowsReturned' => 1,
+    'totalRows' => 1,
+], 'Loaded'));
+$decoded = json_decode($encoded, true, 512, JSON_THROW_ON_ERROR);
+contractAssert(
+    $decoded['data'][0]['Category'] === "Kitchen \u{FFFD} Ware"
+        && $decoded['data'][0]['StockValue'] === 10.5,
+    'Response JSON encoding must substitute invalid UTF-8 and preserve the standard envelope.'
+);
 
 echo "Universal API contract tests passed.\n";
