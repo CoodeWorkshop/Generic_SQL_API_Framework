@@ -1,12 +1,13 @@
 <?php
 
 require_once __DIR__ . '/ApiRequestException.php';
+require_once __DIR__ . '/../Security/UsernamePolicy.php';
 
 final class SetupRequestValidator
 {
     public const MINIMUM_PASSWORD_LENGTH = 12;
     public const MAXIMUM_PASSWORD_LENGTH = 1024;
-    public const MAXIMUM_USERNAME_LENGTH = 64;
+    public const MAXIMUM_USERNAME_LENGTH = UsernamePolicy::MAXIMUM_LENGTH;
 
     public function validate(array $request): array
     {
@@ -25,19 +26,10 @@ final class SetupRequestValidator
         $password = $request['password'] ?? null;
         $confirmation = $request['passwordConfirmation'] ?? null;
 
-        if (!is_string($username)) {
-            $details[] = ['path' => 'username', 'message' => 'Username is required.'];
-        } else {
-            $username = trim($username);
-            if ($username === '') {
-                $details[] = ['path' => 'username', 'message' => 'Username is required.'];
-            } elseif (strlen($username) > self::MAXIMUM_USERNAME_LENGTH
-                || preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/', $username) !== 1) {
-                $details[] = [
-                    'path' => 'username',
-                    'message' => 'Username must use letters, numbers, periods, underscores, or hyphens.',
-                ];
-            }
+        try {
+            $username = UsernamePolicy::normalize($username);
+        } catch (InvalidArgumentException $exception) {
+            $details[] = ['path' => 'username', 'message' => $exception->getMessage()];
         }
 
         if (!is_string($password) || $password === '') {

@@ -12,8 +12,10 @@ $allowed_origins = [
     'http://localhost:5173',
 ];
 
-if (isset($_SERVER['HTTP_ORIGIN']) && in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins)) {
+if (isset($_SERVER['HTTP_ORIGIN']) && in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins, true)) {
     header("Access-Control-Allow-Origin: " . $_SERVER['HTTP_ORIGIN']);
+    header('Access-Control-Allow-Credentials: true');
+    header('Vary: Origin');
 }
 
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -38,6 +40,8 @@ require_once __DIR__ . '/../app/Requests/QueryRequestValidator.php';
 require_once __DIR__ . '/../app/Requests/QueryRequestNormalizer.php';
 require_once __DIR__ . '/../app/Requests/SetupRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/SetupController.php';
+require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/AuthController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -58,7 +62,9 @@ if (!is_array($publicRequest)) {
     );
 }
 
-$publicAuthenticationActions = ['setup.status', 'setup.createAdmin'];
+$setupActions = ['setup.status', 'setup.createAdmin'];
+$authActions = ['auth.login', 'auth.session', 'auth.logout'];
+$publicAuthenticationActions = array_merge($setupActions, $authActions);
 $authentication = new AuthenticationMiddleware(false, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
 
@@ -66,7 +72,7 @@ $authentication->handle($publicRequest);
 $middleware = new LoggingMiddleware();
 $middleware->handle($publicRequest);
 
-if (in_array($publicRequest['action'] ?? null, $publicAuthenticationActions, true)) {
+if (in_array($publicRequest['action'] ?? null, $setupActions, true)) {
     $request = (new SetupRequestValidator())->validate($publicRequest);
     Response::setRequestContext(['action' => $request['action']]);
     $controller = new SetupController();
@@ -74,6 +80,19 @@ if (in_array($publicRequest['action'] ?? null, $publicAuthenticationActions, tru
         $controller->status($request);
     }
     $controller->createAdmin($request);
+}
+
+if (in_array($publicRequest['action'] ?? null, $authActions, true)) {
+    $request = (new AuthRequestValidator())->validate($publicRequest);
+    Response::setRequestContext(['action' => $request['action']]);
+    $controller = new AuthController();
+    if ($request['action'] === 'auth.login') {
+        $controller->login($request);
+    }
+    if ($request['action'] === 'auth.session') {
+        $controller->session($request);
+    }
+    $controller->logout($request);
 }
 
 $phaseStarted = microtime(true);

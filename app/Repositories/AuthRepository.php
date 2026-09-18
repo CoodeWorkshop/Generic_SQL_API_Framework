@@ -27,8 +27,14 @@ final class AuthRepository
 
     public function findEnabledUser(string $username): ?array
     {
+        $user = $this->findUser($username);
+        return $user !== null && $user['enabled'] ? $user : null;
+    }
+
+    public function findUser(string $username): ?array
+    {
         foreach ($this->load()['users'] as $user) {
-            if ($user['enabled'] && strcasecmp($user['username'], $username) === 0) {
+            if (strcasecmp($user['username'], $username) === 0) {
                 return $user;
             }
         }

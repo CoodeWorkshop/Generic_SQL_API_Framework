@@ -17,7 +17,8 @@ $tests = [
     __DIR__ . '/DatabaseCredentialEncryptionTest.php',
     __DIR__ . '/DatabaseConfigurationEncryptionTest.php',
     __DIR__ . '/AuthenticationFoundationTest.php',
-    __DIR__ . '/FirstTimeSetupTest.php'
+    __DIR__ . '/FirstTimeSetupTest.php',
+    __DIR__ . '/AuthenticationFlowTest.php'
 ];
 
 foreach ($tests as $test) {
