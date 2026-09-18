@@ -41,6 +41,29 @@ final class AuthRepository
         return null;
     }
 
+    public function update(callable $operation)
+    {
+        $lockPath = $this->path . '.lock';
+        $stream = @fopen($lockPath, 'c');
+        if ($stream === false) {
+            throw new RuntimeException('Authentication storage lock is unavailable.');
+        }
+        @chmod($lockPath, 0600);
+
+        try {
+            if (!flock($stream, LOCK_EX)) {
+                throw new RuntimeException('Authentication storage lock could not be acquired.');
+            }
+            $configuration = $this->load();
+            $result = $operation($configuration);
+            $this->save($configuration);
+            return $result;
+        } finally {
+            @flock($stream, LOCK_UN);
+            fclose($stream);
+        }
+    }
+
     private function validate(array $configuration): void
     {
         if (array_diff(array_keys($configuration), ['version', 'users']) !== []

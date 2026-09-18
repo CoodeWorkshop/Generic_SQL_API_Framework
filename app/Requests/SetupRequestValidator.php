@@ -2,11 +2,12 @@
 
 require_once __DIR__ . '/ApiRequestException.php';
 require_once __DIR__ . '/../Security/UsernamePolicy.php';
+require_once __DIR__ . '/../Security/PasswordPolicy.php';
 
 final class SetupRequestValidator
 {
-    public const MINIMUM_PASSWORD_LENGTH = 12;
-    public const MAXIMUM_PASSWORD_LENGTH = 1024;
+    public const MINIMUM_PASSWORD_LENGTH = PasswordPolicy::MINIMUM_LENGTH;
+    public const MAXIMUM_PASSWORD_LENGTH = PasswordPolicy::MAXIMUM_LENGTH;
     public const MAXIMUM_USERNAME_LENGTH = UsernamePolicy::MAXIMUM_LENGTH;
 
     public function validate(array $request): array
@@ -32,15 +33,10 @@ final class SetupRequestValidator
             $details[] = ['path' => 'username', 'message' => $exception->getMessage()];
         }
 
-        if (!is_string($password) || $password === '') {
-            $details[] = ['path' => 'password', 'message' => 'Password is required.'];
-        } elseif (strlen($password) < self::MINIMUM_PASSWORD_LENGTH) {
-            $details[] = [
-                'path' => 'password',
-                'message' => 'Password must be at least ' . self::MINIMUM_PASSWORD_LENGTH . ' characters.',
-            ];
-        } elseif (strlen($password) > self::MAXIMUM_PASSWORD_LENGTH) {
-            $details[] = ['path' => 'password', 'message' => 'Password is too long.'];
+        try {
+            $password = PasswordPolicy::validate($password);
+        } catch (InvalidArgumentException $exception) {
+            $details[] = ['path' => 'password', 'message' => $exception->getMessage()];
         }
 
         if (!is_string($confirmation)) {

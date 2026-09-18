@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../config/constants.php';
 require_once __DIR__ . '/../core/Response.php';
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
@@ -42,6 +43,8 @@ require_once __DIR__ . '/../app/Requests/SetupRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/SetupController.php';
 require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AuthController.php';
+require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/UserManagementController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -64,9 +67,18 @@ if (!is_array($publicRequest)) {
 
 $setupActions = ['setup.status', 'setup.createAdmin'];
 $authActions = ['auth.login', 'auth.session', 'auth.logout'];
+$userManagementActions = [
+    'auth.users.list',
+    'auth.users.create',
+    'auth.users.enable',
+    'auth.users.disable',
+    'auth.users.delete',
+    'auth.users.changePassword',
+];
 $publicAuthenticationActions = array_merge($setupActions, $authActions);
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
+(new AdminAuthorizationMiddleware($userManagementActions))->handle($publicRequest);
 
 // Execute Middleware
 $middleware = new LoggingMiddleware();
@@ -93,6 +105,18 @@ if (in_array($publicRequest['action'] ?? null, $authActions, true)) {
         $controller->session($request);
     }
     $controller->logout($request);
+}
+
+if (in_array($publicRequest['action'] ?? null, $userManagementActions, true)) {
+    $request = (new UserManagementRequestValidator())->validate($publicRequest);
+    Response::setRequestContext(['action' => $request['action']]);
+    $controller = new UserManagementController();
+    if ($request['action'] === 'auth.users.list') $controller->listUsers($request);
+    if ($request['action'] === 'auth.users.create') $controller->createUser($request);
+    if ($request['action'] === 'auth.users.enable') $controller->enableUser($request);
+    if ($request['action'] === 'auth.users.disable') $controller->disableUser($request);
+    if ($request['action'] === 'auth.users.delete') $controller->deleteUser($request);
+    $controller->changePassword($request);
 }
 
 $phaseStarted = microtime(true);

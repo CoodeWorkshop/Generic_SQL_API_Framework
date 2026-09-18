@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
+require_once __DIR__ . '/../app/Security/PasswordHasher.php';
 
 function protectionAssert(bool $condition, string $message): void
 {
@@ -31,6 +32,7 @@ function protectionRequired(AuthenticationMiddleware $middleware, array $request
 $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'generic-reporting-protection-test-'
     . bin2hex(random_bytes(8));
 $sessionPath = $directory . DIRECTORY_SEPARATOR . 'sessions';
+$authPath = $directory . DIRECTORY_SEPARATOR . 'auth.json';
 $sessionName = 'generic_reporting_protection_' . bin2hex(random_bytes(4));
 $publicActions = [
     'setup.status',
@@ -64,7 +66,14 @@ try {
     ini_set('session.save_path', $sessionPath);
 
     $session = new AuthSessionService($sessionName);
-    $middleware = new AuthenticationMiddleware(true, $publicActions, $session);
+    $authRepository = new AuthRepository($authPath);
+    $authRepository->save(['version' => 1, 'users' => [[
+        'username' => 'Authenticated.User',
+        'passwordHash' => (new PasswordHasher())->hash('authenticated-password'),
+        'enabled' => true,
+        'isAdmin' => false,
+    ]]]);
+    $middleware = new AuthenticationMiddleware(true, $publicActions, $session, $authRepository);
 
     foreach ($publicActions as $action) {
         $middleware->handle(['action' => $action]);
@@ -112,5 +121,6 @@ try {
         @unlink($file);
     }
     @rmdir($sessionPath);
+    @unlink($authPath);
     @rmdir($directory);
 }
