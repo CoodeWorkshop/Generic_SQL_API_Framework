@@ -36,6 +36,8 @@ require_once __DIR__ . '/../app/Controllers/MetadataController.php';
 require_once __DIR__ . '/../app/Controllers/QueryController.php';
 require_once __DIR__ . '/../app/Requests/QueryRequestValidator.php';
 require_once __DIR__ . '/../app/Requests/QueryRequestNormalizer.php';
+require_once __DIR__ . '/../app/Requests/SetupRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/SetupController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -56,14 +58,23 @@ if (!is_array($publicRequest)) {
     );
 }
 
-// Central authentication boundary. Enforcement remains disabled in Phase 2
-// until public login/session actions are available.
-$authentication = new AuthenticationMiddleware(false);
+$publicAuthenticationActions = ['setup.status', 'setup.createAdmin'];
+$authentication = new AuthenticationMiddleware(false, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
 
 // Execute Middleware
 $middleware = new LoggingMiddleware();
 $middleware->handle($publicRequest);
+
+if (in_array($publicRequest['action'] ?? null, $publicAuthenticationActions, true)) {
+    $request = (new SetupRequestValidator())->validate($publicRequest);
+    Response::setRequestContext(['action' => $request['action']]);
+    $controller = new SetupController();
+    if ($request['action'] === 'setup.status') {
+        $controller->status($request);
+    }
+    $controller->createAdmin($request);
+}
 
 $phaseStarted = microtime(true);
 $validator = new QueryRequestValidator();
