@@ -10,7 +10,7 @@ final class AuthRequestValidator
     public function validate(array $request): array
     {
         $action = $request['action'] ?? null;
-        if ($action === 'auth.session' || $action === 'auth.logout') {
+        if (in_array($action, ['auth.csrf', 'auth.session', 'auth.logout'], true)) {
             $this->rejectUnknown($request, ['action']);
             return ['action' => $action];
         }

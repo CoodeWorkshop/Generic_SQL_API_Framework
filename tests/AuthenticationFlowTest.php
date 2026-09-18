@@ -89,12 +89,20 @@ try {
         'user' => ['username' => 'Administrator', 'isAdmin' => true],
     ], 'Login returned an unsafe or malformed identity snapshot.');
     authFlowAssert($service->session() === $snapshot, 'Authenticated session could not be restored.');
-    authFlowAssert(array_keys($_SESSION) === ['generic_reporting_auth'], 'Session stored data outside the identity boundary.');
+    authFlowAssert(
+        array_keys($_SESSION) === ['generic_reporting_auth', 'generic_reporting_session_meta'],
+        'Session stored data outside the identity and timeout boundary.'
+    );
     authFlowAssert($_SESSION['generic_reporting_auth'] === [
         'authenticated' => true,
         'username' => 'Administrator',
         'isAdmin' => true,
     ], 'Session identity contains unsafe or malformed data.');
+    authFlowAssert(
+        is_int($_SESSION['generic_reporting_session_meta']['createdAt'] ?? null)
+            && is_int($_SESSION['generic_reporting_session_meta']['lastActivity'] ?? null),
+        'Session timeout metadata was not stored server-side.'
+    );
 
     $serialized = json_encode($snapshot, JSON_THROW_ON_ERROR);
     foreach (['password', 'passwordHash', 'sessionId', 'installationId'] as $sensitiveField) {
@@ -102,6 +110,10 @@ try {
     }
 
     $validator = new AuthRequestValidator();
+    authFlowAssert(
+        $validator->validate(['action' => 'auth.csrf']) === ['action' => 'auth.csrf'],
+        'CSRF token action was not accepted safely.'
+    );
     $validated = $validator->validate([
         'action' => 'auth.login',
         'username' => ' Administrator ',

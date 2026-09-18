@@ -41,6 +41,20 @@ final class AuthRepository
         return null;
     }
 
+    public function replacePasswordHash(string $username, string $expectedHash, string $newHash): bool
+    {
+        return $this->update(function (array &$configuration) use ($username, $expectedHash, $newHash): bool {
+            foreach ($configuration['users'] as &$user) {
+                if (strcasecmp($user['username'], $username) === 0
+                    && hash_equals($user['passwordHash'], $expectedHash)) {
+                    $user['passwordHash'] = $newHash;
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
     public function update(callable $operation)
     {
         $lockPath = $this->path . '.lock';

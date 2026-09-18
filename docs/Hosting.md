@@ -54,7 +54,9 @@ The backend can run under another PHP installation with the ODBC extension. For 
 php -S 127.0.0.1:8000 -t api
 ```
 
-Use IIS/FastCGI, Apache with multiple PHP workers, or Nginx with PHP-FPM for concurrent production requests. Size the worker pool and SQL Server connection capacity together. This repository does not include production web-server configuration. PHP's built-in server and `start-windows.bat` are development/convenience launchers, not production process managers.
+Use IIS/FastCGI, Apache with multiple PHP workers, or Nginx with PHP FastCGI for concurrent production requests. Windows uses `php-cgi.exe`; do not assume PHP-FPM is available. Size the worker pool and SQL Server connection capacity together. PHP's built-in server and `start-windows.bat` are development/convenience launchers, not production process managers.
+
+The Windows Nginx/PHP FastCGI template, same-origin API routing, TLS/security headers, sensitive-file rules, LAN/Internet guidance, environment variables, and backup requirements are documented in [Production Security and Deployment](Production-Security-and-Deployment.md).
 
 Before production deployment, configure HTTPS at the web server or reverse proxy, restrict the two hard-coded development CORS origins as needed, protect the ignored database JSON, encryption key, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates.
 

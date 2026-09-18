@@ -1,14 +1,19 @@
 <?php
 
+require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+
 final class AuthSessionService
 {
     private const AUTH_KEY = 'generic_reporting_auth';
+    private const META_KEY = 'generic_reporting_session_meta';
 
     private string $sessionName;
+    private array $options;
 
-    public function __construct(string $sessionName = 'generic_reporting_session')
+    public function __construct(string $sessionName = 'generic_reporting_session', ?array $options = null)
     {
         $this->sessionName = $sessionName;
+        $this->options = $options ?? SecurityConfiguration::sessionOptions();
     }
 
     public function start(): void
@@ -26,9 +31,9 @@ final class AuthSessionService
         session_set_cookie_params([
             'lifetime' => 0,
             'path' => '/',
-            'secure' => $this->isHttpsRequest(),
-            'httponly' => true,
-            'samesite' => 'Lax',
+            'secure' => ($this->options['secure'] ?? false) === true,
+            'httponly' => ($this->options['httponly'] ?? true) === true,
+            'samesite' => (string)($this->options['samesite'] ?? 'Lax'),
         ]);
 
         if (!session_start()) {
@@ -39,13 +44,13 @@ final class AuthSessionService
     public function resume(): bool
     {
         if (session_status() === PHP_SESSION_ACTIVE) {
-            return true;
+            return !$this->expireIfNecessary();
         }
         if (!isset($_COOKIE[$this->sessionName]) || !is_string($_COOKIE[$this->sessionName])) {
             return false;
         }
         $this->start();
-        return true;
+        return !$this->expireIfNecessary();
     }
 
     public function isAuthenticated(): bool
@@ -83,6 +88,8 @@ final class AuthSessionService
             'username' => $username,
             'isAdmin' => $isAdmin,
         ];
+        $now = time();
+        $_SESSION[self::META_KEY] = ['createdAt' => $now, 'lastActivity' => $now];
     }
 
     public function destroy(): void
@@ -115,8 +122,22 @@ final class AuthSessionService
         return is_array($identity) ? $identity : [];
     }
 
-    private function isHttpsRequest(): bool
+    private function expireIfNecessary(): bool
     {
-        return isset($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off';
+        if (!isset($_SESSION[self::AUTH_KEY])) return false;
+        $metadata = $_SESSION[self::META_KEY] ?? null;
+        $now = time();
+        $idleTimeout = max(60, (int)($this->options['idleTimeout'] ?? 1800));
+        $absoluteTimeout = max(300, (int)($this->options['absoluteTimeout'] ?? 28800));
+        if (!is_array($metadata)
+            || !is_int($metadata['createdAt'] ?? null)
+            || !is_int($metadata['lastActivity'] ?? null)
+            || $now - $metadata['lastActivity'] > $idleTimeout
+            || $now - $metadata['createdAt'] > $absoluteTimeout) {
+            $this->destroy();
+            return true;
+        }
+        $_SESSION[self::META_KEY]['lastActivity'] = $now;
+        return false;
     }
 }

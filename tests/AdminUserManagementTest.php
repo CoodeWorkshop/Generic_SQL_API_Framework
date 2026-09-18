@@ -44,7 +44,7 @@ $actions = [
     'auth.users.list', 'auth.users.create', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
 ];
-$publicActions = ['setup.status', 'setup.createAdmin', 'auth.login', 'auth.session', 'auth.logout'];
+$publicActions = ['setup.status', 'setup.createAdmin', 'auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 
 try {
     mkdir($root, 0700, true);

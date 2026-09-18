@@ -37,6 +37,7 @@ $sessionName = 'generic_reporting_protection_' . bin2hex(random_bytes(4));
 $publicActions = [
     'setup.status',
     'setup.createAdmin',
+    'auth.csrf',
     'auth.login',
     'auth.session',
     'auth.logout',
@@ -103,12 +104,16 @@ try {
     }
 
     protectionAssert(
-        $_SESSION === ['generic_reporting_auth' => [
+        $_SESSION['generic_reporting_auth'] === [
             'authenticated' => true,
             'username' => 'Authenticated.User',
             'isAdmin' => false,
-        ]],
-        'Protection middleware altered or expanded the safe session identity.'
+        ],
+        'Protection middleware altered the safe session identity.'
+    );
+    protectionAssert(
+        is_int($_SESSION['generic_reporting_session_meta']['lastActivity'] ?? null),
+        'Protection middleware did not maintain the server-side timeout.'
     );
 
     echo "API protection tests passed.\n";

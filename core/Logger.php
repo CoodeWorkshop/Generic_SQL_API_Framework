@@ -114,6 +114,17 @@ class Logger
         $this->write((string)json_encode($record, JSON_UNESCAPED_SLASHES));
     }
 
+    public function security(string $event, array $context = []): void
+    {
+        $allowed = ['username', 'targetUsername', 'sourceIp', 'result', 'action'];
+        $safeContext = array_intersect_key($context, array_flip($allowed));
+        $this->write((string)json_encode([
+            'timestamp' => date(DATE_ATOM),
+            'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
+            'event' => $event,
+        ] + $safeContext, JSON_UNESCAPED_SLASHES));
+    }
+
     public function safeSql(string $sql): string
     {
         // Builders normally use placeholders, but redact any literal that an

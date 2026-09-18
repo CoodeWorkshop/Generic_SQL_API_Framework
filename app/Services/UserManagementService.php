@@ -33,7 +33,7 @@ final class UserManagementService
     {
         try {
             $passwordHash = $this->passwordHasher->hash($password);
-            return $this->authRepository->update(function (array &$configuration) use (
+            $result = $this->authRepository->update(function (array &$configuration) use (
                 $username,
                 $passwordHash,
                 $isAdmin
@@ -50,6 +50,8 @@ final class UserManagementService
                 $configuration['users'][] = $user;
                 return $this->safeUser($user);
             });
+            $this->audit('admin_user_created', $username);
+            return $result;
         } catch (ApiRequestException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -60,7 +62,7 @@ final class UserManagementService
     public function setEnabled(string $username, bool $enabled): array
     {
         try {
-            return $this->authRepository->update(function (array &$configuration) use ($username, $enabled): array {
+            $result = $this->authRepository->update(function (array &$configuration) use ($username, $enabled): array {
                 $index = $this->requireUserIndex($configuration['users'], $username);
                 $user = $configuration['users'][$index];
                 if (!$enabled && $user['enabled'] && $user['isAdmin']
@@ -70,6 +72,8 @@ final class UserManagementService
                 $configuration['users'][$index]['enabled'] = $enabled;
                 return $this->safeUser($configuration['users'][$index]);
             });
+            $this->audit($enabled ? 'admin_user_enabled' : 'admin_user_disabled', $username);
+            return $result;
         } catch (ApiRequestException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -80,7 +84,7 @@ final class UserManagementService
     public function deleteUser(string $username, string $currentUsername): array
     {
         try {
-            return $this->authRepository->update(function (array &$configuration) use (
+            $result = $this->authRepository->update(function (array &$configuration) use (
                 $username,
                 $currentUsername
             ): array {
@@ -101,6 +105,8 @@ final class UserManagementService
                 array_splice($configuration['users'], $index, 1);
                 return $this->safeUser($user);
             });
+            $this->audit('admin_user_deleted', $username);
+            return $result;
         } catch (ApiRequestException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -112,7 +118,7 @@ final class UserManagementService
     {
         try {
             $passwordHash = $this->passwordHasher->hash($newPassword);
-            return $this->authRepository->update(function (array &$configuration) use (
+            $result = $this->authRepository->update(function (array &$configuration) use (
                 $username,
                 $passwordHash
             ): array {
@@ -120,6 +126,8 @@ final class UserManagementService
                 $configuration['users'][$index]['passwordHash'] = $passwordHash;
                 return $this->safeUser($configuration['users'][$index]);
             });
+            $this->audit('admin_user_password_changed', $username);
+            return $result;
         } catch (ApiRequestException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -171,6 +179,14 @@ final class UserManagementService
             [],
             409
         );
+    }
+
+    private function audit(string $event, string $targetUsername): void
+    {
+        (new Logger())->security($event, [
+            'targetUsername' => $targetUsername,
+            'result' => 'completed',
+        ]);
     }
 
     private function fail(Throwable $exception): never

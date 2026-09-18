@@ -4,34 +4,53 @@ define('API_REQUEST_STARTED', microtime(true));
 define('API_REQUEST_ID', bin2hex(random_bytes(8)));
 ob_start();
 
-// --------------------
-// CORS Headers
-// --------------------
-$allowed_origins = [
-    'http://127.0.0.1:5173',
-    'http://localhost:5173',
-];
+require_once __DIR__ . '/../config/constants.php';
+require_once __DIR__ . '/../core/Response.php';
+require_once __DIR__ . '/../app/Security/SecurityConfiguration.php';
+
+if (SecurityConfiguration::isProduction()) {
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+}
+
+$allowed_origins = SecurityConfiguration::allowedOrigins();
 
 if (isset($_SERVER['HTTP_ORIGIN']) && in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins, true)) {
     header("Access-Control-Allow-Origin: " . $_SERVER['HTTP_ORIGIN']);
     header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Expose-Headers: X-CSRF-Token');
     header('Vary: Origin');
 }
 
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Content-Type: application/json");
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token');
+header('Content-Type: application/json');
+header_remove('X-Powered-By');
+header('Cache-Control: no-store');
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: no-referrer');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
 
 // Handle browser preflight request
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    http_response_code(204);
     exit();
 }
 
-require_once __DIR__ . '/../config/constants.php';
-require_once __DIR__ . '/../core/Response.php';
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    Response::error('Method not allowed.', 405, 'METHOD_NOT_ALLOWED');
+}
+
+$contentType = strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ?? ''))[0]));
+if ($contentType !== 'application/json') {
+    Response::error('Content-Type must be application/json.', 415, 'UNSUPPORTED_MEDIA_TYPE');
+}
+
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
@@ -66,7 +85,7 @@ if (!is_array($publicRequest)) {
 }
 
 $setupActions = ['setup.status', 'setup.createAdmin'];
-$authActions = ['auth.login', 'auth.session', 'auth.logout'];
+$authActions = ['auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 $userManagementActions = [
     'auth.users.list',
     'auth.users.create',
@@ -79,6 +98,7 @@ $publicAuthenticationActions = array_merge($setupActions, $authActions);
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
 (new AdminAuthorizationMiddleware($userManagementActions))->handle($publicRequest);
+(new CsrfProtectionMiddleware())->handle($publicRequest);
 
 // Execute Middleware
 $middleware = new LoggingMiddleware();
@@ -98,6 +118,9 @@ if (in_array($publicRequest['action'] ?? null, $authActions, true)) {
     $request = (new AuthRequestValidator())->validate($publicRequest);
     Response::setRequestContext(['action' => $request['action']]);
     $controller = new AuthController();
+    if ($request['action'] === 'auth.csrf') {
+        $controller->csrf($request);
+    }
     if ($request['action'] === 'auth.login') {
         $controller->login($request);
     }

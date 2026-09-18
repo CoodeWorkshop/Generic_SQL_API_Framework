@@ -96,6 +96,10 @@ final class SetupService
                     throw $exception;
                 }
 
+                (new Logger())->security('initial_admin_created', [
+                    'username' => $username,
+                    'result' => 'created',
+                ]);
                 return ['initialized' => true];
             });
         } catch (ApiRequestException $exception) {

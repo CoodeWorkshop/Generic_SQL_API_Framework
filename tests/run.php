@@ -20,7 +20,8 @@ $tests = [
     __DIR__ . '/FirstTimeSetupTest.php',
     __DIR__ . '/AuthenticationFlowTest.php',
     __DIR__ . '/ApiProtectionTest.php',
-    __DIR__ . '/AdminUserManagementTest.php'
+    __DIR__ . '/AdminUserManagementTest.php',
+    __DIR__ . '/SecurityHardeningTest.php'
 ];
 
 foreach ($tests as $test) {
