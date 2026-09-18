@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../config/constants.php';
 require_once __DIR__ . '/../core/Response.php';
+require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
@@ -54,6 +55,11 @@ if (!is_array($publicRequest)) {
         [['path' => '', 'message' => 'Request body must be a JSON object.']]
     );
 }
+
+// Central authentication boundary. Enforcement remains disabled in Phase 2
+// until public login/session actions are available.
+$authentication = new AuthenticationMiddleware(false);
+$authentication->handle($publicRequest);
 
 // Execute Middleware
 $middleware = new LoggingMiddleware();
