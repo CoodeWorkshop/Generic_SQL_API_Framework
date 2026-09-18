@@ -65,7 +65,7 @@ if (!is_array($publicRequest)) {
 $setupActions = ['setup.status', 'setup.createAdmin'];
 $authActions = ['auth.login', 'auth.session', 'auth.logout'];
 $publicAuthenticationActions = array_merge($setupActions, $authActions);
-$authentication = new AuthenticationMiddleware(false, $publicAuthenticationActions);
+$authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
 
 // Execute Middleware

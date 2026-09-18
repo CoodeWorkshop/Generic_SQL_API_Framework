@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/Middleware.php';
 require_once __DIR__ . '/../Services/AuthSessionService.php';
-require_once __DIR__ . '/../../core/Response.php';
+require_once __DIR__ . '/../Requests/ApiRequestException.php';
 
 final class AuthenticationMiddleware extends Middleware
 {
@@ -22,17 +22,16 @@ final class AuthenticationMiddleware extends Middleware
 
     public function handle(array $request): void
     {
-        // Phase 2 deliberately leaves enforcement disabled so existing reports
-        // remain available until login and session endpoints exist.
         if (!$this->enforce || in_array($request['action'] ?? null, $this->publicActions, true)) {
             return;
         }
 
         if (!$this->session->resume() || !$this->session->isAuthenticated()) {
-            Response::error(
-                'Authentication is required.',
-                401,
-                'AUTHENTICATION_REQUIRED'
+            throw new ApiRequestException(
+                'Authentication required.',
+                'AUTHENTICATION_REQUIRED',
+                [],
+                401
             );
         }
     }
