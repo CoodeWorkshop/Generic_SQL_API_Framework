@@ -9,13 +9,16 @@ final class UserManagementService
 {
     private AuthRepository $authRepository;
     private PasswordHasher $passwordHasher;
+    private Logger $logger;
 
     public function __construct(
         ?AuthRepository $authRepository = null,
-        ?PasswordHasher $passwordHasher = null
+        ?PasswordHasher $passwordHasher = null,
+        ?Logger $logger = null
     ) {
         $this->authRepository = $authRepository ?? new AuthRepository();
         $this->passwordHasher = $passwordHasher ?? new PasswordHasher();
+        $this->logger = $logger ?? new Logger();
     }
 
     public function listUsers(): array
@@ -29,28 +32,59 @@ final class UserManagementService
         }
     }
 
-    public function createUser(string $username, string $password, bool $isAdmin): array
+    public function createUser(string $username, string $password, bool $isAdmin, bool $enabled = true): array
     {
         try {
             $passwordHash = $this->passwordHasher->hash($password);
             $result = $this->authRepository->update(function (array &$configuration) use (
                 $username,
                 $passwordHash,
-                $isAdmin
+                $isAdmin,
+                $enabled
             ): array {
                 if ($this->findIndex($configuration['users'], $username) !== null) {
                     throw new ApiRequestException('User already exists.', 'USER_ALREADY_EXISTS', [], 409);
                 }
                 $user = [
+                    'id' => bin2hex(random_bytes(16)),
                     'username' => $username,
                     'passwordHash' => $passwordHash,
-                    'enabled' => true,
+                    'enabled' => $enabled,
                     'isAdmin' => $isAdmin,
+                    'createdAt' => gmdate(DATE_ATOM),
+                    'authVersion' => 1,
                 ];
                 $configuration['users'][] = $user;
                 return $this->safeUser($user);
             });
             $this->audit('admin_user_created', $username);
+            return $result;
+        } catch (ApiRequestException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            $this->fail($exception);
+        }
+    }
+
+    public function updateUsername(string $username, string $newUsername): array
+    {
+        try {
+            $result = $this->authRepository->update(function (array &$configuration) use (
+                $username,
+                $newUsername
+            ): array {
+                $index = $this->requireUserIndex($configuration['users'], $username);
+                $existingIndex = $this->findIndex($configuration['users'], $newUsername);
+                if ($existingIndex !== null && $existingIndex !== $index) {
+                    throw new ApiRequestException('User already exists.', 'USER_ALREADY_EXISTS', [], 409);
+                }
+                if ($configuration['users'][$index]['username'] !== $newUsername) {
+                    $configuration['users'][$index]['username'] = $newUsername;
+                    $configuration['users'][$index]['authVersion']++;
+                }
+                return $this->safeUser($configuration['users'][$index]);
+            });
+            $this->audit('admin_username_updated', $newUsername);
             return $result;
         } catch (ApiRequestException $exception) {
             throw $exception;
@@ -69,7 +103,10 @@ final class UserManagementService
                     && $this->enabledAdminCount($configuration['users']) <= 1) {
                     $this->lastEnabledAdmin();
                 }
-                $configuration['users'][$index]['enabled'] = $enabled;
+                if ($configuration['users'][$index]['enabled'] !== $enabled) {
+                    $configuration['users'][$index]['enabled'] = $enabled;
+                    $configuration['users'][$index]['authVersion']++;
+                }
                 return $this->safeUser($configuration['users'][$index]);
             });
             $this->audit($enabled ? 'admin_user_enabled' : 'admin_user_disabled', $username);
@@ -124,6 +161,7 @@ final class UserManagementService
             ): array {
                 $index = $this->requireUserIndex($configuration['users'], $username);
                 $configuration['users'][$index]['passwordHash'] = $passwordHash;
+                $configuration['users'][$index]['authVersion']++;
                 return $this->safeUser($configuration['users'][$index]);
             });
             $this->audit('admin_user_password_changed', $username);
@@ -168,6 +206,7 @@ final class UserManagementService
             'username' => $user['username'],
             'enabled' => $user['enabled'],
             'isAdmin' => $user['isAdmin'],
+            'createdAt' => $user['createdAt'],
         ];
     }
 
@@ -183,7 +222,7 @@ final class UserManagementService
 
     private function audit(string $event, string $targetUsername): void
     {
-        (new Logger())->security($event, [
+        $this->logger->security($event, [
             'targetUsername' => $targetUsername,
             'result' => 'completed',
         ]);
@@ -191,7 +230,7 @@ final class UserManagementService
 
     private function fail(Throwable $exception): never
     {
-        (new Logger())->write((string)json_encode([
+        $this->logger->write((string)json_encode([
             'timestamp' => date(DATE_ATOM),
             'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
             'event' => 'user_management_error',

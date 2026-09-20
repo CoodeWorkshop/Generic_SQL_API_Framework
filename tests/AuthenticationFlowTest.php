@@ -93,10 +93,13 @@ try {
         array_keys($_SESSION) === ['generic_reporting_auth', 'generic_reporting_session_meta'],
         'Session stored data outside the identity and timeout boundary.'
     );
+    $storedAdministrator = $repository->findUser('Administrator');
     authFlowAssert($_SESSION['generic_reporting_auth'] === [
         'authenticated' => true,
         'username' => 'Administrator',
         'isAdmin' => true,
+        'userId' => $storedAdministrator['id'],
+        'authVersion' => $storedAdministrator['authVersion'],
     ], 'Session identity contains unsafe or malformed data.');
     authFlowAssert(
         is_int($_SESSION['generic_reporting_session_meta']['createdAt'] ?? null)

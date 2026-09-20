@@ -50,7 +50,13 @@ try {
         ]],
     ];
     $authRepository->save($authConfiguration);
-    authenticationAssert($authRepository->load() === $authConfiguration, 'Authentication storage round trip failed.');
+    $storedAuthentication = $authRepository->load();
+    authenticationAssert(
+        $storedAuthentication['version'] === 2
+            && count($storedAuthentication['users']) === 1
+            && $storedAuthentication['users'][0]['username'] === 'Administrator',
+        'Authentication storage migration round trip failed.'
+    );
     authenticationAssert(
         $authRepository->findEnabledUser('administrator')['username'] === 'Administrator',
         'Case-insensitive enabled-user lookup failed.'
@@ -98,7 +104,7 @@ try {
     authenticationAssert(!$session->resume(), 'Session resumed without a session cookie.');
     $session->start();
     $anonymousSessionId = session_id();
-    $session->establish('Administrator', true);
+    $session->establish('Administrator', true, str_repeat('a', 32), 1);
     authenticationAssert(session_id() !== $anonymousSessionId, 'Session ID was not regenerated after authentication.');
     authenticationAssert($session->isAuthenticated(), 'Established session is not authenticated.');
     authenticationAssert($session->authenticatedUsername() === 'Administrator', 'Session username was not retained.');

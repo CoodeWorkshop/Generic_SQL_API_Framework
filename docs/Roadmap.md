@@ -55,10 +55,12 @@ The five basic metadata actions already exist. This version is for capabilities 
 
 ## v1.5.0 — API Security — Planned
 
-- authentication and authorization design
-- API keys or token-based identity, role enforcement, audit policy, and rate limiting
+- generalized roles and permissions, resource-level authorization, API-key
+  management, audit policy, and general rate limiting
 
-The current API has no application authentication/authorization layer; an `Authorization` CORS header allowance is not security implementation.
+Session authentication, one environment-provided API key, administrator user
+management, CSRF, and login throttling are already implemented. The planned work
+extends that foundation rather than replacing it.
 
 ## v1.6.0 — API Improvements — Planned
 

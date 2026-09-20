@@ -36,6 +36,8 @@ for extension in odbc openssl json session; do
     fi
 done
 
+"$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/bootstrap-runtime-configuration.php"
+
 GENERIC_SQL_API_ENCRYPTION_KEY="$($PHP_BIN -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/prepare-local-encryption-key.php")"
 if [ -z "$GENERIC_SQL_API_ENCRYPTION_KEY" ]; then
     echo "[FAILED] Unable to prepare the database encryption key."
@@ -48,6 +50,7 @@ export GENERIC_ADMIN_ENABLED=1
 ADMIN_URL="http://127.0.0.1:$PORT/admin"
 
 echo "[OK] PHP runtime and required extensions"
+echo "[OK] Runtime configuration"
 echo "[OK] Local database encryption key"
 echo "[OK] Loopback port $PORT"
 echo

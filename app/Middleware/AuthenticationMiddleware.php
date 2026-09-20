@@ -72,7 +72,7 @@ final class AuthenticationMiddleware extends Middleware
         }
 
         try {
-            $user = $this->authRepository->findUser((string)$this->session->authenticatedUsername());
+            $user = $this->authRepository->findUserById((string)$this->session->authenticatedUserId());
         } catch (Throwable $exception) {
             throw new ApiRequestException(
                 'Unable to validate authentication.',
@@ -83,7 +83,9 @@ final class AuthenticationMiddleware extends Middleware
         }
         if ($user === null
             || $user['enabled'] !== true
-            || $user['isAdmin'] !== $this->session->authenticatedUserIsAdmin()) {
+            || $user['username'] !== $this->session->authenticatedUsername()
+            || $user['isAdmin'] !== $this->session->authenticatedUserIsAdmin()
+            || $user['authVersion'] !== $this->session->authenticatedAuthVersion()) {
             $this->session->destroy();
             $this->authenticationRequired();
         }

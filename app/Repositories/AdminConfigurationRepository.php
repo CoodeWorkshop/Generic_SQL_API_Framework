@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../core/JsonFileStore.php';
+require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
 
 final class AdminConfigurationRepository
 {
@@ -8,21 +9,20 @@ final class AdminConfigurationRepository
     public const ALLOWED_CORS_METHODS = ['POST', 'OPTIONS'];
 
     private string $path;
+    private bool $runtimePath;
 
     public function __construct(?string $path = null)
     {
         $configuredPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
-        $this->path = $path
-            ?? ($configuredPath !== false && trim($configuredPath) !== ''
-                ? trim($configuredPath)
-                : dirname(__DIR__, 2) . '/config/admin.json');
+        $this->runtimePath = $path === null && ($configuredPath === false || trim($configuredPath) === '');
+        $this->path = $path ?? ($this->runtimePath
+            ? RuntimeConfiguration::path(RuntimeConfiguration::ADMIN_FILE)
+            : trim($configuredPath));
     }
 
     public function load(): array
     {
-        if (!is_file($this->path)) {
-            return self::defaults();
-        }
+        if ($this->runtimePath) RuntimeConfiguration::ensure();
         $configuration = JsonFileStore::load($this->path);
         $this->validate($configuration);
         return $configuration;
@@ -30,28 +30,14 @@ final class AdminConfigurationRepository
 
     public function save(array $configuration): void
     {
+        if ($this->runtimePath) RuntimeConfiguration::ensure();
         $this->validate($configuration);
         JsonFileStore::save($this->path, $configuration);
     }
 
     public static function defaults(): array
     {
-        return [
-            'version' => 1,
-            'cors' => [
-                'allowedOrigins' => [
-                    'http://127.0.0.1:5173',
-                    'http://localhost:5173',
-                    'http://127.0.0.1:5314',
-                    'http://localhost:5314',
-                    'http://127.0.0.1:5341',
-                    'http://localhost:5341',
-                ],
-                'credentialsEnabled' => true,
-                'allowedMethods' => ['POST', 'OPTIONS'],
-            ],
-            'authentication' => ['mode' => 'session'],
-        ];
+        return RuntimeConfiguration::adminDefaults();
     }
 
     public static function normalizeOrigin(string $origin): string

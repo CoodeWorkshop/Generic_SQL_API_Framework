@@ -89,7 +89,12 @@ final class AuthService
                     ]);
                 }
             }
-            $this->sessionService->establish($user['username'], $user['isAdmin']);
+            $this->sessionService->establish(
+                $user['username'],
+                $user['isAdmin'],
+                $user['id'],
+                $user['authVersion']
+            );
             (new Logger())->security('login_succeeded', [
                 'username' => $user['username'],
                 'sourceIp' => $sourceIp,
@@ -111,8 +116,13 @@ final class AuthService
             }
             $username = (string)$this->sessionService->authenticatedUsername();
             $isAdmin = $this->sessionService->authenticatedUserIsAdmin();
-            $user = $this->authRepository->findUser($username);
+            $user = $this->authRepository->findUserById((string)$this->sessionService->authenticatedUserId());
             if ($user === null || $user['enabled'] !== true || $user['isAdmin'] !== $isAdmin) {
+                $this->sessionService->destroy();
+                return $this->unauthenticatedSnapshot();
+            }
+            if ($user['username'] !== $username
+                || $user['authVersion'] !== $this->sessionService->authenticatedAuthVersion()) {
                 $this->sessionService->destroy();
                 return $this->unauthenticatedSnapshot();
             }

@@ -9,6 +9,7 @@ final class UserManagementRequestValidator
     private const ACTIONS = [
         'auth.users.list',
         'auth.users.create',
+        'auth.users.update',
         'auth.users.enable',
         'auth.users.disable',
         'auth.users.delete',
@@ -27,10 +28,12 @@ final class UserManagementRequestValidator
         }
 
         $allowed = $action === 'auth.users.create'
-            ? ['action', 'username', 'password', 'isAdmin']
+            ? ['action', 'username', 'password', 'passwordConfirmation', 'enabled', 'isAdmin']
+            : ($action === 'auth.users.update'
+                ? ['action', 'username', 'newUsername']
             : ($action === 'auth.users.changePassword'
-                ? ['action', 'username', 'newPassword']
-                : ['action', 'username']);
+                ? ['action', 'username', 'newPassword', 'passwordConfirmation']
+                : ['action', 'username']));
         $this->rejectUnknown($request, $allowed);
 
         $details = [];
@@ -48,11 +51,29 @@ final class UserManagementRequestValidator
             } catch (InvalidArgumentException $exception) {
                 $details[] = ['path' => 'password', 'message' => $exception->getMessage()];
             }
+            $this->validateConfirmation(
+                $request['passwordConfirmation'] ?? null,
+                $validated['password'] ?? null,
+                'passwordConfirmation',
+                $details
+            );
             $isAdmin = $request['isAdmin'] ?? false;
             if (!is_bool($isAdmin)) {
                 $details[] = ['path' => 'isAdmin', 'message' => 'Administrator flag must be a boolean.'];
             } else {
                 $validated['isAdmin'] = $isAdmin;
+            }
+            $enabled = $request['enabled'] ?? true;
+            if (!is_bool($enabled)) {
+                $details[] = ['path' => 'enabled', 'message' => 'Enabled status must be a boolean.'];
+            } else {
+                $validated['enabled'] = $enabled;
+            }
+        } elseif ($action === 'auth.users.update') {
+            try {
+                $validated['newUsername'] = UsernamePolicy::normalize($request['newUsername'] ?? null);
+            } catch (InvalidArgumentException $exception) {
+                $details[] = ['path' => 'newUsername', 'message' => $exception->getMessage()];
             }
         } elseif ($action === 'auth.users.changePassword') {
             try {
@@ -60,12 +81,27 @@ final class UserManagementRequestValidator
             } catch (InvalidArgumentException $exception) {
                 $details[] = ['path' => 'newPassword', 'message' => $exception->getMessage()];
             }
+            $this->validateConfirmation(
+                $request['passwordConfirmation'] ?? null,
+                $validated['newPassword'] ?? null,
+                'passwordConfirmation',
+                $details
+            );
         }
 
         if ($details !== []) {
             throw new ApiRequestException('Invalid user request.', 'INVALID_USER_REQUEST', $details);
         }
         return $validated;
+    }
+
+    private function validateConfirmation($confirmation, ?string $password, string $path, array &$details): void
+    {
+        if (!is_string($confirmation)) {
+            $details[] = ['path' => $path, 'message' => 'Password confirmation is required.'];
+        } elseif ($password !== null && !hash_equals($password, $confirmation)) {
+            $details[] = ['path' => $path, 'message' => 'Password confirmation does not match.'];
+        }
     }
 
     private function rejectUnknown(array $request, array $allowed): void

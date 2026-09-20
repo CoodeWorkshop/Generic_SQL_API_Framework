@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Repositories/InstallationRepository.php';
 require_once __DIR__ . '/../Security/PasswordHasher.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../../core/Logger.php';
+require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
 
 final class SetupService
 {
@@ -22,14 +23,22 @@ final class SetupService
         $this->authRepository = $authRepository ?? new AuthRepository();
         $this->installationRepository = $installationRepository ?? new InstallationRepository();
         $this->passwordHasher = $passwordHasher ?? new PasswordHasher();
-        $this->lockPath = $lockPath ?? ROOT_PATH . '/config/installation.lock';
+        $this->lockPath = $lockPath
+            ?? RuntimeConfiguration::directory() . DIRECTORY_SEPARATOR . 'installation.lock';
     }
 
     public function status(): array
     {
         try {
-            return $this->withLock(LOCK_SH, function (): array {
+            return $this->withLock(LOCK_EX, function (): array {
                 $installation = $this->installationRepository->load();
+                if (!$installation['initialized']) {
+                    $authentication = $this->authRepository->load();
+                    if ($this->isRecoverableInitialAdmin($authentication['users'])) {
+                        $installation['initialized'] = true;
+                        $this->installationRepository->save($installation);
+                    }
+                }
                 return ['initialized' => $installation['initialized']];
             });
         } catch (ApiRequestException $exception) {
@@ -74,12 +83,15 @@ final class SetupService
                 }
 
                 $updatedAuthentication = [
-                    'version' => 1,
+                    'version' => 2,
                     'users' => [[
+                        'id' => bin2hex(random_bytes(16)),
                         'username' => $username,
                         'passwordHash' => $this->passwordHasher->hash($password),
                         'enabled' => true,
                         'isAdmin' => true,
+                        'createdAt' => gmdate(DATE_ATOM),
+                        'authVersion' => 1,
                     ]],
                 ];
 

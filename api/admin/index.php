@@ -24,6 +24,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Generic SQL API · Administration</title>
     <link rel="stylesheet" href="/admin/assets/admin.css">
+    <link rel="stylesheet" href="/admin/assets/users.css">
 </head>
 <body>
     <div class="shell">
@@ -31,6 +32,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
             <div class="brand"><span class="brand-mark">G</span><span>Generic SQL API</span></div>
             <nav id="navigation" hidden>
                 <a href="/admin" data-route="overview">Overview</a>
+                <a href="/admin/users" data-route="users">Users</a>
                 <a href="/admin/database" data-route="database">Database</a>
                 <a href="/admin/cors" data-route="cors">CORS</a>
                 <a href="/admin/authentication" data-route="authentication">Authentication</a>

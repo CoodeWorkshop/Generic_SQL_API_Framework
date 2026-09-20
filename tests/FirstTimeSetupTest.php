@@ -100,6 +100,16 @@ try {
     setupAssert($installation['installationId'] === $installationId, 'Installation ID changed during setup.');
     setupAssert($service->status() === ['initialized' => true], 'Initialized status exposed extra data.');
 
+    (new InstallationRepository($installationPath))->save([
+        ...$installation,
+        'initialized' => false,
+    ]);
+    setupAssert(
+        $service->status() === ['initialized' => true]
+            && (new InstallationRepository($installationPath))->load()['initialized'] === true,
+        'Interrupted initial-administrator state was not recovered.'
+    );
+
     setupFailure(
         fn () => $service->createInitialAdmin('SecondAdmin', 'another-secure-password'),
         'INSTALLATION_ALREADY_INITIALIZED'

@@ -9,6 +9,7 @@ final class CsrfProtectionMiddleware extends Middleware
         'auth.login',
         'auth.logout',
         'auth.users.create',
+        'auth.users.update',
         'auth.users.enable',
         'auth.users.disable',
         'auth.users.delete',

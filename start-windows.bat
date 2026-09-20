@@ -41,6 +41,13 @@ for %%E in (odbc openssl json session) do (
     )
 )
 
+"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\bootstrap-runtime-configuration.php"
+if errorlevel 1 (
+    echo [FAILED] Unable to initialize runtime configuration.
+    pause
+    exit /b 1
+)
+
 set "PREPARED_ENCRYPTION_KEY="
 for /f "usebackq delims=" %%K in (`"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\prepare-local-encryption-key.php"`) do set "PREPARED_ENCRYPTION_KEY=%%K"
 if not defined PREPARED_ENCRYPTION_KEY (
@@ -63,6 +70,7 @@ set "GENERIC_ADMIN_ENABLED=1"
 set "ADMIN_URL=http://127.0.0.1:%PORT%/admin"
 
 echo [OK] PHP runtime and required extensions
+echo [OK] Runtime configuration
 echo [OK] Local database encryption key
 echo [OK] Loopback port %PORT%
 echo.

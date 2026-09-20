@@ -7,6 +7,7 @@
   const logout = document.querySelector('#logout');
   const title = document.querySelector('#page-title');
   let csrfToken = '';
+  let currentUser = null;
 
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const row = response => response.data && response.data[0] ? response.data[0] : {};
@@ -21,14 +22,18 @@
     const nextToken = response.headers.get('X-CSRF-Token');
     if (nextToken) csrfToken = nextToken;
     const body = await response.json().catch(() => ({success:false,message:'The API returned an unreadable response.'}));
-    if (!response.ok || !body.success) throw new Error(body.message || 'The operation failed.');
+    if (!response.ok || !body.success) {
+      const error = new Error(body.message || 'The operation failed.');
+      error.code = body.error && body.error.code;
+      throw error;
+    }
     return body;
   }
   async function loadCsrf() { csrfToken = row(await call({action:'auth.csrf'})).csrfToken || ''; }
 
   function setupView() {
     title.textContent = 'Create the initial administrator';
-    content.innerHTML = `<form id="setup-form" class="stack"><p class="help">Create the first local administrator. Passwords must meet the backend password policy.</p><label>Username<input name="username" autocomplete="username" required maxlength="128"></label><label>Password<input name="password" type="password" autocomplete="new-password" required></label><label>Confirm password<input name="passwordConfirmation" type="password" autocomplete="new-password" required></label><div><button>Create administrator</button></div></form>`;
+    content.innerHTML = `<form id="setup-form" class="stack"><p class="help">Create the first local administrator. Passwords must meet the backend password policy.</p><label>Username<input name="username" autocomplete="username" required maxlength="64"></label><label>Password<input name="password" type="password" autocomplete="new-password" required></label><label>Confirm password<input name="passwordConfirmation" type="password" autocomplete="new-password" required></label><div><button>Create administrator</button></div></form>`;
     document.querySelector('#setup-form').addEventListener('submit', async event => {
       event.preventDefault(); showNotice('');
       const values = new FormData(event.currentTarget);
@@ -45,7 +50,14 @@
     content.innerHTML = `<form id="login-form" class="stack"><p class="help">Use an enabled administrator account. The browser session never exposes API keys.</p><label>Username<input name="username" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><div><button>Sign in</button></div></form>`;
     document.querySelector('#login-form').addEventListener('submit', async event => {
       event.preventDefault(); showNotice(''); const values = new FormData(event.currentTarget);
-      try { await call({action:'auth.login',username:values.get('username'),password:values.get('password')}, true); await enterConsole(); }
+      try {
+        const snapshot = row(await call({action:'auth.login',username:values.get('username'),password:values.get('password')}, true));
+        if (!snapshot.authenticated || !snapshot.user || !snapshot.user.isAdmin) {
+          await call({action:'auth.logout'}, true);
+          throw new Error('Administrator access is required.');
+        }
+        currentUser = snapshot.user; await enterConsole();
+      }
       catch (error) { showNotice(error.message, true); }
     });
   }
@@ -86,6 +98,21 @@
     document.querySelector('#authentication-form').addEventListener('submit',async event=>{event.preventDefault();const v=new FormData(event.currentTarget);try{await call({action:'admin.authentication.save',mode:v.get('mode')},true);showNotice('Authentication mode saved.');}catch(error){showNotice(error.message,true);}});
   }
 
+  function userForm(mode, user = null) {
+    if (mode === 'create') return `<form id="user-operation" class="stack"><h2>Create user</h2><label>Username<input name="username" required maxlength="64" autocomplete="off"></label><div class="row"><label>Password<input name="password" type="password" required autocomplete="new-password"></label><label>Confirm password<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label></div><div class="row"><label class="check"><input name="enabled" type="checkbox" checked> Enabled</label><label class="check"><input name="isAdmin" type="checkbox"> Administrator</label></div><div class="actions"><button>Create user</button><button type="button" class="secondary" data-cancel-user>Cancel</button></div></form>`;
+    if (mode === 'rename') return `<form id="user-operation" class="stack"><h2>Update username</h2><input name="username" type="hidden" value="${escapeHtml(user.username)}"><label>New username<input name="newUsername" required maxlength="64" value="${escapeHtml(user.username)}"></label><div class="actions"><button>Save username</button><button type="button" class="secondary" data-cancel-user>Cancel</button></div></form>`;
+    return `<form id="user-operation" class="stack"><h2>Change password for ${escapeHtml(user.username)}</h2><input name="username" type="hidden" value="${escapeHtml(user.username)}"><div class="row"><label>New password<input name="newPassword" type="password" required autocomplete="new-password"></label><label>Confirm password<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label></div><div class="actions"><button>Change password</button><button type="button" class="secondary" data-cancel-user>Cancel</button></div></form>`;
+  }
+
+  async function usersView() {
+    const response = await call({action:'auth.users.list'}); const users = response.data || []; title.textContent='Users';
+    content.innerHTML=`<div class="users-heading"><p class="help">Passwords and hashes are never returned. Credential or identity changes invalidate that user’s existing sessions.</p><button id="add-user">+ Add user</button></div><div class="table-wrap"><table><thead><tr><th>Username</th><th>Status</th><th>Type</th><th>Created</th><th>Actions</th></tr></thead><tbody>${users.map(user=>`<tr><td>${escapeHtml(user.username)}</td><td><span class="badge ${user.enabled?'':'disabled'}">${user.enabled?'Enabled':'Disabled'}</span></td><td>${user.isAdmin?'Administrator':'User'}</td><td>${escapeHtml(new Date(user.createdAt).toLocaleString())}</td><td><div class="actions"><button class="small secondary" data-user-action="rename" data-username="${escapeHtml(user.username)}">Edit</button><button class="small secondary" data-user-action="password" data-username="${escapeHtml(user.username)}">Password</button><button class="small secondary" data-user-action="${user.enabled?'disable':'enable'}" data-username="${escapeHtml(user.username)}">${user.enabled?'Disable':'Enable'}</button><button class="small danger" data-user-action="delete" data-username="${escapeHtml(user.username)}">Delete</button></div></td></tr>`).join('')}</tbody></table></div><div id="user-editor"></div>`;
+    const editor=document.querySelector('#user-editor');
+    const openEditor=(mode,user=null)=>{editor.innerHTML=userForm(mode,user);editor.scrollIntoView({behavior:'smooth',block:'nearest'});document.querySelector('[data-cancel-user]').addEventListener('click',()=>{editor.innerHTML='';});document.querySelector('#user-operation').addEventListener('submit',async event=>{event.preventDefault();const values=new FormData(event.currentTarget);try{if(mode==='create')await call({action:'auth.users.create',username:values.get('username'),password:values.get('password'),passwordConfirmation:values.get('passwordConfirmation'),enabled:values.get('enabled')==='on',isAdmin:values.get('isAdmin')==='on'},true);else if(mode==='rename')await call({action:'auth.users.update',username:values.get('username'),newUsername:values.get('newUsername')},true);else await call({action:'auth.users.changePassword',username:values.get('username'),newPassword:values.get('newPassword'),passwordConfirmation:values.get('passwordConfirmation')},true);showNotice(mode==='create'?'User created.':mode==='rename'?'Username updated.':'Password changed.');if(user&&currentUser&&user.username.toLowerCase()===currentUser.username.toLowerCase()){await loginView();return;}await usersView();}catch(error){showNotice(error.message,true);}});};
+    document.querySelector('#add-user').addEventListener('click',()=>openEditor('create'));
+    content.onclick=async event=>{const button=event.target.closest('[data-user-action]');if(!button)return;const user=users.find(item=>item.username===button.dataset.username);const action=button.dataset.userAction;if(action==='rename'||action==='password'){openEditor(action,user);return;}const warning=action==='delete'?`Delete ${user.username}? This cannot be undone.`:`${action==='disable'?'Disable':'Enable'} ${user.username}?`;if(!confirm(warning))return;try{await call({action:`auth.users.${action}`,username:user.username},true);showNotice(`User ${action}d.`);if(currentUser&&user.username.toLowerCase()===currentUser.username.toLowerCase()){await loginView();return;}await usersView();}catch(error){showNotice(error.message,true);}};
+  }
+
   function parserView() {
     title.textContent='SQL → Universal JSON'; content.innerHTML=`<div class="stack"><p class="help">Conversion uses the existing non-executing SQL parser. No database connection is opened.</p><label>SQL<textarea id="sql-input" class="sql-input" spellcheck="false">SELECT TOP 10 * FROM dbo.Example</textarea></label><div><button id="convert-sql">Convert</button></div><label>Universal JSON<textarea id="sql-output" class="sql-output" readonly spellcheck="false"></textarea></label></div>`;
     document.querySelector('#convert-sql').addEventListener('click',async()=>{try{const result=row(await call({action:'admin.sqlParser.convert',sql:document.querySelector('#sql-input').value}));document.querySelector('#sql-output').value=JSON.stringify(result.result,null,2);showNotice('SQL converted without database execution.');}catch(error){showNotice(error.message,true);}});
@@ -97,10 +124,10 @@
   }
 
   function currentRoute(){const path=location.pathname.replace(/\/$/,'');return path==='/admin'?'overview':path.split('/').pop();}
-  async function render(){showNotice('');const route=currentRoute();document.querySelectorAll('nav a').forEach(link=>link.classList.toggle('active',link.dataset.route===route));try{if(route==='database')await databaseView();else if(route==='cors')await corsView();else if(route==='authentication')await authenticationView();else if(route==='sql-parser')parserView();else if(route==='security'||route==='system')await detailView(route);else await overview();}catch(error){showNotice(error.message,true);}}
+  async function render(){showNotice('');content.onclick=null;const route=currentRoute();document.querySelectorAll('nav a').forEach(link=>link.classList.toggle('active',link.dataset.route===route));try{if(route==='users')await usersView();else if(route==='database')await databaseView();else if(route==='cors')await corsView();else if(route==='authentication')await authenticationView();else if(route==='sql-parser')parserView();else if(route==='security'||route==='system')await detailView(route);else await overview();}catch(error){if(error.code==='AUTHENTICATION_REQUIRED'){currentUser=null;await loginView();}showNotice(error.message,true);}}
   async function enterConsole(){navigation.hidden=false;logout.hidden=false;await render();}
   navigation.addEventListener('click',event=>{const link=event.target.closest('a');if(!link)return;event.preventDefault();history.pushState({},'',link.href);render();});
   addEventListener('popstate',render);
-  logout.addEventListener('click',async()=>{try{await call({action:'auth.logout'},true);}finally{csrfToken='';await loadCsrf();await loginView();}});
-  (async()=>{try{await loadCsrf();const setup=row(await call({action:'setup.status'}));if(!setup.initialized){setupView();return;}const session=row(await call({action:'auth.session'}));if(session.authenticated&&session.user&&session.user.isAdmin)await enterConsole();else await loginView();}catch(error){title.textContent='Unavailable';content.textContent='The local administration API could not be reached.';showNotice(error.message,true);}})();
+  logout.addEventListener('click',async()=>{try{await call({action:'auth.logout'},true);}finally{currentUser=null;csrfToken='';await loadCsrf();await loginView();}});
+  (async()=>{try{await loadCsrf();const setup=row(await call({action:'setup.status'}));if(!setup.initialized){setupView();return;}const session=row(await call({action:'auth.session'}));if(session.authenticated&&session.user&&session.user.isAdmin){currentUser=session.user;await enterConsole();}else await loginView();}catch(error){title.textContent='Unavailable';content.textContent='The local administration API could not be reached.';showNotice(error.message,true);}})();
 })();

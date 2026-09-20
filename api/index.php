@@ -94,6 +94,7 @@ $authActions = ['auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 $userManagementActions = [
     'auth.users.list',
     'auth.users.create',
+    'auth.users.update',
     'auth.users.enable',
     'auth.users.disable',
     'auth.users.delete',
@@ -153,6 +154,7 @@ if (in_array($publicRequest['action'] ?? null, $userManagementActions, true)) {
     $controller = new UserManagementController();
     if ($request['action'] === 'auth.users.list') $controller->listUsers($request);
     if ($request['action'] === 'auth.users.create') $controller->createUser($request);
+    if ($request['action'] === 'auth.users.update') $controller->updateUser($request);
     if ($request['action'] === 'auth.users.enable') $controller->enableUser($request);
     if ($request['action'] === 'auth.users.disable') $controller->disableUser($request);
     if ($request['action'] === 'auth.users.delete') $controller->deleteUser($request);

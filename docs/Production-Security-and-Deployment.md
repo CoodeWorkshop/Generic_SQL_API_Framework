@@ -106,9 +106,14 @@ The CSP permits only same-origin scripts/styles/fonts/API connections and local/
 
 ## Sensitive files and backups
 
-Nginx serves only `Frontend/dist`; the backend is outside its public root and only the fixed API front controller is mapped. Defense-in-depth rules deny backend directories, dotfiles, JSON, lock, SQL, backup, log, INI, and PHP files. Restrict NTFS permissions on `auth.json`, `installation.json`, the encrypted database configuration, logs, session storage, and rate-limit storage to administrators and the PHP service identity.
+Nginx serves only `Frontend/dist`; the backend is outside its public root and only the fixed API front controller is mapped. Defense-in-depth rules deny backend directories, dotfiles, JSON, lock, SQL, backup, log, INI, and PHP files. Restrict filesystem permissions on generated `auth.json`, `installation.json`, `admin.json`, the encrypted database configuration, logs, session storage, and rate-limit storage to administrators and the PHP service identity.
 
-The repository contains empty development templates for `config/auth.json` and `config/installation.json`; production-mutated copies are application state and must not be committed. The real database configuration remains ignored. Secure backups must include auth, installation, and encrypted database configuration. Back up `GENERIC_SQL_API_ENCRYPTION_KEY` separately: the encrypted database configuration is unrecoverable without it. Never place backups under an Nginx-served directory.
+The repository contains secret-free `config/*.example.json` templates. Actual
+`auth.json`, `installation.json`, and `admin.json` files are generated at runtime
+and ignored by Git. Secure backups must include these runtime files and the
+encrypted database configuration. Back up `GENERIC_SQL_API_ENCRYPTION_KEY`
+separately: the encrypted database configuration is unrecoverable without it.
+Never place backups under an Nginx-served directory.
 
 Deleting `auth.json` while installation remains initialized does not reopen setup. Recovery requires an offline, authenticated administrative restore; there is no default password or setup bypass.
 

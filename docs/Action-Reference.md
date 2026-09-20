@@ -818,6 +818,6 @@ Invalid shape is `INVALID_REQUEST`; database failure is `QUERY_ERROR`.
 ### Notes
 
 The result is a flat ordered row list, not a nested schema document. Metadata
-actions expose catalog names to every caller because the API currently has no
-authentication/authorization. See
+actions expose catalog names to every caller accepted by the configured
+authentication mode; per-resource authorization is not yet implemented. See
 [Metadata and routines](Metadata-and-Routines.md).

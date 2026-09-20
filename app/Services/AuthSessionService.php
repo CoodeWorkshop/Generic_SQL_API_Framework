@@ -59,7 +59,11 @@ final class AuthSessionService
         return ($identity['authenticated'] ?? false) === true
             && is_string($identity['username'] ?? null)
             && $identity['username'] !== ''
-            && is_bool($identity['isAdmin'] ?? null);
+            && is_bool($identity['isAdmin'] ?? null)
+            && is_string($identity['userId'] ?? null)
+            && preg_match('/^[a-f0-9]{32}$/', $identity['userId']) === 1
+            && is_int($identity['authVersion'] ?? null)
+            && $identity['authVersion'] >= 1;
     }
 
     public function authenticatedUsername(): ?string
@@ -72,11 +76,29 @@ final class AuthSessionService
         return $this->isAuthenticated() && $_SESSION[self::AUTH_KEY]['isAdmin'] === true;
     }
 
-    public function establish(string $username, bool $isAdmin): void
+    public function authenticatedUserId(): ?string
+    {
+        return $this->isAuthenticated() ? $_SESSION[self::AUTH_KEY]['userId'] : null;
+    }
+
+    public function authenticatedAuthVersion(): ?int
+    {
+        return $this->isAuthenticated() ? $_SESSION[self::AUTH_KEY]['authVersion'] : null;
+    }
+
+    public function establish(
+        string $username,
+        bool $isAdmin,
+        string $userId,
+        int $authVersion
+    ): void
     {
         $username = trim($username);
         if ($username === '') {
             throw new InvalidArgumentException('Authenticated username is required.');
+        }
+        if (preg_match('/^[a-f0-9]{32}$/', $userId) !== 1 || $authVersion < 1) {
+            throw new InvalidArgumentException('Authenticated user identity is invalid.');
         }
 
         $this->start();
@@ -87,6 +109,8 @@ final class AuthSessionService
             'authenticated' => true,
             'username' => $username,
             'isAdmin' => $isAdmin,
+            'userId' => $userId,
+            'authVersion' => $authVersion,
         ];
         $now = time();
         $_SESSION[self::META_KEY] = ['createdAt' => $now, 'lastActivity' => $now];

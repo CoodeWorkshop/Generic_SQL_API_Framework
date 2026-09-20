@@ -39,8 +39,9 @@ validator technically permits `source.alias`, but normalization discards it; omi
 it. Other metadata actions accept no fields beyond `action`.
 
 Frontends can use these endpoints to populate table/column pickers, but should not
-assume they authorize subsequent access. Metadata exposes catalog object names to
-every endpoint caller because API authentication/authorization is not implemented.
+assume they authorize subsequent access. Metadata exposes catalog object names
+to every caller accepted by the configured authentication mode; resource-level
+authorization is not implemented.
 
 ## Routine API
 

@@ -73,7 +73,7 @@ try {
     securityAssert(ini_get('session.use_only_cookies') === '1', 'Sessions may use non-cookie identifiers.');
     securityAssert(ini_get('session.use_strict_mode') === '1', 'Strict session mode is not enabled.');
 
-    $session->establish('Security.Admin', true);
+    $session->establish('Security.Admin', true, str_repeat('a', 32), 1);
     securityAssert(session_id() !== $anonymousSessionId, 'Login did not regenerate the session identifier.');
     $csrf->validate($firstToken);
     $authenticatedToken = $csrf->rotate();
@@ -92,6 +92,11 @@ try {
         'CSRF_VALIDATION_FAILED',
         403
     );
+    securityFailure(
+        fn () => $middleware->handle(['action' => 'auth.users.update']),
+        'CSRF_VALIDATION_FAILED',
+        403
+    );
     securityAssert($missing->getDetails() === [], 'CSRF failure exposed internal details.');
     $_SERVER['HTTP_X_CSRF_TOKEN'] = str_repeat('0', 64);
     securityFailure(fn () => $middleware->handle(['action' => 'auth.logout']), 'CSRF_VALIDATION_FAILED', 403);
@@ -107,7 +112,7 @@ try {
     securityAssert($secondToken !== $authenticatedToken, 'Logout did not invalidate the prior CSRF token.');
     securityFailure(fn () => $nextCsrf->validate($authenticatedToken), 'CSRF_VALIDATION_FAILED', 403);
 
-    $nextSession->establish('Security.Admin', true);
+    $nextSession->establish('Security.Admin', true, str_repeat('a', 32), 1);
     $_SESSION['generic_reporting_session_meta']['lastActivity'] = time() - 601;
     securityAssert($nextSession->resume() === false, 'Idle session timeout was not enforced.');
     securityAssert(session_status() !== PHP_SESSION_ACTIVE, 'Expired session was not destroyed.');

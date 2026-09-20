@@ -55,7 +55,7 @@ version supports it.
 | View metadata | `metadata.views` |
 | Procedure metadata | `metadata.procedures` |
 | Whole schema rows | `metadata.schema` |
-| API authentication/authorization | Not implemented |
+| API authentication/authorization | Session and/or environment API key; administrator-only management actions |
 | Database provider | SQL Server through ODBC only |
 
 For exact shapes use [Action reference](Action-Reference.md); for unsupported

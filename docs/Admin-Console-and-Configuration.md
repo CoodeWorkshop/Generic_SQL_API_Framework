@@ -33,6 +33,8 @@ not-found response.
 
 - **Overview** shows redacted readiness for database, encryption, CORS,
   authentication, API, parser, PHP, and ODBC.
+- **Users** lists safe account metadata and provides create, username update,
+  password change, enable/disable, and deletion controls.
 - **Database** validates, tests, and saves the existing SQL Server configuration
   model. A blank password retains the stored password. Save always writes a
   complete AES-256-GCM envelope and creates no plaintext backup.
@@ -51,13 +53,16 @@ not-found response.
 If installation is not initialized, `/admin` first uses the existing one-time
 administrator setup. After initialization it uses the existing login/session,
 password hashing, authorization, rate-limiting, and CSRF implementation. User
-management, roles, permissions, API-key management, production HTTPS, and
-production process control are outside this phase.
+management is available at `/admin/users`; generalized roles, permissions,
+API-key management, production HTTPS, and production process control remain
+outside this phase.
 
 ## Configuration ownership
 
-`config/admin.json` is the fixed, validated store for CORS and API authentication
-mode. Database configuration remains at the fixed ignored path
+`config/admin.json` is the generated, ignored, fixed-path store for CORS and API authentication
+mode. `config/auth.json` and `config/installation.json` are generated alongside
+it; users do not create or edit these files manually. Safe tracked
+`*.example.json` files document their shapes. Database configuration remains at the fixed ignored path
 `database/config/database.json`. The UI calls narrowly scoped services; it
 cannot choose file paths, write PHP, or run shell commands.
 

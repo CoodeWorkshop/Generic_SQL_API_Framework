@@ -5,10 +5,13 @@ Planned work is tracked separately in [Roadmap](Roadmap.md).
 
 ## Universal API and security
 
-- There is no API authentication, authorization, role/tenant policy, rate limit,
-  or transaction/session contract.
-- CORS permits two hard-coded Vite development origins; it is not access control.
-- The endpoint recommends POST but does not reject body-bearing GET requests.
+- Authentication supports sessions and/or one environment-provided API key;
+  generalized roles, resource permissions, tenants, and API-key management are
+  not implemented.
+- Only administrators can manage users/configuration. The minimal `isAdmin`
+  model remains until generalized authorization is introduced.
+- CORS uses exact validated backend origins; it is not itself access control.
+- The endpoint accepts POST and OPTIONS only.
 - JSON Query Mode accepts metadata-valid client-selected tables; it has no table
   resource registry. Routine identifiers are not resource-allowlisted.
 - Metadata actions expose catalog object names to callers.

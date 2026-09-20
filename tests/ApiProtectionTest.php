@@ -98,7 +98,13 @@ try {
         session_destroy();
     }
 
-    $session->establish('Authenticated.User', false);
+    $authenticatedUser = $authRepository->findUser('Authenticated.User');
+    $session->establish(
+        $authenticatedUser['username'],
+        $authenticatedUser['isAdmin'],
+        $authenticatedUser['id'],
+        $authenticatedUser['authVersion']
+    );
     foreach ($protectedActions as $action) {
         $middleware->handle(['action' => $action]);
     }
@@ -108,6 +114,8 @@ try {
             'authenticated' => true,
             'username' => 'Authenticated.User',
             'isAdmin' => false,
+            'userId' => $authenticatedUser['id'],
+            'authVersion' => $authenticatedUser['authVersion'],
         ],
         'Protection middleware altered the safe session identity.'
     );

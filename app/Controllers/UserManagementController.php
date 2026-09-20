@@ -25,9 +25,22 @@ final class UserManagementController extends BaseController
     public function createUser(array $request): void
     {
         $this->success(
-            [$this->userService->createUser($request['username'], $request['password'], $request['isAdmin'])],
+            [$this->userService->createUser(
+                $request['username'],
+                $request['password'],
+                $request['isAdmin'],
+                $request['enabled']
+            )],
             'User created.',
             201
+        );
+    }
+
+    public function updateUser(array $request): void
+    {
+        $this->success(
+            [$this->userService->updateUsername($request['username'], $request['newUsername'])],
+            'Username updated.'
         );
     }
 

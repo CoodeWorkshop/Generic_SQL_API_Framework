@@ -207,9 +207,10 @@ Frontend must never send:
   do not expect SQL Server details in the response.
 - 504: the query timed out; offer a controlled retry and investigate server-side.
 
-The endpoint has no built-in API authentication or authorization. Production
-frontends must not mistake CORS for protection; deploy behind appropriate HTTPS,
-network, identity, and authorization controls.
+The endpoint enforces its configured session/API-key authentication mode.
+Browser session clients must obtain `auth.csrf`, retain cookies, and send the
+token for state-changing operations. CORS is not authentication; production
+deployments still require HTTPS and appropriate network controls.
 
 Next: [Action reference](Action-Reference.md),
 [JSON request reference](JSON-Request-Reference.md), and

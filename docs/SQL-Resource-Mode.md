@@ -227,6 +227,7 @@ This broader SQL belongs only in the file. Clients cannot send SQL text, paths,
 filenames, extensions, clauses, database credentials, or arbitrary expressions.
 Real-path containment, excluded directories, strict identifiers, constrained
 execution expressions, fixed operator/placement/direction enums, prepared values,
-and the read-only statement analyzer preserve the security boundary. The API
-still has no authentication or authorization, so production network controls and
-least-privilege database permissions remain required.
+and the read-only statement analyzer preserve the security boundary. Requests
+pass through configured session/API-key authentication, but generalized
+per-resource authorization is not yet implemented. Production network controls
+and least-privilege database permissions remain required.

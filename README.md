@@ -33,6 +33,11 @@ launcher:
 
 The public actions are `select`, `sql`, `insert`, `update`, `delete`, `upsert`, `union`, `unionAll`, `procedure`, `function`, `tableFunction`, and the five metadata actions documented in [API.md](docs/API.md). Public property names such as `source`, `fields`, `field`, `resource`, `data`, `filters`, and `pagination` are normalized to a private execution model. Internal names such as `table`, `columns`, `column`, `where`, `top`, `page`, and `pageSize` are not accepted as public JSON.
 
+Application actions enforce the configured `none`, `session`, `api_key`, or
+`session+api_key` authentication mode. The loopback Admin Console always uses an
+administrator session and provides first-run setup plus complete user management.
+See [Authentication and user management](docs/Authentication-and-User-Management.md).
+
 `sql` is a controlled report-resource action, not a raw-SQL endpoint. The server
 recursively discovers reviewed `.sql` files under `queries/`; for example,
 `queries/reports/customer.sql` is `reports/customer`. A simple resource needs no
@@ -111,6 +116,11 @@ The setup saves the key in the Windows User environment, encrypts the complete `
 
 ## Start the backend
 
+No authentication configuration files need to be created first. The launcher
+atomically creates missing `config/auth.json`, `config/installation.json`, and
+`config/admin.json` with safe defaults; all three are ignored by Git. Existing
+files are preserved and legacy authentication data is migrated in place.
+
 On Windows, run:
 
 ```bat
@@ -162,7 +172,10 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - v1.0.0 — Core API and advanced SQL: released
 - v1.1.0 — Windows runtime and deployment: released
 - v1.2.0 — CRUD operations: current
-- v1.3.0 onward — transactions, richer metadata, API authentication/authorization, API improvements, performance, and additional providers: planned
+- New Phase 1 — unified local setup/configuration console: implemented
+- New Phase 2 — authentication and administrator user management: implemented
+- Generalized roles/permissions, API-key management, transactions, richer
+  metadata, and additional providers: planned
 
 The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).
 
@@ -202,6 +215,7 @@ Writes, metadata, boundaries, and operations:
 - [Current limitations](docs/Limitations.md)
 - [Architecture](docs/Architecture.md)
 - [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md)
+- [Authentication and user management](docs/Authentication-and-User-Management.md)
 - [Database configuration](docs/Database-Configuration.md)
 - [Hosting](docs/Hosting.md)
 - [Roadmap](docs/Roadmap.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md)

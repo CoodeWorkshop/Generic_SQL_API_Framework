@@ -2,18 +2,22 @@
 
 require_once __DIR__ . '/../../config/constants.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
+require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
 
 final class InstallationRepository
 {
     private string $path;
+    private bool $runtimePath;
 
     public function __construct(?string $path = null)
     {
-        $this->path = $path ?? ROOT_PATH . '/config/installation.json';
+        $this->runtimePath = $path === null;
+        $this->path = $path ?? RuntimeConfiguration::path(RuntimeConfiguration::INSTALLATION_FILE);
     }
 
     public function load(): array
     {
+        if ($this->runtimePath) RuntimeConfiguration::ensure();
         $configuration = JsonFileStore::load($this->path);
         $this->validate($configuration);
         return $configuration;
@@ -21,6 +25,7 @@ final class InstallationRepository
 
     public function save(array $configuration): void
     {
+        if ($this->runtimePath) RuntimeConfiguration::ensure();
         $this->validate($configuration);
         JsonFileStore::save($this->path, $configuration);
     }

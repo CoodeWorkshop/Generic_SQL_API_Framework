@@ -108,16 +108,15 @@ remain sensitive operational data and require access controls.
 
 ## Explicit security boundaries
 
-The API currently implements **no authentication, authorization, user/role
-model, tenant isolation, rate limiting, CSRF scheme, or production TLS
-termination**. Routine actions are identifier-validated and parameterized but are
-not backed by a routine allowlist. JSON Query Mode accepts client-selected valid
-database table identifiers rather than a table registry. Metadata actions expose
-catalog names. Database permissions, network exposure, reverse-proxy controls,
-and least-privilege credentials are therefore essential.
+The API implements configurable session/API-key authentication, administrator
+authorization for setup/user/configuration actions, session-bound CSRF for
+cookie-authenticated mutations, and login brute-force protection. It does not
+yet implement generalized roles, resource permissions, tenant isolation,
+general API rate limiting, or production TLS termination. Routine actions remain
+identifier-validated and parameterized but are not backed by a routine allowlist.
+JSON Query Mode accepts client-selected metadata-valid tables. Least-privilege
+database credentials and production network/TLS controls remain essential.
 
-CORS is not access control. The code only returns an allow-origin header for
-`http://127.0.0.1:5173` and `http://localhost:5173`, but non-browser clients can
-still call the endpoint. The script advertises GET/POST/OPTIONS and only special-
-cases OPTIONS; use POST as the supported convention because all actions read a
-JSON body.
+CORS is not access control. Exact origins are loaded from validated backend
+configuration, while non-browser clients must still satisfy the configured
+authentication mode. The API accepts POST and OPTIONS only.

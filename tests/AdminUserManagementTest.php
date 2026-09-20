@@ -39,9 +39,10 @@ $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'generic-reporting-users-test
 $mainDirectory = $root . DIRECTORY_SEPARATOR . 'main';
 $concurrentDirectory = $root . DIRECTORY_SEPARATOR . 'concurrent';
 $sessionPath = $root . DIRECTORY_SEPARATOR . 'sessions';
+$logPath = $root . DIRECTORY_SEPARATOR . 'logs';
 $sessionName = 'generic_reporting_users_' . bin2hex(random_bytes(4));
 $actions = [
-    'auth.users.list', 'auth.users.create', 'auth.users.enable',
+    'auth.users.list', 'auth.users.create', 'auth.users.update', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
 ];
 $publicActions = ['setup.status', 'setup.createAdmin', 'auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
@@ -51,6 +52,7 @@ try {
     mkdir($mainDirectory, 0700, true);
     mkdir($concurrentDirectory, 0700, true);
     mkdir($sessionPath, 0700, true);
+    mkdir($logPath, 0700, true);
     ini_set('session.save_path', $sessionPath);
 
     $hasher = new PasswordHasher();
@@ -73,14 +75,15 @@ try {
     $session = new AuthSessionService($sessionName);
     $authentication = new AuthenticationMiddleware(true, $publicActions, $session, $repository);
     $authorization = new AdminAuthorizationMiddleware($actions, $session);
-    $service = new UserManagementService($repository, $hasher);
+    $service = new UserManagementService($repository, $hasher, new Logger($logPath));
     $authService = new AuthService($repository, $hasher, $session);
 
     foreach ($actions as $action) {
         userManagementFailure(fn () => $authentication->handle(['action' => $action]), 'AUTHENTICATION_REQUIRED', 401);
     }
 
-    $session->establish('Operator', false);
+    $operator = $repository->findUser('Operator');
+    $session->establish('Operator', false, $operator['id'], $operator['authVersion']);
     foreach ($actions as $action) {
         $request = ['action' => $action, 'authenticated' => true, 'isAdmin' => true];
         $authentication->handle($request);
@@ -88,7 +91,8 @@ try {
     }
     destroyUserManagementSession($sessionName);
 
-    $session->establish('Admin', true);
+    $admin = $repository->findUser('Admin');
+    $session->establish('Admin', true, $admin['id'], $admin['authVersion']);
     foreach ($actions as $action) {
         $authentication->handle(['action' => $action]);
         $authorization->handle(['action' => $action]);
@@ -97,18 +101,32 @@ try {
     $listed = $service->listUsers();
     userManagementAssert(count($listed) === 2, 'Admin could not list users.');
     userManagementAssert(
-        !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'password'),
-        'User list exposed password material.'
+        !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'password')
+            && !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'authVersion')
+            && array_keys($listed[0]) === ['username', 'enabled', 'isAdmin', 'createdAt'],
+        'User list exposed internal authentication material.'
     );
 
     $created = $service->createUser('New.User', 'new-user-password-123', false);
-    userManagementAssert($created === [
-        'username' => 'New.User', 'enabled' => true, 'isAdmin' => false,
-    ], 'Created user response was unsafe or malformed.');
+    userManagementAssert(
+        $created['username'] === 'New.User'
+            && $created['enabled'] === true
+            && $created['isAdmin'] === false
+            && strtotime($created['createdAt']) !== false
+            && !str_contains(json_encode($created, JSON_THROW_ON_ERROR), 'password'),
+        'Created user response was unsafe or malformed.'
+    );
     userManagementFailure(
         fn () => $service->createUser('new.user', 'another-password-123', false),
         'USER_ALREADY_EXISTS',
         409
+    );
+    $disabledCreated = $service->createUser('Initially.Disabled', 'disabled-password-123', false, false);
+    userManagementAssert($disabledCreated['enabled'] === false, 'Initial disabled status was not stored.');
+    userManagementFailure(
+        fn () => $authService->login('Initially.Disabled', 'disabled-password-123'),
+        'INVALID_CREDENTIALS',
+        401
     );
     $stored = $repository->findUser('New.User');
     userManagementAssert(!array_key_exists('password', $stored), 'Plaintext password was stored.');
@@ -118,30 +136,48 @@ try {
         'Created password was not safely hashed.'
     );
 
-    destroyUserManagementSession($sessionName);
+    $createdUserId = $repository->findUser('New.User')['id'];
     $authService->login('New.User', 'new-user-password-123');
-    destroyUserManagementSession($sessionName);
-    $service->setEnabled('New.User', false);
+    $renamed = $service->updateUsername('New.User', 'Renamed.User');
+    userManagementAssert(
+        $repository->findUser('Renamed.User')['id'] === $createdUserId,
+        'Username update changed stable user identity.'
+    );
+    userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
     userManagementFailure(fn () => $authService->login('New.User', 'new-user-password-123'), 'INVALID_CREDENTIALS', 401);
-    $service->setEnabled('New.User', true);
-    $authService->login('New.User', 'new-user-password-123');
+    userManagementFailure(fn () => $service->updateUsername('Renamed.User', 'Operator'), 'USER_ALREADY_EXISTS', 409);
+    $authService->login('Renamed.User', 'new-user-password-123');
+    $service->setEnabled('Renamed.User', false);
+    userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
+    userManagementFailure(fn () => $authService->login('Renamed.User', 'new-user-password-123'), 'INVALID_CREDENTIALS', 401);
+    $service->setEnabled('Renamed.User', true);
+    $authService->login('Renamed.User', 'new-user-password-123');
+
+    $service->changePassword('Renamed.User', 'changed-password-123');
+    userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
+    userManagementFailure(fn () => $authService->login('Renamed.User', 'new-user-password-123'), 'INVALID_CREDENTIALS', 401);
+    $authService->login('Renamed.User', 'changed-password-123');
     destroyUserManagementSession($sessionName);
 
-    $service->changePassword('New.User', 'changed-password-123');
-    userManagementFailure(fn () => $authService->login('New.User', 'new-user-password-123'), 'INVALID_CREDENTIALS', 401);
-    $authService->login('New.User', 'changed-password-123');
-    destroyUserManagementSession($sessionName);
-
-    $service->deleteUser('New.User', 'Admin');
-    userManagementFailure(fn () => $authService->login('New.User', 'changed-password-123'), 'INVALID_CREDENTIALS', 401);
+    $service->deleteUser('Renamed.User', 'Admin');
+    userManagementFailure(fn () => $authService->login('Renamed.User', 'changed-password-123'), 'INVALID_CREDENTIALS', 401);
     userManagementFailure(fn () => $service->setEnabled('Missing', true), 'USER_NOT_FOUND', 404);
+    $service->deleteUser('Initially.Disabled', 'Admin');
+    $userLog = implode('', array_map(
+        static fn (string $file): string => (string)file_get_contents($file),
+        glob($logPath . '/*.log') ?: []
+    ));
+    foreach (['new-user-password-123', 'changed-password-123', $stored['passwordHash']] as $secret) {
+        userManagementAssert(!str_contains($userLog, $secret), 'User-management logs exposed credential material.');
+    }
 
     userManagementFailure(fn () => $service->deleteUser('Admin', 'admin'), 'CANNOT_DELETE_CURRENT_USER', 409);
     userManagementFailure(fn () => $service->setEnabled('Admin', false), 'LAST_ENABLED_ADMIN', 409);
     userManagementFailure(fn () => $service->deleteUser('Admin', 'Other.Admin'), 'LAST_ENABLED_ADMIN', 409);
 
     $service->createUser('Second.Admin', 'second-admin-password', true);
-    $session->establish('Admin', true);
+    $admin = $repository->findUser('Admin');
+    $session->establish('Admin', true, $admin['id'], $admin['authVersion']);
     $service->setEnabled('Admin', false);
     userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
     userManagementAssert(session_status() !== PHP_SESSION_ACTIVE, 'Disabled account session was not invalidated.');
@@ -158,18 +194,34 @@ try {
         'action' => 'auth.users.create',
         'username' => 'Default.Role',
         'password' => 'valid-password-123',
+        'passwordConfirmation' => 'valid-password-123',
     ]);
     userManagementAssert($validatedCreate['isAdmin'] === false, 'Create-user admin flag did not default safely.');
+    userManagementAssert($validatedCreate['enabled'] === true, 'Create-user enabled status did not default safely.');
+    $validatedUpdate = $validator->validate([
+        'action' => 'auth.users.update',
+        'username' => 'Operator',
+        'newUsername' => 'Updated.Operator',
+    ]);
+    userManagementAssert($validatedUpdate['newUsername'] === 'Updated.Operator', 'Username update was not validated.');
     userManagementFailure(fn () => $validator->validate([
         'action' => 'auth.users.create',
         'username' => 'Unsafe.User',
         'password' => 'valid-password-123',
+        'passwordConfirmation' => 'valid-password-123',
         'passwordHash' => 'client-hash',
     ]), 'INVALID_USER_REQUEST', 400);
     userManagementFailure(fn () => $validator->validate([
         'action' => 'auth.users.changePassword',
         'username' => 'Operator',
+        'newPassword' => 'valid-password-123',
+        'passwordConfirmation' => 'different-password',
+    ]), 'INVALID_USER_REQUEST', 400);
+    userManagementFailure(fn () => $validator->validate([
+        'action' => 'auth.users.changePassword',
+        'username' => 'Operator',
         'newPassword' => 'short',
+        'passwordConfirmation' => 'short',
     ]), 'INVALID_USER_REQUEST', 400);
 
     $concurrentPath = $concurrentDirectory . DIRECTORY_SEPARATOR . 'auth.json';
@@ -213,6 +265,8 @@ try {
     destroyUserManagementSession($sessionName);
     foreach (glob($sessionPath . DIRECTORY_SEPARATOR . '*') ?: [] as $file) @unlink($file);
     @rmdir($sessionPath);
+    foreach (glob($logPath . DIRECTORY_SEPARATOR . '*') ?: [] as $file) @unlink($file);
+    @rmdir($logPath);
     removeUserManagementFixture($mainDirectory);
     removeUserManagementFixture($concurrentDirectory);
     @rmdir($root);

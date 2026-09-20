@@ -6,6 +6,15 @@ All notable backend changes are recorded here. The project follows semantic vers
 
 ### Added
 
+- New Phase 2 automatic, atomic bootstrap for ignored authentication,
+  installation, and admin runtime configuration, with secret-free tracked
+  examples and non-destructive version-1 user migration.
+- Complete `/admin/users` management for listing, creating, renaming,
+  password-changing, enabling, disabling, and deleting accounts.
+- Stable internal user identities, creation timestamps, authentication-version
+  session invalidation, password confirmation, initial account status, and
+  expanded authentication/security regression coverage.
+
 - New Phase 1 unified, backend-hosted `/admin` console for local setup, redacted
   runtime status, encrypted database configuration/testing, exact-origin CORS,
   API authentication-mode selection, and the existing non-executing SQL parser.

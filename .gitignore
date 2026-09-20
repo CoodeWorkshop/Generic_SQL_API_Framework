@@ -34,3 +34,11 @@ database/config/database.json.tmp*
 
 # Runtime authentication locks
 config/*.lock
+
+# Generated runtime configuration (templates remain tracked)
+config/auth.json
+config/installation.json
+config/admin.json
+!config/auth.example.json
+!config/installation.example.json
+!config/admin.example.json

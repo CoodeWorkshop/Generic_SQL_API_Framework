@@ -16,6 +16,7 @@ The implemented startup sequence is:
 locate php.exe and php.ini
   -> create runtime/windows/php/opcache and logs
   -> verify ODBC, OpenSSL, JSON, and session extensions
+  -> create missing ignored runtime configuration with safe defaults
   -> load/generate the ignored local database-encryption key
   -> select a free loopback port from 8000 through 8100
   -> enable the local Admin Console for this process
@@ -24,6 +25,11 @@ locate php.exe and php.ini
 ```
 
 The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a working database before startup: configure and test it through `/admin/database`. The launcher generates a local key only when neither an environment key nor key file exists and no already-encrypted database file depends on a missing key. It never rewrites database configuration itself. The Windows built-in server is single-process/single-threaded: while one request is waiting on SQL Server, later requests queue. This is a development-server limitation, not application-level connection sharing.
+
+Configuration bootstrap creates missing `config/auth.json`,
+`config/installation.json`, and `config/admin.json`; it never overwrites existing
+values. The same idempotent bootstrap runs in the Linux launcher and repository
+load path, so manual file creation is unnecessary.
 
 The displayed API URL is `http://127.0.0.1:<port>/index.php`; the Admin Console is `/admin`. Both share one loopback-bound process. Press Ctrl+C to stop both.
 
