@@ -52,9 +52,9 @@ if ($contentType !== 'application/json') {
 
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
-require_once __DIR__ . '/../app/Middleware/LocalAdminMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/FeatureAccessMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
 require_once __DIR__ . '/../app/Controllers/MetadataController.php';
@@ -67,8 +67,6 @@ require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AuthController.php';
 require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/UserManagementController.php';
-require_once __DIR__ . '/../app/Requests/AdminRequestValidator.php';
-require_once __DIR__ . '/../app/Controllers/AdminController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -100,22 +98,14 @@ $userManagementActions = [
     'auth.users.delete',
     'auth.users.changePassword',
 ];
-$adminActions = [
-    'admin.status',
-    'admin.database.get',
-    'admin.database.test',
-    'admin.database.save',
-    'admin.settings.get',
-    'admin.cors.save',
-    'admin.authentication.save',
-    'admin.sqlParser.convert',
-];
 $publicAuthenticationActions = array_merge($setupActions, $authActions);
 unset($_SERVER['GENERIC_AUTH_PROVIDER']);
-(new LocalAdminMiddleware())->handle($publicRequest);
+if (str_starts_with((string)($publicRequest['action'] ?? ''), 'admin.')) {
+    Response::error('Not found.', 404, 'NOT_FOUND');
+}
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
-(new AdminAuthorizationMiddleware(array_merge($userManagementActions, $adminActions)))->handle($publicRequest);
+(new AdminAuthorizationMiddleware($userManagementActions))->handle($publicRequest);
 (new CsrfProtectionMiddleware())->handle($publicRequest);
 
 // Execute Middleware
@@ -161,11 +151,7 @@ if (in_array($publicRequest['action'] ?? null, $userManagementActions, true)) {
     $controller->changePassword($request);
 }
 
-if (in_array($publicRequest['action'] ?? null, $adminActions, true)) {
-    $request = (new AdminRequestValidator())->validate($publicRequest);
-    Response::setRequestContext(['action' => $request['action']]);
-    (new AdminController())->dispatch($request);
-}
+(new FeatureAccessMiddleware())->handle($publicRequest);
 
 $phaseStarted = microtime(true);
 $validator = new QueryRequestValidator();

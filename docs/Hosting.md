@@ -18,28 +18,30 @@ locate php.exe and php.ini
   -> verify ODBC, OpenSSL, JSON, and session extensions
   -> create missing ignored runtime configuration with safe defaults
   -> load/generate the ignored local database-encryption key
-  -> select a free loopback port from 8000 through 8100
-  -> enable the local Admin Console for this process
-  -> php -S 127.0.0.1:<port> -t api api/router.php
-  -> open http://127.0.0.1:<port>/admin
+  -> verify the configured Admin loopback port
+  -> start the API on the first free configured API port
+  -> php -S 127.0.0.1:<admin-port> -t admin admin/router.php
+  -> open http://127.0.0.1:<admin-port>/admin
 ```
 
-The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a working database before startup: configure and test it through `/admin/database`. The launcher generates a local key only when neither an environment key nor key file exists and no already-encrypted database file depends on a missing key. It never rewrites database configuration itself. The Windows built-in server is single-process/single-threaded: while one request is waiting on SQL Server, later requests queue. This is a development-server limitation, not application-level connection sharing.
+The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a working database before startup: configure and test it through Configuration → Database. The launcher generates a local key only when neither an environment key nor key file exists and no already-encrypted database file depends on a missing key. It never rewrites database configuration itself. Each built-in server is single-process/single-threaded, while the Admin and API processes retain independent lifecycles.
 
 Configuration bootstrap creates missing `config/auth.json`,
 `config/installation.json`, and `config/admin.json`; it never overwrites existing
 values. The same idempotent bootstrap runs in the Linux launcher and repository
 load path, so manual file creation is unnecessary.
 
-The displayed API URL is `http://127.0.0.1:<port>/index.php`; the Admin Console is `/admin`. Both share one loopback-bound process. Press Ctrl+C to stop both.
+The Admin Console is `/admin` on its configured port. System Health reports and
+controls the independent API process. Stopping or restarting that API does not
+stop the Admin Console.
 
 ## Linux local runtime
 
-From the backend root run `./start-linux.sh`. It uses system PHP with
-`runtime/linux/php/php.ini`, validates the same extensions, prepares the same
-ignored local secret, selects a port through the PHP socket check, binds to
-`127.0.0.1`, and attempts to open the browser through `xdg-open` or WSL
-`cmd.exe`. Ctrl+C cleanly stops the foreground PHP server.
+From the backend root run `./start-linux.sh`. It prefers
+`runtime/linux/php/php`, falls back to installed PHP when that bundled binary is
+absent, and loads `runtime/linux/php/php.ini`. It performs the same bootstrap,
+starts the managed API, keeps the independent Admin server in the foreground,
+and attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
 
 ### One-time Windows encryption setup
 
@@ -67,7 +69,7 @@ The backend can run under another PHP installation with the ODBC extension. To
 enable the console manually, do so only on a loopback-bound server:
 
 ```bash
-GENERIC_ADMIN_ENABLED=1 php -S 127.0.0.1:8000 -t api api/router.php
+GENERIC_ADMIN_ENABLED=1 php -S 127.0.0.1:8090 -t admin admin/router.php
 ```
 
 Use IIS/FastCGI, Apache with multiple PHP workers, or Nginx with PHP FastCGI for concurrent production requests. Windows uses `php-cgi.exe`; do not assume PHP-FPM is available. Size the worker pool and SQL Server connection capacity together. PHP's built-in server and `start-windows.bat` are development/convenience launchers, not production process managers.
@@ -90,5 +92,6 @@ Before production deployment, configure HTTPS at the web server or reverse proxy
 - database configuration decryption failure: verify that the encrypted configuration envelope and environment key are the matching pair and have not been altered.
 - encryption setup says the configuration is already encrypted: do not rerun it; restore the matching persisted key if it was replaced.
 - `No compatible SQL Server ODBC driver`: install a supported driver or configure the exact available driver and verify server/authentication settings.
-- no port between 8000–8100: stop a conflicting service or host the backend manually on another port; the launcher has no flag to change its range.
+- no API port available: change the validated range in Configuration → Server, then start or restart the API.
+- configured Admin port occupied: stop the conflicting service or update the Admin port and relaunch.
 - query failures: inspect `logs/YYYY-MM-DD.log` by request ID and `queryPhase` to distinguish count, data, prepare, execute, and fetch time. Parameter values are intentionally omitted.

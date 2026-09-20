@@ -188,11 +188,6 @@ try {
         'AUTHENTICATION_REQUIRED'
     );
 
-    $beforeParserTests = $connectionTests;
-    $conversion = $service->convertSql('SELECT Id FROM dbo.Example');
-    unifiedAdminAssert(($conversion['success'] ?? false) === true, 'Existing SQL parser was not reused successfully.');
-    unifiedAdminAssert($connectionTests === $beforeParserTests, 'SQL parser opened a database connection.');
-
     $status = $service->status();
     $encodedStatus = json_encode($status, JSON_THROW_ON_ERROR);
     unifiedAdminAssert(!str_contains($encodedStatus, 'second-secret'), 'Status response exposed the database password.');
@@ -206,8 +201,8 @@ try {
         unifiedAdminAssert(str_contains($launcher, 'find-available-port.php'), 'Launcher does not use safe port selection.');
         unifiedAdminAssert(str_contains($launcher, '/admin'), 'Launcher does not display the admin URL.');
     }
-    unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../api/index.php'), 'AdminAuthorizationMiddleware'), 'Admin authorization boundary is missing.');
-    unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../api/router.php'), "['127.0.0.1', '::1']"), 'Admin router lacks loopback enforcement.');
+    unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
+    unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/router.php'), "['127.0.0.1', '::1']"), 'Admin router lacks loopback enforcement.');
 
     echo "Unified admin console tests passed.\n";
 } finally {

@@ -1,17 +1,16 @@
 # SQL → API JSON Generator
 
 The SQL Parser Generator translates supported SQL into the framework's existing
-Universal API JSON. Its current integrated UI is the authenticated local Admin
-Console. It never executes pasted SQL or opens a database connection.
+Universal API JSON. It is an independent application and never executes pasted
+SQL or opens a database connection.
 
 ## Run it
 
-Run the normal Windows or Linux backend launcher, sign in at `/admin`, and open
-`/admin/sql-parser`. The browser sends the SQL through the authenticated,
-loopback-only `admin.sqlParser.convert` action. Requests are limited to 200,000
-bytes, responses are not cached, pasted SQL is not logged, and the parser accepts
-no execution option. The original `sqlparser/` adapter remains available for
-compatibility, but the unified console needs no second server or parser.
+From `sqlparser/`, run `start-windows.bat` or `./start-linux.sh`, then open
+`http://127.0.0.1:8005/`. It does not depend on Admin authentication,
+configuration, sessions, API runtime, or database credentials. Requests are
+limited to 200,000 bytes, responses are not cached, pasted SQL is not logged,
+and the parser accepts no execution option.
 
 ## Architecture
 

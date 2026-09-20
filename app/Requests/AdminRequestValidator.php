@@ -8,6 +8,11 @@ final class AdminRequestValidator
 {
     private const SIMPLE_ACTIONS = [
         'admin.status',
+        'admin.health',
+        'admin.system.info',
+        'admin.api.start',
+        'admin.api.stop',
+        'admin.api.restart',
         'admin.database.get',
         'admin.settings.get',
     ];
@@ -23,6 +28,14 @@ final class AdminRequestValidator
             $this->rejectUnknown($request, ['action', 'database']);
             return ['action' => $action, 'database' => $this->database($request['database'] ?? null)];
         }
+        if ($action === 'admin.server.save') {
+            $this->rejectUnknown($request, ['action', 'server']);
+            return ['action' => $action, 'server' => $this->server($request['server'] ?? null)];
+        }
+        if ($action === 'admin.features.save') {
+            $this->rejectUnknown($request, ['action', 'features']);
+            return ['action' => $action, 'features' => $this->features($request['features'] ?? null)];
+        }
         if ($action === 'admin.cors.save') {
             $this->rejectUnknown($request, ['action', 'cors']);
             return ['action' => $action, 'cors' => $this->cors($request['cors'] ?? null)];
@@ -35,15 +48,56 @@ final class AdminRequestValidator
             }
             return ['action' => $action, 'mode' => $mode];
         }
-        if ($action === 'admin.sqlParser.convert') {
-            $this->rejectUnknown($request, ['action', 'sql']);
-            $sql = $request['sql'] ?? null;
-            if (!is_string($sql) || trim($sql) === '' || strlen($sql) > 200000) {
-                $this->invalid([['path' => 'sql', 'message' => 'SQL must be a non-empty string of at most 200,000 bytes.']]);
-            }
-            return ['action' => $action, 'sql' => $sql];
-        }
         throw new ApiRequestException('Invalid admin request.', 'INVALID_ADMIN_REQUEST');
+    }
+
+    private function server($value): array
+    {
+        if (!is_array($value) || array_is_list($value)) {
+            $this->invalid([['path' => 'server', 'message' => 'Server configuration must be an object.']]);
+        }
+        $this->rejectUnknown($value, ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress'], 'server.');
+        $errors = [];
+        $normalized = [];
+        foreach (['apiPortMinimum', 'apiPortMaximum', 'adminPort'] as $field) {
+            $port = filter_var($value[$field] ?? null, FILTER_VALIDATE_INT);
+            if ($port === false || $port < 1 || $port > 65535) {
+                $errors[] = ['path' => 'server.' . $field, 'message' => 'Port must be between 1 and 65535.'];
+            } else {
+                $normalized[$field] = (int)$port;
+            }
+        }
+        if (isset($normalized['apiPortMinimum'], $normalized['apiPortMaximum'])
+            && $normalized['apiPortMinimum'] > $normalized['apiPortMaximum']) {
+            $errors[] = ['path' => 'server.apiPortMaximum', 'message' => 'Maximum port must be greater than or equal to minimum port.'];
+        }
+        if (($value['bindAddress'] ?? null) !== '127.0.0.1') {
+            $errors[] = ['path' => 'server.bindAddress', 'message' => 'Only the loopback bind address is supported.'];
+        }
+        if ($errors !== []) $this->invalid($errors);
+        return [
+            'apiPortMinimum' => $normalized['apiPortMinimum'],
+            'apiPortMaximum' => $normalized['apiPortMaximum'],
+            'adminPort' => $normalized['adminPort'],
+            'bindAddress' => '127.0.0.1',
+        ];
+    }
+
+    private function features($value): array
+    {
+        $keys = ['readData', 'writeData', 'pagination', 'sorting', 'metadata'];
+        if (!is_array($value) || array_is_list($value)) {
+            $this->invalid([['path' => 'features', 'message' => 'Feature configuration must be an object.']]);
+        }
+        $this->rejectUnknown($value, $keys, 'features.');
+        $errors = [];
+        foreach ($keys as $key) {
+            if (!is_bool($value[$key] ?? null)) {
+                $errors[] = ['path' => 'features.' . $key, 'message' => 'Feature value must be boolean.'];
+            }
+        }
+        if ($errors !== []) $this->invalid($errors);
+        return array_combine($keys, array_map(fn (string $key): bool => $value[$key], $keys));
     }
 
     private function database($value): array

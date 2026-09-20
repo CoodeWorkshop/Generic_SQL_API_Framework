@@ -127,7 +127,7 @@ On Windows, run:
 start-windows.bat
 ```
 
-The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP installation is not required. The launcher validates PHP, `php.ini`, ODBC, OpenSSL, JSON, and sessions; prepares the ignored local encryption key; chooses the first free port from 8000 through 8100; binds to `127.0.0.1`; starts the API and Admin Console in one PHP process; and opens `/admin`. A preconfigured or reachable database is not required to start because it can be configured and tested in the console.
+The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP installation is not required. The launcher validates PHP and required extensions, prepares the ignored local encryption key, starts the Admin Console on its configured loopback port, and starts the API as an independently managed process on the first free port in the configured range. A preconfigured or reachable database is not required because it can be configured and tested in the console.
 
 On Linux, run:
 
@@ -136,8 +136,10 @@ On Linux, run:
 ```
 
 It mirrors the loopback binding, validation, local key preparation, automatic
-port selection, and optional browser launch while using the existing Linux PHP
-runtime convention. Press Ctrl+C in either launcher to stop the process.
+port selection, and optional browser launch. It prefers
+`runtime/linux/php/php` and falls back to installed PHP when the bundled Linux
+binary is absent. The Admin Console remains available while its System Health
+screen starts, stops, or restarts the API.
 
 With another PHP installation, after configuring the database:
 
@@ -174,6 +176,7 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - v1.2.0 — CRUD operations: current
 - New Phase 1 — unified local setup/configuration console: implemented
 - New Phase 2 — authentication and administrator user management: implemented
+- Phase 2.1 — independent Admin/API runtime and simplified configuration UX: implemented
 - Generalized roles/permissions, API-key management, transactions, richer
   metadata, and additional providers: planned
 
@@ -183,8 +186,9 @@ The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md
 
 Start at the [backend documentation map](docs/README.md).
 
-Developers can translate supported SQL into validated public request JSON at
-`/admin/sql-parser` using the existing [SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
+Developers can run the independent `sqlparser/` application to translate
+supported SQL into validated public request JSON. See the
+[SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
 
 Getting started:
 

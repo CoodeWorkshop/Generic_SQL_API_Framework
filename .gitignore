@@ -18,6 +18,7 @@ storage/
 runtime/windows/php/opcache/
 runtime/linux/php/opcache
 runtime/secrets/
+runtime/api/
 
 # Environment
 .env

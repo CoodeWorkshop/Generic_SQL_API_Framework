@@ -1,5 +1,14 @@
 # Changelog
 
+## Phase 2.1 — Admin runtime and configuration UX
+
+- Split the loopback Admin Console and API into independently managed processes.
+- Added System Health, System Info, unified Configuration, process controls,
+  configurable API port selection, runtime detection, and backend-enforced
+  high-level feature switches.
+- Removed SQL Parser conversion from Admin; the standalone parser remains
+  independently hostable and database-free.
+
 All notable backend changes are recorded here. The project follows semantic versioning.
 
 ## [Unreleased]
@@ -19,8 +28,8 @@ All notable backend changes are recorded here. The project follows semantic vers
   runtime status, encrypted database configuration/testing, exact-origin CORS,
   API authentication-mode selection, and the existing non-executing SQL parser.
 - Matching Windows and Linux loopback launchers with runtime checks, local key
-  preparation, safe port selection, browser launch where available, and one
-  process for the API and Admin Console.
+  preparation, safe port selection, browser launch where available, and
+  independently managed API/Admin processes.
 - Local/admin API authorization, CSRF, strict configuration validation, API-key
   authentication-mode enforcement, and database-independent regression tests.
 

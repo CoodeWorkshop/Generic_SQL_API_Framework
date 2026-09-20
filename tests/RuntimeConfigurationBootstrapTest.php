@@ -44,6 +44,15 @@ try {
     bootstrapAssert($installation['initialized'] === false, 'Fresh installation was initialized automatically.');
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
+    bootstrapAssert(
+        $admin['version'] === 2
+            && $admin['server']['apiPortMinimum'] === 8000
+            && $admin['server']['apiPortMaximum'] === 8100
+            && $admin['server']['adminPort'] === 8090
+            && $admin['server']['bindAddress'] === '127.0.0.1'
+            && !in_array(false, $admin['features'], true),
+        'Admin runtime defaults are unsafe or malformed.'
+    );
     $serializedDefaults = json_encode([$auth, $installation, $admin], JSON_THROW_ON_ERROR);
     foreach (['password', 'passwordHash', 'apiKey', 'encryptionKey'] as $secretName) {
         bootstrapAssert(!str_contains($serializedDefaults, $secretName), "Bootstrap generated {$secretName} material.");

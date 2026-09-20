@@ -43,6 +43,7 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Current limitations](Limitations.md)
 - [Architecture](Architecture.md)
 - [Local Admin Console and configuration](Admin-Console-and-Configuration.md)
+- [Admin runtime and feature reference](Admin-Runtime-and-Features.md)
 - [Authentication and user management](Authentication-and-User-Management.md)
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)

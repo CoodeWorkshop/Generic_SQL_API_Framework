@@ -3,11 +3,14 @@
 set -euo pipefail
 
 BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PHP_BIN="$(command -v php || true)"
+SYSTEM_PHP_BIN="$(command -v php || true)"
+BUNDLED_PHP_BIN="$BACKEND_ROOT/runtime/linux/php/php"
+PHP_BIN="$BUNDLED_PHP_BIN"
+if [ ! -x "$PHP_BIN" ]; then PHP_BIN="$SYSTEM_PHP_BIN"; fi
 PHP_INI_PATH="$BACKEND_ROOT/runtime/linux/php/php.ini"
 OPCACHE_PATH="$BACKEND_ROOT/runtime/linux/php/opcache"
 LOG_PATH="$BACKEND_ROOT/logs"
-API_PATH="$BACKEND_ROOT/api"
+ADMIN_PATH="$BACKEND_ROOT/admin"
 
 echo "========================================"
 echo "       Generic SQL API Framework"
@@ -22,8 +25,8 @@ if [ ! -f "$PHP_INI_PATH" ]; then
     echo "[FAILED] PHP configuration not found: $PHP_INI_PATH"
     exit 1
 fi
-if [ ! -f "$API_PATH/router.php" ]; then
-    echo "[FAILED] API router not found: $API_PATH/router.php"
+if [ ! -f "$ADMIN_PATH/router.php" ]; then
+    echo "[FAILED] Admin router not found: $ADMIN_PATH/router.php"
     exit 1
 fi
 
@@ -45,19 +48,24 @@ if [ -z "$GENERIC_SQL_API_ENCRYPTION_KEY" ]; then
 fi
 export GENERIC_SQL_API_ENCRYPTION_KEY
 
-PORT="$($PHP_BIN -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/find-available-port.php")"
+ADMIN_PORT="$($PHP_BIN -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/find-available-port.php" admin)"
 export GENERIC_ADMIN_ENABLED=1
-ADMIN_URL="http://127.0.0.1:$PORT/admin"
+export GENERIC_ADMIN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ADMIN_URL="http://127.0.0.1:$ADMIN_PORT/admin"
+
+if ! "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/api-runtime-control.php" start >/dev/null; then
+    echo "[WARNING] API did not start. Use System Health after reviewing the configured port range."
+fi
 
 echo "[OK] PHP runtime and required extensions"
 echo "[OK] Runtime configuration"
 echo "[OK] Local database encryption key"
-echo "[OK] Loopback port $PORT"
+echo "[OK] Admin Console port $ADMIN_PORT"
 echo
-echo "API:   http://127.0.0.1:$PORT/index.php"
+echo "API:   managed from System Health"
 echo "Admin: $ADMIN_URL"
 echo
-echo "The server is bound to this computer only. Press Ctrl+C to stop it."
+echo "The Admin Console is bound to this computer only. Press Ctrl+C to stop it."
 echo "The PHP built-in server is for local setup and development, not production."
 echo
 
@@ -73,6 +81,6 @@ echo
 exec "$PHP_BIN" -c "$PHP_INI_PATH" \
     -d "opcache.file_cache=$OPCACHE_PATH" \
     -d "error_log=$LOG_PATH/php_errors.log" \
-    -S "127.0.0.1:$PORT" \
-    -t "$API_PATH" \
-    "$API_PATH/router.php"
+    -S "127.0.0.1:$ADMIN_PORT" \
+    -t "$ADMIN_PATH" \
+    "$ADMIN_PATH/router.php"

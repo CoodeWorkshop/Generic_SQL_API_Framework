@@ -6,7 +6,7 @@ set "PHP=%ROOT%runtime\windows\php\php.exe"
 set "PHP_INI=%ROOT%runtime\windows\php\php.ini"
 set "OPCACHE=%ROOT%runtime\windows\php\opcache"
 set "LOGS=%ROOT%logs"
-set "API=%ROOT%api"
+set "ADMIN=%ROOT%admin"
 
 echo ========================================
 echo          Generic SQL API Framework
@@ -23,8 +23,8 @@ if not exist "%PHP_INI%" (
     pause
     exit /b 1
 )
-if not exist "%API%\router.php" (
-    echo [FAILED] API router not found: %API%\router.php
+if not exist "%ADMIN%\router.php" (
+    echo [FAILED] Admin router not found: %ADMIN%\router.php
     pause
     exit /b 1
 )
@@ -58,32 +58,38 @@ if not defined PREPARED_ENCRYPTION_KEY (
 set "GENERIC_SQL_API_ENCRYPTION_KEY=%PREPARED_ENCRYPTION_KEY%"
 set "PREPARED_ENCRYPTION_KEY="
 
-set "PORT="
-for /f "usebackq delims=" %%P in (`"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\find-available-port.php"`) do set "PORT=%%P"
-if not defined PORT (
-    echo [FAILED] No available local port was found.
+set "ADMIN_PORT="
+for /f "usebackq delims=" %%P in (`"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\find-available-port.php" admin`) do set "ADMIN_PORT=%%P"
+if not defined ADMIN_PORT (
+    echo [FAILED] The configured Admin port is unavailable.
     pause
     exit /b 1
 )
 
 set "GENERIC_ADMIN_ENABLED=1"
-set "ADMIN_URL=http://127.0.0.1:%PORT%/admin"
+for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "[DateTime]::UtcNow.ToString('o')"`) do set "GENERIC_ADMIN_STARTED_AT=%%T"
+set "ADMIN_URL=http://127.0.0.1:%ADMIN_PORT%/admin"
+
+"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\api-runtime-control.php" start >nul
+if errorlevel 1 (
+    echo [WARNING] API did not start. Use System Health after reviewing the configured port range.
+)
 
 echo [OK] PHP runtime and required extensions
 echo [OK] Runtime configuration
 echo [OK] Local database encryption key
-echo [OK] Loopback port %PORT%
+echo [OK] Admin Console port %ADMIN_PORT%
 echo.
-echo API:   http://127.0.0.1:%PORT%/index.php
+echo API:   managed from System Health
 echo Admin: %ADMIN_URL%
 echo.
-echo The server is bound to this computer only. Press Ctrl+C to stop it.
+echo The Admin Console is bound to this computer only. Press Ctrl+C to stop it.
 echo The PHP built-in server is for local setup and development, not production.
 echo.
 
 start "" "%ADMIN_URL%"
-"%PHP%" -c "%PHP_INI%" -d "opcache.file_cache=%OPCACHE%" -d "error_log=%LOGS%\php_errors.log" -S 127.0.0.1:%PORT% -t "%API%" "%API%\router.php"
+"%PHP%" -c "%PHP_INI%" -d "opcache.file_cache=%OPCACHE%" -d "error_log=%LOGS%\php_errors.log" -S 127.0.0.1:%ADMIN_PORT% -t "%ADMIN%" "%ADMIN%\router.php"
 
 echo.
-echo API stopped.
+echo Admin Console stopped. The API lifecycle remains independently managed.
 pause

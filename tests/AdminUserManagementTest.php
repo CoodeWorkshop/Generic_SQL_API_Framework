@@ -5,6 +5,7 @@ require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Services/UserManagementService.php';
 require_once __DIR__ . '/../app/Services/AuthService.php';
 require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
+require_once __DIR__ . '/../app/Repositories/AdminConfigurationRepository.php';
 
 function userManagementAssert(bool $condition, string $message): void
 {
@@ -41,6 +42,8 @@ $concurrentDirectory = $root . DIRECTORY_SEPARATOR . 'concurrent';
 $sessionPath = $root . DIRECTORY_SEPARATOR . 'sessions';
 $logPath = $root . DIRECTORY_SEPARATOR . 'logs';
 $sessionName = 'generic_reporting_users_' . bin2hex(random_bytes(4));
+$adminPath = $root . DIRECTORY_SEPARATOR . 'admin.json';
+$oldAdminPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
 $actions = [
     'auth.users.list', 'auth.users.create', 'auth.users.update', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
@@ -54,6 +57,8 @@ try {
     mkdir($sessionPath, 0700, true);
     mkdir($logPath, 0700, true);
     ini_set('session.save_path', $sessionPath);
+    (new AdminConfigurationRepository($adminPath))->save(AdminConfigurationRepository::defaults());
+    putenv('GENERIC_ADMIN_CONFIG_PATH=' . $adminPath);
 
     $hasher = new PasswordHasher();
     $authPath = $mainDirectory . DIRECTORY_SEPARATOR . 'auth.json';
@@ -182,6 +187,8 @@ try {
     userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
     userManagementAssert(session_status() !== PHP_SESSION_ACTIVE, 'Disabled account session was not invalidated.');
     $service->setEnabled('Admin', true);
+    $service->deleteUser('Second.Admin', 'Admin');
+    userManagementAssert($repository->findUser('Second.Admin') === null, 'A non-last enabled administrator could not be deleted.');
 
     $service->createUser('Temporary.User', 'temporary-password', false);
     $authService->login('Temporary.User', 'temporary-password');
@@ -269,5 +276,10 @@ try {
     @rmdir($logPath);
     removeUserManagementFixture($mainDirectory);
     removeUserManagementFixture($concurrentDirectory);
+    @unlink($adminPath);
+    @unlink($adminPath . '.lock');
     @rmdir($root);
+    $oldAdminPath === false
+        ? putenv('GENERIC_ADMIN_CONFIG_PATH')
+        : putenv('GENERIC_ADMIN_CONFIG_PATH=' . $oldAdminPath);
 }

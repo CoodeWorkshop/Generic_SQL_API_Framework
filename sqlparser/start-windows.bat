@@ -11,5 +11,5 @@ if not exist "%PHP%" (
 
 echo SQL to API JSON Generator
 echo http://127.0.0.1:8005/
-echo This process is independent from api/index.php.
+echo This process is independent from the Admin Console, API, and database.
 "%PHP%" -S 127.0.0.1:8005 -t "%~dp0"

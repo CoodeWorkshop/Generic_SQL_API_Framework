@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Security/PasswordHasher.php';
+require_once __DIR__ . '/../app/Repositories/AdminConfigurationRepository.php';
 
 function protectionAssert(bool $condition, string $message): void
 {
@@ -33,7 +34,9 @@ $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'generic-reporting-prote
     . bin2hex(random_bytes(8));
 $sessionPath = $directory . DIRECTORY_SEPARATOR . 'sessions';
 $authPath = $directory . DIRECTORY_SEPARATOR . 'auth.json';
+$adminPath = $directory . DIRECTORY_SEPARATOR . 'admin.json';
 $sessionName = 'generic_reporting_protection_' . bin2hex(random_bytes(4));
+$oldAdminPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
 $publicActions = [
     'setup.status',
     'setup.createAdmin',
@@ -65,6 +68,8 @@ try {
     mkdir($directory, 0700, true);
     mkdir($sessionPath, 0700, true);
     ini_set('session.save_path', $sessionPath);
+    (new AdminConfigurationRepository($adminPath))->save(AdminConfigurationRepository::defaults());
+    putenv('GENERIC_ADMIN_CONFIG_PATH=' . $adminPath);
 
     $session = new AuthSessionService($sessionName);
     $authRepository = new AuthRepository($authPath);
@@ -135,5 +140,11 @@ try {
     }
     @rmdir($sessionPath);
     @unlink($authPath);
+    @unlink($authPath . '.lock');
+    @unlink($adminPath);
+    @unlink($adminPath . '.lock');
     @rmdir($directory);
+    $oldAdminPath === false
+        ? putenv('GENERIC_ADMIN_CONFIG_PATH')
+        : putenv('GENERIC_ADMIN_CONFIG_PATH=' . $oldAdminPath);
 }

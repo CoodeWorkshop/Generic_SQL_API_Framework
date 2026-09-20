@@ -8,6 +8,13 @@ Common response fields are defined once in [Response reference](Response-Referen
 Unless a section says otherwise, request-shape failures are HTTP 400
 `INVALID_REQUEST` and execution failures are HTTP 500 `QUERY_ERROR`.
 
+The Admin Console's high-level feature switches are enforced before validation:
+Read Data covers query/routine/SQL Resource actions, Write Data covers CRUD,
+Metadata covers `metadata.*`, and Pagination/Sorting cover the corresponding
+request properties. A disabled feature returns HTTP 403 `FEATURE_DISABLED`.
+Administrator runtime actions are documented separately in
+[Admin runtime and feature reference](Admin-Runtime-and-Features.md).
+
 ## `select`
 
 ### Purpose

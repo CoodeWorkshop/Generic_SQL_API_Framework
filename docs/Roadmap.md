@@ -21,7 +21,7 @@ JSON Query features.
 
 - bundled `runtime/windows/php/`
 - `start-windows.bat` checks PHP, configuration, ODBC, OpenSSL, encrypted-credential readiness, database connectivity, API path, and ports
-- automatic OPcache/log directory creation and port selection from 8000 through 8100
+- automatic OPcache/log directory creation and validated configurable port selection
 - SQL Server/Windows authentication modes and automatic/specific ODBC driver configuration
 - cross-platform AES-256-GCM protection for the complete database configuration, environment-managed keys, and verified no-backup one-time setup
 - modular `QueryRepository` facade with specialized query builders
@@ -45,6 +45,14 @@ deployment. UPSERT uses one SQL Server MERGE/HOLDLOCK statement and verifies a
 matching unfiltered unique index. Bulk writes and application-managed
 transactions are not part of this release.
 
+## New Phase 2.1 — Admin Runtime and Configuration UX — Implemented
+
+- independent loopback Admin and API lifecycles with fixed start/stop/restart controls
+- configurable API port range, first-available selection, PID/runtime state, and safe health reporting
+- System Health, System Info, unified Configuration, and existing Users screens
+- backend-enforced Read Data, Write Data, Pagination, Sorting, and Metadata switches
+- independently hosted SQL Parser with no Admin, API runtime, session, or database dependency
+
 ## v1.3.0 — Transactions — Planned
 
 - begin, commit, rollback, failure handling, and transaction-aware service boundaries
@@ -64,7 +72,7 @@ extends that foundation rather than replacing it.
 
 ## v1.6.0 — API Improvements — Planned
 
-- versioning, health/status endpoints, OpenAPI description, and more complete option-level validation
+- versioning, broader production health/status integration, OpenAPI description, and more complete option-level validation
 - resolution of documented public/internal edge cases such as `TIMEFROMPARTS`
 
 ## v1.7.0 — Performance — Planned

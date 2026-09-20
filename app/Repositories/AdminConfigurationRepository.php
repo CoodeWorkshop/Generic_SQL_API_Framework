@@ -24,6 +24,10 @@ final class AdminConfigurationRepository
     {
         if ($this->runtimePath) RuntimeConfiguration::ensure();
         $configuration = JsonFileStore::load($this->path);
+        if (($configuration['version'] ?? null) === 1) {
+            $configuration = $this->migrate($configuration);
+            JsonFileStore::save($this->path, $configuration);
+        }
         $this->validate($configuration);
         return $configuration;
     }
@@ -33,6 +37,27 @@ final class AdminConfigurationRepository
         if ($this->runtimePath) RuntimeConfiguration::ensure();
         $this->validate($configuration);
         JsonFileStore::save($this->path, $configuration);
+    }
+
+    public function update(callable $operation)
+    {
+        if ($this->runtimePath) RuntimeConfiguration::ensure();
+        $stream = @fopen($this->path . '.lock', 'c');
+        if ($stream === false) throw new RuntimeException('Admin configuration lock is unavailable.');
+        @chmod($this->path . '.lock', 0600);
+        try {
+            if (!flock($stream, LOCK_EX)) throw new RuntimeException('Admin configuration lock could not be acquired.');
+            $configuration = JsonFileStore::load($this->path);
+            if (($configuration['version'] ?? null) === 1) $configuration = $this->migrate($configuration);
+            $this->validate($configuration);
+            $result = $operation($configuration);
+            $this->validate($configuration);
+            JsonFileStore::save($this->path, $configuration);
+            return $result;
+        } finally {
+            @flock($stream, LOCK_UN);
+            fclose($stream);
+        }
     }
 
     public static function defaults(): array
@@ -64,11 +89,31 @@ final class AdminConfigurationRepository
 
     private function validate(array $configuration): void
     {
-        if (array_diff(array_keys($configuration), ['version', 'cors', 'authentication']) !== []
-            || ($configuration['version'] ?? null) !== 1
+        if (array_diff(array_keys($configuration), ['version', 'server', 'features', 'cors', 'authentication']) !== []
+            || ($configuration['version'] ?? null) !== 2
+            || !is_array($configuration['server'] ?? null)
+            || !is_array($configuration['features'] ?? null)
             || !is_array($configuration['cors'] ?? null)
             || !is_array($configuration['authentication'] ?? null)) {
             throw new RuntimeException('Invalid admin configuration.');
+        }
+        $server = $configuration['server'];
+        if (array_keys($server) !== ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress']
+            || !is_int($server['apiPortMinimum'] ?? null)
+            || !is_int($server['apiPortMaximum'] ?? null)
+            || !is_int($server['adminPort'] ?? null)
+            || $server['apiPortMinimum'] < 1 || $server['apiPortMaximum'] > 65535
+            || $server['apiPortMinimum'] > $server['apiPortMaximum']
+            || $server['adminPort'] < 1 || $server['adminPort'] > 65535
+            || ($server['bindAddress'] ?? null) !== '127.0.0.1') {
+            throw new RuntimeException('Invalid server configuration.');
+        }
+        $features = $configuration['features'];
+        if (array_keys($features) !== ['readData', 'writeData', 'pagination', 'sorting', 'metadata']) {
+            throw new RuntimeException('Invalid feature configuration.');
+        }
+        foreach ($features as $enabled) {
+            if (!is_bool($enabled)) throw new RuntimeException('Invalid feature configuration.');
         }
         $cors = $configuration['cors'];
         if (array_diff(array_keys($cors), ['allowedOrigins', 'credentialsEnabled', 'allowedMethods']) !== []
@@ -103,5 +148,22 @@ final class AdminConfigurationRepository
             || !in_array($authentication['mode'] ?? null, self::AUTHENTICATION_MODES, true)) {
             throw new RuntimeException('Invalid authentication configuration.');
         }
+    }
+
+    private function migrate(array $configuration): array
+    {
+        if (array_diff(array_keys($configuration), ['version', 'cors', 'authentication']) !== []
+            || !is_array($configuration['cors'] ?? null)
+            || !is_array($configuration['authentication'] ?? null)) {
+            throw new RuntimeException('Invalid admin configuration.');
+        }
+        $defaults = self::defaults();
+        return [
+            'version' => 2,
+            'server' => $defaults['server'],
+            'features' => $defaults['features'],
+            'cors' => $configuration['cors'],
+            'authentication' => $configuration['authentication'],
+        ];
     }
 }

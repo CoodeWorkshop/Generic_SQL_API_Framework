@@ -1,80 +1,84 @@
-# Local Admin Console and configuration
+# Admin Console, runtime, and configuration
 
-The backend includes one local setup and administration console at `/admin`. It
-runs in the same PHP process as the API and is intentionally separate from the
-React reporting application.
+The local Admin Console is an independent loopback application. The launchers
+serve it from `admin/` on the configured Admin port and manage the API as a
+separate child process. Stopping or restarting the API therefore does not stop
+the console. The React reporting application and standalone SQL Parser are also
+separate applications.
 
-Start it from the backend root:
+Before authentication, the console displays only Initial Setup or Login. After
+an enabled administrator signs in, navigation contains:
 
-```bat
-start-windows.bat
-```
+- **System Health** — Admin/API/database/PHP status, safe API PID/port/start
+  information, database connection testing, and Start/Stop/Restart controls.
+- **System Info** — read-only OS, architecture, PHP/runtime, versions, ports,
+  bind address, ODBC, driver candidates, and installation state.
+- **Configuration** — Server, Features, Database, Security, and read-only
+  Advanced sections.
+- **Users** — the Phase 2 account-management interface.
 
-or:
-
-```bash
-./start-linux.sh
-```
-
-The launcher validates PHP and required extensions, prepares an ignored local
-AES-256-GCM key, selects the first available port from 8000–8100, binds the
-server to `127.0.0.1`, and opens `http://127.0.0.1:<port>/admin` when the platform
-supports it. The API is already running in that same process at `/index.php`.
-Press Ctrl+C in the launcher terminal to stop both the API and console.
-
-The console route and every `admin.*` API action independently require a
-loopback client. The launcher also sets the process-local
-`GENERIC_ADMIN_ENABLED=1` switch. Admin API actions require an authenticated,
-enabled administrator session; state-changing actions use the existing CSRF
-boundary. Requests from non-loopback addresses and disabled consoles receive a
-not-found response.
-
-## Available pages
-
-- **Overview** shows redacted readiness for database, encryption, CORS,
-  authentication, API, parser, PHP, and ODBC.
-- **Users** lists safe account metadata and provides create, username update,
-  password change, enable/disable, and deletion controls.
-- **Database** validates, tests, and saves the existing SQL Server configuration
-  model. A blank password retains the stored password. Save always writes a
-  complete AES-256-GCM envelope and creates no plaintext backup.
-- **CORS** stores exact HTTP/HTTPS origins, credential behavior, and the supported
-  POST/OPTIONS methods in `config/admin.json`. Wildcards, paths, credentials in
-  URLs, duplicates, and unsupported methods are rejected.
-- **Authentication** selects `none`, `session`, `api_key`, or
-  `session+api_key` for normal API actions. Admin and authentication endpoints
-  continue to require sessions. API key values are accepted only from the
-  server-side `GENERIC_SQL_API_KEY` environment variable (minimum 32 bytes); the
-  console does not create, reveal, or store keys.
-- **SQL parser** calls the existing lexer/parser/capability/mapper/generator
-  pipeline. It never opens a database connection or executes pasted SQL.
-- **Security/System** show redacted runtime information only.
-
-If installation is not initialized, `/admin` first uses the existing one-time
-administrator setup. After initialization it uses the existing login/session,
-password hashing, authorization, rate-limiting, and CSRF implementation. User
-management is available at `/admin/users`; generalized roles, permissions,
-API-key management, production HTTPS, and production process control remain
-outside this phase.
+Every Admin API action remains loopback-only, session authenticated,
+administrator authorized, and CSRF protected when it changes state. Hiding the
+navigation before login is only a UX measure; backend middleware remains the
+security boundary.
 
 ## Configuration ownership
 
-`config/admin.json` is the generated, ignored, fixed-path store for CORS and API authentication
-mode. `config/auth.json` and `config/installation.json` are generated alongside
-it; users do not create or edit these files manually. Safe tracked
-`*.example.json` files document their shapes. Database configuration remains at the fixed ignored path
-`database/config/database.json`. The UI calls narrowly scoped services; it
-cannot choose file paths, write PHP, or run shell commands.
+`config/admin.json` remains the single generated source of truth. Schema version
+2 adds `server` and `features` alongside the existing CORS and authentication
+settings. Existing version-1 files are migrated in place without changing CORS
+or authentication values. No duplicate configuration store is introduced.
 
-For local launchers, the database encryption key is generated once at
-`runtime/secrets/database-encryption.key`, which is ignored by Git and restricted
-where the platform supports permissions. If an encrypted database file already
-exists but neither its environment key nor local key file is available, startup
-fails instead of generating an incompatible key. Production hosts should inject
-`GENERIC_SQL_API_ENCRYPTION_KEY` from their secret manager and should not expose
-the local console.
+The Server section stores a loopback bind address, API minimum/maximum ports,
+and Admin port. API startup probes the range in ascending order, skips the Admin
+port, and selects the first bindable port. The selected port, PID, and start time
+are written only to ignored runtime state under `runtime/api/`. Missing, stale,
+crashed, foreign, and already-running process states are handled by the
+fixed-operation manager. Browser requests can request only `start`, `stop`,
+`restart`, or `status`; they cannot supply commands, paths, executables, or
+arguments.
 
-`GENERIC_API_ALLOWED_ORIGINS` remains an explicit deployment override for the
-stored CORS origin list. When it is unset, the validated backend configuration is
-authoritative. No CORS or authentication secrets are placed in frontend build
-variables.
+Server-range changes report that an API restart is required. Feature, database,
+CORS, and authentication settings are read per request and apply immediately.
+Changing the Admin port takes effect on the next launcher start.
+
+## High-level features
+
+The UI intentionally avoids presenting every internal API action:
+
+| Feature | Backend mapping |
+|---|---|
+| Read Data | `select`, `sql`, `union`, `unionAll`, `procedure`, `function`, `tableFunction` |
+| Write Data | `insert`, `update`, `delete`, `upsert` |
+| Pagination | Requests containing `pagination` |
+| Sorting | Requests containing `sort`, including nested set-operation queries |
+| Metadata | `metadata.*` |
+
+`FeatureAccessMiddleware` enforces these settings before request validation or
+execution. Disabled functionality returns HTTP 403 `FEATURE_DISABLED`; frontend
+switches are not trusted as authorization.
+
+## Database and security
+
+The Database section reuses the existing validation, request-scoped SQL Server
+driver, resolver, and AES-256-GCM envelope. A test opens one temporary
+connection and disconnects it in `finally`. Stored plaintext passwords,
+ciphertext, encryption keys, session IDs, and hashes are never returned.
+
+The Security section exposes existing authentication-mode and CORS settings.
+It does not implement roles, permissions, API-key management, OAuth, or JWT.
+Advanced information is read-only and reflects existing timeout/debug/logging
+configuration.
+
+## Platform startup
+
+`start-windows.bat` uses `runtime/windows/php/php.exe`.
+`start-linux.sh` prefers `runtime/linux/php/php` and falls back to installed PHP
+when the bundled Linux executable is absent. Neither launcher asks the operator
+to choose an OS. Both bootstrap configuration and encryption, verify the Admin
+port, start the managed API, and keep the independent Admin server in the
+foreground.
+
+The SQL Parser starts separately from `sqlparser/` using its platform launcher.
+It imports only parser classes, never the Admin/API front controllers or
+database layer, and never executes SQL.

@@ -97,6 +97,9 @@ try {
         'CSRF_VALIDATION_FAILED',
         403
     );
+    foreach (['admin.server.save', 'admin.features.save', 'admin.api.start', 'admin.api.stop', 'admin.api.restart'] as $action) {
+        securityFailure(fn () => $middleware->handle(['action' => $action]), 'CSRF_VALIDATION_FAILED', 403);
+    }
     securityAssert($missing->getDetails() === [], 'CSRF failure exposed internal details.');
     $_SERVER['HTTP_X_CSRF_TOKEN'] = str_repeat('0', 64);
     securityFailure(fn () => $middleware->handle(['action' => 'auth.logout']), 'CSRF_VALIDATION_FAILED', 403);
