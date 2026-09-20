@@ -16,6 +16,8 @@ storage/
 
 # PHP Runtime Generated Files
 runtime/windows/php/opcache/
+runtime/linux/php/opcache
+runtime/secrets/
 
 # Environment
 .env

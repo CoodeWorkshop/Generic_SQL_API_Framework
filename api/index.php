@@ -17,13 +17,15 @@ $allowed_origins = SecurityConfiguration::allowedOrigins();
 
 if (isset($_SERVER['HTTP_ORIGIN']) && in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins, true)) {
     header("Access-Control-Allow-Origin: " . $_SERVER['HTTP_ORIGIN']);
-    header('Access-Control-Allow-Credentials: true');
+    if (SecurityConfiguration::corsCredentialsEnabled()) {
+        header('Access-Control-Allow-Credentials: true');
+    }
     header('Access-Control-Expose-Headers: X-CSRF-Token');
     header('Vary: Origin');
 }
 
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token');
+header('Access-Control-Allow-Methods: ' . implode(', ', SecurityConfiguration::corsAllowedMethods()));
+header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token, X-API-Key');
 header('Content-Type: application/json');
 header_remove('X-Powered-By');
 header('Cache-Control: no-store');
@@ -50,6 +52,7 @@ if ($contentType !== 'application/json') {
 
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/LocalAdminMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
@@ -64,6 +67,8 @@ require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AuthController.php';
 require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/UserManagementController.php';
+require_once __DIR__ . '/../app/Requests/AdminRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/AdminController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -94,10 +99,22 @@ $userManagementActions = [
     'auth.users.delete',
     'auth.users.changePassword',
 ];
+$adminActions = [
+    'admin.status',
+    'admin.database.get',
+    'admin.database.test',
+    'admin.database.save',
+    'admin.settings.get',
+    'admin.cors.save',
+    'admin.authentication.save',
+    'admin.sqlParser.convert',
+];
 $publicAuthenticationActions = array_merge($setupActions, $authActions);
+unset($_SERVER['GENERIC_AUTH_PROVIDER']);
+(new LocalAdminMiddleware())->handle($publicRequest);
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
-(new AdminAuthorizationMiddleware($userManagementActions))->handle($publicRequest);
+(new AdminAuthorizationMiddleware(array_merge($userManagementActions, $adminActions)))->handle($publicRequest);
 (new CsrfProtectionMiddleware())->handle($publicRequest);
 
 // Execute Middleware
@@ -140,6 +157,12 @@ if (in_array($publicRequest['action'] ?? null, $userManagementActions, true)) {
     if ($request['action'] === 'auth.users.disable') $controller->disableUser($request);
     if ($request['action'] === 'auth.users.delete') $controller->deleteUser($request);
     $controller->changePassword($request);
+}
+
+if (in_array($publicRequest['action'] ?? null, $adminActions, true)) {
+    $request = (new AdminRequestValidator())->validate($publicRequest);
+    Response::setRequestContext(['action' => $request['action']]);
+    (new AdminController())->dispatch($request);
 }
 
 $phaseStarted = microtime(true);

@@ -1,22 +1,17 @@
 # SQL → API JSON Generator
 
-The SQL Parser Generator is an isolated developer tool that translates supported
-SQL into the framework's existing Universal API JSON. It never executes pasted
-SQL, opens a database connection, or routes through `api/index.php`.
+The SQL Parser Generator translates supported SQL into the framework's existing
+Universal API JSON. Its current integrated UI is the authenticated local Admin
+Console. It never executes pasted SQL or opens a database connection.
 
 ## Run it
 
-```bash
-php -S 127.0.0.1:8001 -t sqlparser
-```
-
-Open `http://127.0.0.1:8001/`. Windows users with the bundled runtime can run
-`sqlparser\start-windows.bat`. Keep this administrative tool behind appropriate
-network/access controls; it does not add an authentication system.
-
-The browser posts `{ "sql": "..." }` only to `sqlparser/index.php`. Requests are
-limited to 200,000 bytes, responses are not cached, pasted SQL is not logged, and
-the parser accepts no execution option.
+Run the normal Windows or Linux backend launcher, sign in at `/admin`, and open
+`/admin/sql-parser`. The browser sends the SQL through the authenticated,
+loopback-only `admin.sqlParser.convert` action. Requests are limited to 200,000
+bytes, responses are not cached, pasted SQL is not logged, and the parser accepts
+no execution option. The original `sqlparser/` adapter remains available for
+compatibility, but the unified console needs no second server or parser.
 
 ## Architecture
 
@@ -209,7 +204,7 @@ Phase 4.
 
 ## Relationship to the API
 
-`sqlparser/index.php` serves only this UI and parsing endpoint.
-`api/index.php` remains the production API entry point and has no dependency on
-the generator. The tool works without SQL Server, ODBC, credentials, or
+`AdminService::convertSql()` invokes the existing `SqlGenerator` directly.
+`api/index.php` routes the protected admin action, while normal query execution
+remains unchanged. The parser works without SQL Server, credentials, or
 `database/config/database.json`.

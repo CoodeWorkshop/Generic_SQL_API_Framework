@@ -6,6 +6,15 @@ All notable backend changes are recorded here. The project follows semantic vers
 
 ### Added
 
+- New Phase 1 unified, backend-hosted `/admin` console for local setup, redacted
+  runtime status, encrypted database configuration/testing, exact-origin CORS,
+  API authentication-mode selection, and the existing non-executing SQL parser.
+- Matching Windows and Linux loopback launchers with runtime checks, local key
+  preparation, safe port selection, browser launch where available, and one
+  process for the API and Admin Console.
+- Local/admin API authorization, CSRF, strict configuration validation, API-key
+  authentication-mode enforcement, and database-independent regression tests.
+
 - An independently hosted, non-executing SQL → Universal API JSON developer tool
   with lexical parsing, AST/capability analysis, production request validation,
   browser UI, structured errors, and database-independent tests.

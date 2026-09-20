@@ -42,6 +42,7 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Capability matrix](Capability-Matrix.md) — the authoritative quick comparison.
 - [Current limitations](Limitations.md)
 - [Architecture](Architecture.md)
+- [Local Admin Console and configuration](Admin-Console-and-Configuration.md)
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)
 - [Production security and deployment](Production-Security-and-Deployment.md)

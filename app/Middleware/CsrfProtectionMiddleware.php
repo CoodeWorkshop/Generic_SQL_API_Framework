@@ -14,6 +14,10 @@ final class CsrfProtectionMiddleware extends Middleware
         'auth.users.delete',
         'auth.users.changePassword',
         'setup.createAdmin',
+        'admin.database.test',
+        'admin.database.save',
+        'admin.cors.save',
+        'admin.authentication.save',
         'insert',
         'update',
         'delete',
@@ -29,6 +33,9 @@ final class CsrfProtectionMiddleware extends Middleware
 
     public function handle(array $request): void
     {
+        if (in_array($_SERVER['GENERIC_AUTH_PROVIDER'] ?? null, ['api_key', 'none'], true)) {
+            return;
+        }
         if (!in_array($request['action'] ?? null, self::PROTECTED_ACTIONS, true)) {
             return;
         }

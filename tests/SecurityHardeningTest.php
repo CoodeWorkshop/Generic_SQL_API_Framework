@@ -51,9 +51,9 @@ try {
     ini_set('session.save_path', $sessionPath);
     $_SERVER['REMOTE_ADDR'] = '192.0.2.10';
     putenv('GENERIC_APP_ENV=production');
-    putenv('GENERIC_API_ALLOWED_ORIGINS');
+    putenv('GENERIC_API_ALLOWED_ORIGINS=*');
     securityAssert(SecurityConfiguration::sessionOptions()['secure'] === true, 'Production did not require Secure cookies.');
-    securityAssert(SecurityConfiguration::allowedOrigins() === [], 'Production CORS was not same-origin by default.');
+    securityAssert(SecurityConfiguration::allowedOrigins() === [], 'Unsafe CORS environment override did not fail closed.');
 
     $sessionOptions = [
         'secure' => true,

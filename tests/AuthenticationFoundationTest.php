@@ -75,12 +75,21 @@ try {
         'Installation storage round trip failed.'
     );
 
-    $shippedAuth = (new AuthRepository())->load();
-    $shippedInstallation = (new InstallationRepository())->load();
-    authenticationAssert($shippedAuth['users'] === [], 'Default credentials were created.');
-    authenticationAssert($shippedInstallation['initialized'] === false, 'Installation was automatically initialized.');
+    $runtimeAuth = (new AuthRepository())->load();
+    $runtimeInstallation = (new InstallationRepository())->load();
+    if ($runtimeInstallation['initialized'] === false) {
+        authenticationAssert($runtimeAuth['users'] === [], 'Uninitialized installation contains credentials.');
+    } else {
+        authenticationAssert(
+            count(array_filter(
+                $runtimeAuth['users'],
+                static fn (array $user): bool => $user['enabled'] && $user['isAdmin']
+            )) >= 1,
+            'Initialized installation has no enabled administrator.'
+        );
+    }
     authenticationAssert(
-        preg_match('/^[a-f0-9]{64}$/', $shippedInstallation['installationId']) === 1,
+        preg_match('/^[a-f0-9]{64}$/', $runtimeInstallation['installationId']) === 1,
         'Installation identifier is not a secure 256-bit value.'
     );
 

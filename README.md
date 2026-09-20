@@ -74,6 +74,15 @@ Backend developers adding controlled SQL reports should also read
 
 ## Configure SQL Server
 
+For local setup, start the backend and use the loopback-only Admin Console at
+`/admin`. Its Database page validates/tests the connection and saves the complete
+configuration as an AES-256-GCM envelope without a plaintext backup. CORS,
+authentication mode, runtime status, and the non-executing SQL parser are also
+available there. See [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md).
+
+The manual format below remains useful for production provisioning and legacy
+migration.
+
 Create the ignored local file `database/config/database.json`:
 
 ```json
@@ -108,7 +117,17 @@ On Windows, run:
 start-windows.bat
 ```
 
-The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP installation is not required. The launcher validates PHP, `php.ini`, PHP ODBC, PHP OpenSSL, any required encrypted-configuration environment key, the database connection, and the API directory; creates OPcache/log directories; chooses the first free port from 8000 through 8100; then starts PHP's development server. A working database is required to start through this launcher because it deliberately runs `scripts/check-database.php` first.
+The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP installation is not required. The launcher validates PHP, `php.ini`, ODBC, OpenSSL, JSON, and sessions; prepares the ignored local encryption key; chooses the first free port from 8000 through 8100; binds to `127.0.0.1`; starts the API and Admin Console in one PHP process; and opens `/admin`. A preconfigured or reachable database is not required to start because it can be configured and tested in the console.
+
+On Linux, run:
+
+```bash
+./start-linux.sh
+```
+
+It mirrors the loopback binding, validation, local key preparation, automatic
+port selection, and optional browser launch while using the existing Linux PHP
+runtime convention. Press Ctrl+C in either launcher to stop the process.
 
 With another PHP installation, after configuring the database:
 
@@ -151,8 +170,8 @@ The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md
 
 Start at the [backend documentation map](docs/README.md).
 
-Developers can translate supported SQL into validated public request JSON with
-the independently hosted [SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
+Developers can translate supported SQL into validated public request JSON at
+`/admin/sql-parser` using the existing [SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
 
 Getting started:
 
@@ -182,6 +201,7 @@ Writes, metadata, boundaries, and operations:
 - [Capability matrix](docs/Capability-Matrix.md)
 - [Current limitations](docs/Limitations.md)
 - [Architecture](docs/Architecture.md)
+- [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md)
 - [Database configuration](docs/Database-Configuration.md)
 - [Hosting](docs/Hosting.md)
 - [Roadmap](docs/Roadmap.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md)

@@ -7,255 +7,75 @@ set "PHP_INI=%ROOT%runtime\windows\php\php.ini"
 set "OPCACHE=%ROOT%runtime\windows\php\opcache"
 set "LOGS=%ROOT%logs"
 set "API=%ROOT%api"
-set "DB_CHECK=%ROOT%scripts\check-database.php"
-set "DB_ENCRYPTION_CHECK=%ROOT%scripts\check-database-encryption-key.php"
 
 echo ========================================
 echo          Generic SQL API Framework
 echo ========================================
 echo.
 
-REM ============================================================
-REM PHP Runtime
-REM ============================================================
-
 if not exist "%PHP%" (
-    echo [FAILED] PHP runtime not found.
-    echo Expected: %PHP%
-    echo.
+    echo [FAILED] Bundled PHP runtime not found: %PHP%
     pause
     exit /b 1
 )
-
 if not exist "%PHP_INI%" (
-    echo [FAILED] php.ini not found.
-    echo Expected: %PHP_INI%
-    echo.
+    echo [FAILED] PHP configuration not found: %PHP_INI%
+    pause
+    exit /b 1
+)
+if not exist "%API%\router.php" (
+    echo [FAILED] API router not found: %API%\router.php
     pause
     exit /b 1
 )
 
-echo [OK] PHP Runtime
-echo [OK] PHP Configuration
-echo.
+if not exist "%OPCACHE%" mkdir "%OPCACHE%"
+if not exist "%LOGS%" mkdir "%LOGS%"
 
-REM ============================================================
-REM Create Runtime Directories
-REM ============================================================
-
-if not exist "%OPCACHE%" (
-    mkdir "%OPCACHE%"
+for %%E in (odbc openssl json session) do (
+    "%PHP%" -c "%PHP_INI%" -m | findstr /i /x "%%E" >nul
+    if errorlevel 1 (
+        echo [FAILED] Required PHP extension is unavailable: %%E
+        pause
+        exit /b 1
+    )
 )
 
-if not exist "%LOGS%" (
-    mkdir "%LOGS%"
+set "PREPARED_ENCRYPTION_KEY="
+for /f "usebackq delims=" %%K in (`"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\prepare-local-encryption-key.php"`) do set "PREPARED_ENCRYPTION_KEY=%%K"
+if not defined PREPARED_ENCRYPTION_KEY (
+    echo [FAILED] Unable to prepare the database encryption key.
+    pause
+    exit /b 1
 )
+set "GENERIC_SQL_API_ENCRYPTION_KEY=%PREPARED_ENCRYPTION_KEY%"
+set "PREPARED_ENCRYPTION_KEY="
 
-echo [OK] Runtime Directories
-echo.
-
-REM ============================================================
-REM PHP ODBC Extension
-REM ============================================================
-
-"%PHP%" -c "%PHP_INI%" -m | findstr /i "odbc" >nul
-
-if errorlevel 1 (
-    echo [FAILED] PHP ODBC extension not available.
-    echo.
-    echo Please check the PHP ODBC configuration.
-    echo.
-    echo API startup aborted.
+set "PORT="
+for /f "usebackq delims=" %%P in (`"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\find-available-port.php"`) do set "PORT=%%P"
+if not defined PORT (
+    echo [FAILED] No available local port was found.
     pause
     exit /b 1
 )
 
-echo [OK] PHP ODBC
+set "GENERIC_ADMIN_ENABLED=1"
+set "ADMIN_URL=http://127.0.0.1:%PORT%/admin"
+
+echo [OK] PHP runtime and required extensions
+echo [OK] Local database encryption key
+echo [OK] Loopback port %PORT%
+echo.
+echo API:   http://127.0.0.1:%PORT%/index.php
+echo Admin: %ADMIN_URL%
+echo.
+echo The server is bound to this computer only. Press Ctrl+C to stop it.
+echo The PHP built-in server is for local setup and development, not production.
 echo.
 
-REM ============================================================
-REM PHP OpenSSL Extension
-REM ============================================================
-
-"%PHP%" -c "%PHP_INI%" -m | findstr /i "openssl" >nul
-
-if errorlevel 1 (
-    echo [FAILED] PHP OpenSSL extension not available.
-    echo.
-    echo OpenSSL is required for encrypted database configuration.
-    echo Please check the bundled PHP configuration.
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-echo [OK] PHP OpenSSL
-echo.
-
-REM ============================================================
-REM Database Connection
-REM ============================================================
-
-if not exist "%DB_CHECK%" (
-    echo [FAILED] Database check script not found.
-    echo Expected: %DB_CHECK%
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-if not exist "%DB_ENCRYPTION_CHECK%" (
-    echo [FAILED] Database encryption check script not found.
-    echo Expected: %DB_ENCRYPTION_CHECK%
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-"%PHP%" ^
-    -c "%PHP_INI%" ^
-    "%DB_ENCRYPTION_CHECK%"
-
-set "DB_ENCRYPTION_STATUS=%ERRORLEVEL%"
-
-if "%DB_ENCRYPTION_STATUS%"=="2" (
-    echo [FAILED] Database encryption key is not configured.
-    echo.
-    echo database.json contains encrypted database configuration.
-    echo Set GENERIC_SQL_API_ENCRYPTION_KEY in the environment before startup.
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-if not "%DB_ENCRYPTION_STATUS%"=="0" (
-    echo [FAILED] Database encryption configuration check failed.
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-echo Checking database connection...
-echo.
-
-"%PHP%" ^
-    -c "%PHP_INI%" ^
-    -d "error_log=%LOGS%\php_errors.log" ^
-    "%DB_CHECK%"
-
-set "DB_STATUS=%ERRORLEVEL%"
-
-if not "%DB_STATUS%"=="0" (
-    echo.
-    echo [FAILED] Database connection failed.
-    echo.
-    echo Please configure:
-    echo database/config/database.json
-    echo.
-    echo Refer to the documentation for database configuration.
-    echo.
-
-    powershell -NoProfile -Command ^
-        "$wshell = New-Object -ComObject WScript.Shell; $wshell.Popup('Database connection failed.`n`nPlease configure database.json and refer to the documentation.', 0, 'Generic SQL API', 16)"
-
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
+start "" "%ADMIN_URL%"
+"%PHP%" -c "%PHP_INI%" -d "opcache.file_cache=%OPCACHE%" -d "error_log=%LOGS%\php_errors.log" -S 127.0.0.1:%PORT% -t "%API%" "%API%\router.php"
 
 echo.
-echo [OK] Database Connected
-echo.
-
-REM ============================================================
-REM API Directory
-REM ============================================================
-
-echo Checking API directory...
-
-if not exist "%API%\" (
-    echo [FAILED] API directory not found.
-    echo Expected: %API%
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-echo [OK] API Directory
-echo.
-
-REM ============================================================
-REM Find Available Port
-REM ============================================================
-
-set "PORT=8000"
-set "MAX_PORT=8100"
-
-echo Checking available port...
-
-:CHECK_PORT
-
-netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul
-
-if errorlevel 1 (
-    echo [OK] Port %PORT% Available
-    echo.
-    goto START_API
-)
-
-echo [INFO] Port %PORT% is already in use.
-
-set /a PORT+=1
-
-if %PORT% GTR %MAX_PORT% (
-    echo.
-    echo [FAILED] No available port found between 8000 and 8100.
-    echo.
-    echo API startup aborted.
-    pause
-    exit /b 1
-)
-
-goto CHECK_PORT
-
-REM ============================================================
-REM Start API
-REM ============================================================
-
-:START_API
-
-echo ========================================
-echo              API Ready
-echo ========================================
-echo.
-echo API: http://localhost:%PORT%/index.php
-echo.
-echo [WARNING] PHP built-in server is intended for development.
-echo [WARNING] Concurrent request handling may be limited.
-echo [WARNING] Use Nginx/Apache/IIS/FastCGI or another multi-worker host for
-echo [WARNING] realistic concurrency testing and production use.
-echo.
-echo Starting API...
-echo.
-
-"%PHP%" ^
-    -c "%PHP_INI%" ^
-    -d "opcache.file_cache=%OPCACHE%" ^
-    -d "error_log=%LOGS%\php_errors.log" ^
-    -S localhost:%PORT% ^
-    -t "%API%"
-
-echo.
-echo ========================================
-echo              API Stopped
-echo ========================================
-echo.
-
+echo API stopped.
 pause

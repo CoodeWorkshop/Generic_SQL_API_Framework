@@ -19,7 +19,7 @@ class SqlServerDriver implements DatabaseDriverInterface
      *
      * Drivers are tested from newest to oldest.
      */
-    private function getSupportedDrivers(): array
+    public static function supportedDrivers(): array
     {
         return [
             // Modern Microsoft ODBC Drivers
@@ -146,8 +146,7 @@ class SqlServerDriver implements DatabaseDriverInterface
         string $trust
     ): array {
 
-        $drivers =
-            $this->getSupportedDrivers();
+        $drivers = self::supportedDrivers();
 
         $serverAddress =
             $this->buildServerAddress(

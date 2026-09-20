@@ -59,6 +59,7 @@ Backend process variables are server-side:
 ```text
 GENERIC_APP_ENV=production
 GENERIC_SQL_API_ENCRYPTION_KEY=<Base64-encoded 32-byte key>
+GENERIC_SQL_API_KEY=<at-least-32-byte-api-key-when-enabled>
 GENERIC_SESSION_IDLE_TIMEOUT=1800
 GENERIC_SESSION_ABSOLUTE_TIMEOUT=28800
 GENERIC_LOGIN_MAX_ATTEMPTS=5
@@ -66,7 +67,26 @@ GENERIC_LOGIN_WINDOW_SECONDS=900
 GENERIC_LOGIN_LOCKOUT_SECONDS=300
 ```
 
-Production defaults to same-origin CORS. Only set `GENERIC_API_ALLOWED_ORIGINS` to an explicit comma-separated allowlist when a reviewed cross-origin deployment is unavoidable. Wildcards and arbitrary origin reflection are not supported. Development defaults allow localhost and 127.0.0.1 on ports 5173 and 5314.
+Validated CORS origins, credential behavior, and allowed methods are stored in
+`config/admin.json`. `GENERIC_API_ALLOWED_ORIGINS` is an explicit comma-separated
+origin-list override for deployment automation. Wildcards and arbitrary origin
+reflection are not supported by the Admin Console. The shipped development list
+allows localhost and 127.0.0.1 on ports 5173, 5314, and 5341 and should be
+reduced to the origins actually used by a deployment.
+
+Normal API actions enforce the stored authentication mode: `none`, `session`,
+`api_key`, or `session+api_key`. API-key mode reads only the server-side
+`GENERIC_SQL_API_KEY`; a missing configured key fails closed. Admin and `auth.*`
+actions always retain session authentication. API-key-authenticated write
+requests do not use browser-session CSRF because the key itself is the
+non-cookie credential. Mode `none` also has no cookie-carried authority, so it
+does not require CSRF; session-authenticated writes remain CSRF protected.
+
+The local `/admin` console is not a production administration plane. It requires
+`GENERIC_ADMIN_ENABLED=1` and a loopback source at both the router and API
+middleware, and the provided launchers bind only to `127.0.0.1`. Leave it
+disabled and unmapped in production. Use reviewed configuration deployment and
+secret-management procedures instead.
 
 Never place `GENERIC_SQL_API_ENCRYPTION_KEY`, passwords, session identifiers, or server paths in `VITE_*`, React source, Nginx public files, or Git. The PHP service account must inherit the encryption key securely.
 

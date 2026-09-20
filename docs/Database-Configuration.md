@@ -8,7 +8,12 @@ Runtime database settings come from the ignored local file:
 database/config/database.json
 ```
 
-The runtime accepts either the historical plaintext JSON object or the recommended encrypted envelope. Normal API requests only read this file; they never encrypt, migrate, or rewrite it.
+The runtime accepts either the historical plaintext JSON object or the recommended encrypted envelope. Normal reporting requests only read this file. The local Admin Console's Database page is the preferred local configuration path: it validates/tests settings and always saves a complete encrypted envelope.
+
+Leaving the password field blank while editing retains an existing password;
+passwords are never returned to the browser. Saving a new configuration requires
+a password for SQL authentication. Windows integrated authentication stores no
+required password.
 
 ## Plaintext fields
 
@@ -62,6 +67,11 @@ database.json
 Authentication, malformed-payload, wrong-key, version, and algorithm failures stop before a connection is attempted. Fixed error messages omit decrypted configuration, connection strings, encrypted internals, and key material.
 
 ## One-time migration
+
+For local development, run `start-windows.bat` or `./start-linux.sh`, open the
+Database page, optionally test the plaintext settings, and save. This safely
+migrates the current values through the same resolver and encryption component.
+No `database.json.backup` is created.
 
 Before migration, configure the plaintext `database.json` and verify its values. Then generate and install the external key for the same account that runs PHP.
 
