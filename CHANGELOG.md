@@ -1,5 +1,12 @@
 # Changelog
 
+## Phase 3 — Authorization, roles, API keys, and service controls
+
+- Added a common principal and deny-by-default authorization service for session, managed-key, legacy-key, and explicitly public access.
+- Added role permissions, SQL/write-resource scopes, user role assignment, session invalidation, and last-admin protection.
+- Added one-time-reveal, hash-only managed API keys with enable, disable, permanent revoke, and last-used metadata.
+- Added consistent responsive runtime controls and a real request-scoped database availability gate with connect, disconnect, restart, and temporary test semantics.
+
 ## Phase 2.2 — Runtime integration and cross-platform stabilization
 
 - Added independent SQL Parser start/stop/restart/status controls to Admin,

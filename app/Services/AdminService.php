@@ -4,6 +4,7 @@ require_once __DIR__ . '/../Repositories/AdminConfigurationRepository.php';
 require_once __DIR__ . '/../Security/DatabaseConfigurationResolver.php';
 require_once __DIR__ . '/../Security/DatabaseCredentialEncryption.php';
 require_once __DIR__ . '/../Security/ApiKeyAuthenticator.php';
+require_once __DIR__ . '/ApiKeyService.php';
 require_once __DIR__ . '/../Security/SecurityConfiguration.php';
 require_once __DIR__ . '/../Repositories/InstallationRepository.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
@@ -11,6 +12,7 @@ require_once __DIR__ . '/../Runtime/ApiProcessManager.php';
 require_once __DIR__ . '/../Runtime/SqlParserProcessManager.php';
 require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
 require_once __DIR__ . '/../Runtime/RuntimeDetector.php';
+require_once __DIR__ . '/../Runtime/DatabaseAvailabilityManager.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
 
@@ -23,6 +25,7 @@ final class AdminService
     private SqlParserProcessManager $parserProcessManager;
     private RuntimeDetector $runtimeDetector;
     private DatabaseAuthenticationSupport $databaseAuthentication;
+    private DatabaseAvailabilityManager $databaseAvailability;
 
     public function __construct(
         ?AdminConfigurationRepository $configuration = null,
@@ -31,7 +34,8 @@ final class AdminService
         ?ApiProcessManager $processManager = null,
         ?RuntimeDetector $runtimeDetector = null,
         ?SqlParserProcessManager $parserProcessManager = null,
-        ?DatabaseAuthenticationSupport $databaseAuthentication = null
+        ?DatabaseAuthenticationSupport $databaseAuthentication = null,
+        ?DatabaseAvailabilityManager $databaseAvailability = null
     ) {
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->databasePath = $databasePath
@@ -48,12 +52,17 @@ final class AdminService
         $this->runtimeDetector = $runtimeDetector ?? new RuntimeDetector();
         $this->parserProcessManager = $parserProcessManager ?? new SqlParserProcessManager($this->configuration);
         $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
+        $this->databaseAvailability = $databaseAvailability ?? new DatabaseAvailabilityManager();
     }
 
     public function status(): array
     {
         $settings = $this->configuration->load();
-        $database = $this->databaseHealth();
+        $databaseAvailable = $this->databaseAvailability->available();
+        $database = $databaseAvailable
+            ? $this->databaseHealth()
+            : [...$this->databaseStatus(), 'connected' => false, 'healthy' => false, 'status' => 'disconnected'];
+        $database['available'] = $databaseAvailable;
         $api = $this->processManager->status();
         $parser = $this->parserProcessManager->status();
         return [
@@ -233,7 +242,7 @@ final class AdminService
             'cors' => $settings['cors'],
             'authentication' => [
                 'mode' => $settings['authentication']['mode'],
-                'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured(),
+                'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured() || (new ApiKeyService())->configured(),
             ],
             'security' => [
                 'csrfEnabled' => true,
@@ -308,7 +317,7 @@ final class AdminService
             $settings['authentication']['mode'] = $mode;
             return [
                 'mode' => $mode,
-                'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured(),
+                'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured() || (new ApiKeyService())->configured(),
             ];
         });
     }
@@ -333,6 +342,15 @@ final class AdminService
         } catch (RuntimeException $exception) {
             throw new ApiRequestException($exception->getMessage(), 'SQL_PARSER_PROCESS_OPERATION_FAILED', [], 409);
         }
+    }
+
+    public function controlDatabase(string $operation): array
+    {
+        if ($operation === 'disconnect') return $this->databaseAvailability->setAvailable(false);
+        if ($operation === 'test') { $this->testCurrentDatabase(); return [...$this->databaseAvailability->status(), 'tested' => true]; }
+        if ($operation === 'restart') $this->databaseAvailability->setAvailable(false);
+        try { $this->testCurrentDatabase(); return $this->databaseAvailability->setAvailable(true); }
+        catch (Throwable $exception) { $this->databaseAvailability->setAvailable(false); throw $exception; }
     }
 
     private function databaseStatus(): array

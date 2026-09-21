@@ -1,5 +1,7 @@
 # Architecture
 
+Protected requests pass through authentication, common principal resolution, installation feature gates, centralized authorization, and the database availability gate before validation and execution. SQL and write-resource scope is enforced server-side before repository execution.
+
 ## Runtime flow
 
 The three request flows implemented today are:

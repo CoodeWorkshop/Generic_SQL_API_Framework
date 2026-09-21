@@ -3,9 +3,12 @@
 require_once __DIR__ . '/ApiRequestException.php';
 require_once __DIR__ . '/../Security/UsernamePolicy.php';
 require_once __DIR__ . '/../Security/PasswordPolicy.php';
+require_once __DIR__ . '/../Services/AuthorizationService.php';
 
 final class UserManagementRequestValidator
 {
+    private AuthorizationService $authorization;
+    public function __construct(?AuthorizationService $authorization=null){$this->authorization=$authorization??new AuthorizationService();}
     private const ACTIONS = [
         'auth.users.list',
         'auth.users.create',
@@ -14,6 +17,7 @@ final class UserManagementRequestValidator
         'auth.users.disable',
         'auth.users.delete',
         'auth.users.changePassword',
+        'auth.users.assignRoles',
     ];
 
     public function validate(array $request): array
@@ -31,9 +35,11 @@ final class UserManagementRequestValidator
             ? ['action', 'username', 'password', 'passwordConfirmation', 'enabled', 'isAdmin']
             : ($action === 'auth.users.update'
                 ? ['action', 'username', 'newUsername']
+            : ($action === 'auth.users.assignRoles'
+                ? ['action', 'username', 'roles']
             : ($action === 'auth.users.changePassword'
                 ? ['action', 'username', 'newPassword', 'passwordConfirmation']
-                : ['action', 'username']));
+                : ['action', 'username'])));
         $this->rejectUnknown($request, $allowed);
 
         $details = [];
@@ -75,6 +81,12 @@ final class UserManagementRequestValidator
             } catch (InvalidArgumentException $exception) {
                 $details[] = ['path' => 'newUsername', 'message' => $exception->getMessage()];
             }
+        } elseif ($action === 'auth.users.assignRoles') {
+            $roles = $request['roles'] ?? null;
+            if (!is_array($roles) || !array_is_list($roles) || $roles === [] || count(array_unique($roles)) !== count($roles)
+                || count(array_filter($roles, fn($role):bool=>!is_string($role)||!$this->authorization->roleExists($role)))>0) {
+                $details[] = ['path' => 'roles', 'message' => 'At least one valid unique role is required.'];
+            } else $validated['roles'] = $roles;
         } elseif ($action === 'auth.users.changePassword') {
             try {
                 $validated['newPassword'] = PasswordPolicy::validate($request['newPassword'] ?? null);

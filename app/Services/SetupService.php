@@ -83,13 +83,14 @@ final class SetupService
                 }
 
                 $updatedAuthentication = [
-                    'version' => 2,
+                    'version' => 3,
                     'users' => [[
                         'id' => bin2hex(random_bytes(16)),
                         'username' => $username,
                         'passwordHash' => $this->passwordHasher->hash($password),
                         'enabled' => true,
                         'isAdmin' => true,
+                        'roles' => ['admin'],
                         'createdAt' => gmdate(DATE_ATOM),
                         'authVersion' => 1,
                     ]],

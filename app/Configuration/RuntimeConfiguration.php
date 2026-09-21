@@ -8,6 +8,9 @@ final class RuntimeConfiguration
     public const AUTH_FILE = 'auth.json';
     public const INSTALLATION_FILE = 'installation.json';
     public const ADMIN_FILE = 'admin.json';
+    public const AUTHORIZATION_FILE = 'authorization.json';
+    public const API_KEYS_FILE = 'api-keys.json';
+    public const DATABASE_STATE_FILE = 'database-state.json';
 
     public static function directory(): string
     {
@@ -19,7 +22,8 @@ final class RuntimeConfiguration
 
     public static function path(string $file): string
     {
-        if (!in_array($file, [self::AUTH_FILE, self::INSTALLATION_FILE, self::ADMIN_FILE], true)) {
+        if (!in_array($file, [self::AUTH_FILE, self::INSTALLATION_FILE, self::ADMIN_FILE,
+            self::AUTHORIZATION_FILE, self::API_KEYS_FILE, self::DATABASE_STATE_FILE], true)) {
             throw new InvalidArgumentException('Unsupported runtime configuration file.');
         }
         return self::directory() . DIRECTORY_SEPARATOR . $file;
@@ -58,7 +62,22 @@ final class RuntimeConfiguration
 
     public static function authDefaults(): array
     {
-        return ['version' => 2, 'users' => []];
+        return ['version' => 3, 'users' => []];
+    }
+
+    public static function authorizationDefaults(): array
+    {
+        return [
+            'version' => 1,
+            'publicRoles' => ['viewer'],
+            'legacyApiKeyRoles' => ['viewer'],
+            'roles' => [
+                'viewer' => ['name' => 'Viewer', 'permissions' => ['data.read', 'metadata.read'], 'sqlResources' => [], 'writeResources' => []],
+                'developer' => ['name' => 'Developer', 'permissions' => ['data.read', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => []],
+                'data-editor' => ['name' => 'Data Editor', 'permissions' => ['data.read', 'data.write'], 'sqlResources' => [], 'writeResources' => ['*']],
+                'admin' => ['name' => 'Admin', 'permissions' => ['admin.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
+            ],
+        ];
     }
 
     public static function installationDefaults(): array
@@ -111,6 +130,9 @@ final class RuntimeConfiguration
             self::AUTH_FILE => self::authDefaults(),
             self::INSTALLATION_FILE => self::installationDefaults(),
             self::ADMIN_FILE => self::adminDefaults(),
+            self::AUTHORIZATION_FILE => self::authorizationDefaults(),
+            self::API_KEYS_FILE => ['version' => 1, 'keys' => []],
+            self::DATABASE_STATE_FILE => ['version' => 1, 'available' => true, 'updatedAt' => null],
         ];
     }
 }

@@ -1,5 +1,7 @@
 # Authentication and user management
 
+Authentication resolves one common request principal for sessions and managed API keys. User records include roles; role and enabled-state changes increment `authVersion` and invalidate stale sessions. The last enabled Admin-role user cannot be disabled, deleted, or stripped of that role. See [Authorization and roles](Authorization-and-Roles.md).
+
 The local Admin Console provides first-run administrator setup, login/logout,
 and user management at `/admin/users`. Authentication decisions remain entirely
 in the backend; browsers never receive password hashes, session identifiers,

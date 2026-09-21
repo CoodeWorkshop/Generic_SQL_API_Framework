@@ -37,6 +37,7 @@ Application actions enforce the configured `none`, `session`, `api_key`, or
 `session+api_key` authentication mode. The loopback Admin Console always uses an
 administrator session and provides first-run setup plus complete user management.
 See [Authentication and user management](docs/Authentication-and-User-Management.md).
+Authorization and managed keys are documented in [Authorization and roles](docs/Authorization-and-Roles.md) and [Managed API keys](docs/API-Keys.md).
 
 `sql` is a controlled report-resource action, not a raw-SQL endpoint. The server
 recursively discovers reviewed `.sql` files under `queries/`; for example,
@@ -228,6 +229,8 @@ Writes, metadata, boundaries, and operations:
 - [Architecture](docs/Architecture.md)
 - [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md)
 - [Authentication and user management](docs/Authentication-and-User-Management.md)
+- [Authorization and roles](docs/Authorization-and-Roles.md)
+- [Managed API keys](docs/API-Keys.md)
 - [Database configuration](docs/Database-Configuration.md)
 - [Hosting](docs/Hosting.md)
 - [Roadmap](docs/Roadmap.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md)

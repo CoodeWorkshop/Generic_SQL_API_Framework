@@ -32,15 +32,15 @@ $previousDirectory = getenv('GENERIC_RUNTIME_CONFIG_DIR');
 try {
     putenv('GENERIC_RUNTIME_CONFIG_DIR=' . $firstDirectory);
     $result = RuntimeConfiguration::ensure();
-    bootstrapAssert(count($result['created']) === 3, 'Fresh bootstrap did not create all runtime files.');
-    foreach ([RuntimeConfiguration::AUTH_FILE, RuntimeConfiguration::INSTALLATION_FILE, RuntimeConfiguration::ADMIN_FILE] as $file) {
+    bootstrapAssert(count($result['created']) === 6, 'Fresh bootstrap did not create all runtime files.');
+    foreach ([RuntimeConfiguration::AUTH_FILE, RuntimeConfiguration::INSTALLATION_FILE, RuntimeConfiguration::ADMIN_FILE, RuntimeConfiguration::AUTHORIZATION_FILE, RuntimeConfiguration::API_KEYS_FILE, RuntimeConfiguration::DATABASE_STATE_FILE] as $file) {
         bootstrapAssert(is_file($firstDirectory . '/' . $file), "Bootstrap did not create {$file}.");
     }
 
     $auth = JsonFileStore::load($firstDirectory . '/auth.json');
     $installation = JsonFileStore::load($firstDirectory . '/installation.json');
     $admin = JsonFileStore::load($firstDirectory . '/admin.json');
-    bootstrapAssert($auth === ['version' => 2, 'users' => []], 'Auth defaults are unsafe or malformed.');
+    bootstrapAssert($auth === ['version' => 3, 'users' => []], 'Auth defaults are unsafe or malformed.');
     bootstrapAssert($installation['initialized'] === false, 'Fresh installation was initialized automatically.');
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
@@ -79,14 +79,14 @@ try {
         'isAdmin' => true,
     ]]]);
     $legacy = (new AuthRepository($legacyDirectory . '/auth.json'))->load();
-    bootstrapAssert($legacy['version'] === 2, 'Legacy authentication configuration was not migrated.');
+    bootstrapAssert($legacy['version'] === 3 && $legacy['users'][0]['roles'] === ['admin'], 'Legacy authentication configuration was not migrated.');
     bootstrapAssert($legacy['users'][0]['passwordHash'] === $legacyHash, 'Migration changed the existing password hash.');
     bootstrapAssert($legacy['users'][0]['username'] === 'Legacy.Admin', 'Migration changed the existing username.');
     bootstrapAssert(preg_match('/^[a-f0-9]{32}$/', $legacy['users'][0]['id']) === 1, 'Migration did not create a stable user ID.');
     bootstrapAssert($legacy['users'][0]['authVersion'] === 1, 'Migration did not initialize session versioning.');
 
     $gitignore = (string)file_get_contents(__DIR__ . '/../.gitignore');
-    foreach (['config/auth.json', 'config/installation.json', 'config/admin.json'] as $ignoredPath) {
+    foreach (['config/auth.json', 'config/installation.json', 'config/admin.json', 'config/authorization.json', 'config/api-keys.json', 'config/database-state.json'] as $ignoredPath) {
         bootstrapAssert(str_contains($gitignore, $ignoredPath), "{$ignoredPath} is not ignored.");
     }
     foreach (['auth', 'installation', 'admin'] as $name) {

@@ -26,6 +26,9 @@ final class AdminRequestValidator
         'admin.sqlParser.restart',
         'admin.database.get',
         'admin.database.testCurrent',
+        'admin.database.connect',
+        'admin.database.disconnect',
+        'admin.database.restart',
         'admin.settings.get',
     ];
 

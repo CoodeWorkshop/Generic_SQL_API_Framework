@@ -20,6 +20,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Generic SQL API · Administration</title>
     <link rel="stylesheet" href="/assets/admin.css">
+    <link rel="stylesheet" href="/assets/service-controls.css">
 </head>
 <body class="pre-auth">
 <div class="shell">
@@ -30,6 +31,8 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
             <a href="/admin/info" data-route="info">System Info</a>
             <a href="/admin/configuration" data-route="configuration">Configuration</a>
             <a href="/admin/users" data-route="users">Users</a>
+            <a href="/admin/roles" data-route="roles">Roles &amp; Permissions</a>
+            <a href="/admin/api-keys" data-route="api-keys">API Keys</a>
         </nav>
         <button id="logout" class="quiet" type="button" hidden>Sign out</button>
     </aside>

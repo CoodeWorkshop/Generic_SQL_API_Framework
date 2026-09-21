@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "publicRoles": ["viewer"],
+  "legacyApiKeyRoles": ["viewer"],
+  "roles": {
+    "viewer": {"name": "Viewer", "permissions": ["data.read", "metadata.read"], "sqlResources": [], "writeResources": []},
+    "developer": {"name": "Developer", "permissions": ["data.read", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": []},
+    "data-editor": {"name": "Data Editor", "permissions": ["data.read", "data.write"], "sqlResources": [], "writeResources": ["*"]},
+    "admin": {"name": "Admin", "permissions": ["admin.manage", "data.read", "data.write", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": ["*"]}
+  }
+}

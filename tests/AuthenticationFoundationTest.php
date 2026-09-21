@@ -52,7 +52,8 @@ try {
     $authRepository->save($authConfiguration);
     $storedAuthentication = $authRepository->load();
     authenticationAssert(
-        $storedAuthentication['version'] === 2
+        $storedAuthentication['version'] === 3
+            && $storedAuthentication['users'][0]['roles'] === ['admin']
             && count($storedAuthentication['users']) === 1
             && $storedAuthentication['users'][0]['username'] === 'Administrator',
         'Authentication storage migration round trip failed.'

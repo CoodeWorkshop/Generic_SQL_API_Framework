@@ -4,21 +4,25 @@ require_once __DIR__ . '/../Repositories/AuthRepository.php';
 require_once __DIR__ . '/../Security/PasswordHasher.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../../core/Logger.php';
+require_once __DIR__ . '/AuthorizationService.php';
 
 final class UserManagementService
 {
     private AuthRepository $authRepository;
     private PasswordHasher $passwordHasher;
     private Logger $logger;
+    private AuthorizationService $authorization;
 
     public function __construct(
         ?AuthRepository $authRepository = null,
         ?PasswordHasher $passwordHasher = null,
-        ?Logger $logger = null
+        ?Logger $logger = null,
+        ?AuthorizationService $authorization = null
     ) {
         $this->authRepository = $authRepository ?? new AuthRepository();
         $this->passwordHasher = $passwordHasher ?? new PasswordHasher();
         $this->logger = $logger ?? new Logger();
+        $this->authorization = $authorization ?? new AuthorizationService();
     }
 
     public function listUsers(): array
@@ -32,25 +36,30 @@ final class UserManagementService
         }
     }
 
-    public function createUser(string $username, string $password, bool $isAdmin, bool $enabled = true): array
+    public function createUser(string $username, string $password, bool $isAdmin, bool $enabled = true, ?array $roles = null): array
     {
         try {
             $passwordHash = $this->passwordHasher->hash($password);
+            if ($roles !== null) $this->validateRoles($roles);
             $result = $this->authRepository->update(function (array &$configuration) use (
                 $username,
                 $passwordHash,
                 $isAdmin,
-                $enabled
+                $enabled,
+                $roles
             ): array {
                 if ($this->findIndex($configuration['users'], $username) !== null) {
                     throw new ApiRequestException('User already exists.', 'USER_ALREADY_EXISTS', [], 409);
                 }
+                $assignedRoles = $roles ?? [$isAdmin ? 'admin' : 'viewer'];
+                $isAdmin = in_array('admin', $assignedRoles, true);
                 $user = [
                     'id' => bin2hex(random_bytes(16)),
                     'username' => $username,
                     'passwordHash' => $passwordHash,
                     'enabled' => $enabled,
                     'isAdmin' => $isAdmin,
+                    'roles' => $assignedRoles,
                     'createdAt' => gmdate(DATE_ATOM),
                     'authVersion' => 1,
                 ];
@@ -173,6 +182,27 @@ final class UserManagementService
         }
     }
 
+    public function assignRoles(string $username, array $roles): array
+    {
+        try {
+            $roles = array_values(array_unique($roles));
+            $this->validateRoles($roles);
+            $result = $this->authRepository->update(function (array &$configuration) use ($username, $roles): array {
+                $index = $this->requireUserIndex($configuration['users'], $username);
+                $user = $configuration['users'][$index];
+                if ($user['enabled'] && $user['isAdmin'] && !in_array('admin', $roles, true)
+                    && $this->enabledAdminCount($configuration['users']) <= 1) $this->lastEnabledAdmin();
+                $configuration['users'][$index]['roles'] = $roles;
+                $configuration['users'][$index]['isAdmin'] = in_array('admin', $roles, true);
+                $configuration['users'][$index]['authVersion']++;
+                return $this->safeUser($configuration['users'][$index]);
+            });
+            $this->audit('admin_user_roles_changed', $username);
+            return $result;
+        } catch (ApiRequestException $exception) { throw $exception; }
+        catch (Throwable $exception) { $this->fail($exception); }
+    }
+
     private function requireUserIndex(array $users, string $username): int
     {
         $index = $this->findIndex($users, $username);
@@ -206,6 +236,7 @@ final class UserManagementService
             'username' => $user['username'],
             'enabled' => $user['enabled'],
             'isAdmin' => $user['isAdmin'],
+            'roles' => $user['roles'],
             'createdAt' => $user['createdAt'],
         ];
     }
@@ -218,6 +249,13 @@ final class UserManagementService
             [],
             409
         );
+    }
+
+    private function validateRoles(array $roles): void
+    {
+        if ($roles === [] || count(array_filter($roles, fn($role):bool=>!is_string($role)||!$this->authorization->roleExists($role)))>0) {
+            throw new ApiRequestException('Invalid user request.','INVALID_USER_REQUEST',[['path'=>'roles','message'=>'At least one valid role is required.']]);
+        }
     }
 
     private function audit(string $event, string $targetUsername): void

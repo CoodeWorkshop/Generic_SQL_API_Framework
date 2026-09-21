@@ -45,6 +45,8 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Local Admin Console and configuration](Admin-Console-and-Configuration.md)
 - [Admin runtime and feature reference](Admin-Runtime-and-Features.md)
 - [Authentication and user management](Authentication-and-User-Management.md)
+- [Authorization and roles](Authorization-and-Roles.md)
+- [Managed API keys](API-Keys.md)
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)
 - [Production security and deployment](Production-Security-and-Deployment.md)

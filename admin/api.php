@@ -18,6 +18,9 @@ require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AuthController.php';
 require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/UserManagementController.php';
+require_once __DIR__ . '/../app/Requests/ApiKeyRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/ApiKeyController.php';
+require_once __DIR__ . '/../app/Controllers/RoleController.php';
 require_once __DIR__ . '/../app/Requests/AdminRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AdminController.php';
 
@@ -48,23 +51,26 @@ $authActions = ['auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 $userActions = [
     'auth.users.list', 'auth.users.create', 'auth.users.update', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
+    'auth.users.assignRoles',
 ];
+$apiKeyActions = ['auth.apiKeys.list','auth.apiKeys.create','auth.apiKeys.enable','auth.apiKeys.disable','auth.apiKeys.revoke'];
+$roleActions = ['auth.roles.list'];
 $adminActions = [
     'admin.status', 'admin.health', 'admin.system.info',
     'admin.api.start', 'admin.api.stop', 'admin.api.restart',
     'admin.sqlParser.start', 'admin.sqlParser.stop', 'admin.sqlParser.restart',
-    'admin.database.get', 'admin.database.testCurrent', 'admin.database.test', 'admin.database.save',
+    'admin.database.get', 'admin.database.testCurrent', 'admin.database.connect', 'admin.database.disconnect', 'admin.database.restart', 'admin.database.test', 'admin.database.save',
     'admin.settings.get', 'admin.server.save', 'admin.features.save',
     'admin.cors.save', 'admin.authentication.save',
 ];
-$allActions = array_merge($setupActions, $authActions, $userActions, $adminActions);
+$allActions = array_merge($setupActions, $authActions, $userActions, $apiKeyActions, $roleActions, $adminActions);
 if (!in_array($request['action'] ?? null, $allActions, true)) {
     Response::error('Not found.', 404, 'NOT_FOUND');
 }
 
 (new LocalAdminMiddleware())->handle($request);
 (new AuthenticationMiddleware(true, array_merge($setupActions, $authActions)))->handle($request);
-(new AdminAuthorizationMiddleware(array_merge($userActions, $adminActions)))->handle($request);
+(new AdminAuthorizationMiddleware(array_merge($userActions, $apiKeyActions, $roleActions, $adminActions)))->handle($request);
 (new CsrfProtectionMiddleware())->handle($request);
 (new LoggingMiddleware())->handle($request);
 
@@ -94,7 +100,14 @@ if (in_array($request['action'], $userActions, true)) {
     if ($validated['action'] === 'auth.users.enable') $controller->enableUser($validated);
     if ($validated['action'] === 'auth.users.disable') $controller->disableUser($validated);
     if ($validated['action'] === 'auth.users.delete') $controller->deleteUser($validated);
+    if ($validated['action'] === 'auth.users.assignRoles') $controller->assignRoles($validated);
     $controller->changePassword($validated);
+}
+if (in_array($request['action'], $apiKeyActions, true)) {
+    $validated=(new ApiKeyRequestValidator())->validate($request); Response::setRequestContext(['action'=>$validated['action']]); (new ApiKeyController())->dispatch($validated);
+}
+if (in_array($request['action'], $roleActions, true)) {
+    if(array_keys($request)!==['action'])Response::error('Invalid role request.',400,'INVALID_ROLE_REQUEST'); Response::setRequestContext(['action'=>$request['action']]); (new RoleController())->list($request);
 }
 $validated = (new AdminRequestValidator())->validate($request);
 Response::setRequestContext(['action' => $validated['action']]);

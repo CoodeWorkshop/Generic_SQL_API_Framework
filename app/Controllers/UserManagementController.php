@@ -69,4 +69,9 @@ final class UserManagementController extends BaseController
             'Password changed.'
         );
     }
+
+    public function assignRoles(array $request): void
+    {
+        $this->success([$this->userService->assignRoles($request['username'], $request['roles'])], 'User roles updated.');
+    }
 }

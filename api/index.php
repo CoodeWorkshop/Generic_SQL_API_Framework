@@ -55,6 +55,8 @@ require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/FeatureAccessMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/AuthorizationMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/DatabaseAvailabilityMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
 require_once __DIR__ . '/../app/Controllers/MetadataController.php';
@@ -67,6 +69,9 @@ require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AuthController.php';
 require_once __DIR__ . '/../app/Requests/UserManagementRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/UserManagementController.php';
+require_once __DIR__ . '/../app/Requests/ApiKeyRequestValidator.php';
+require_once __DIR__ . '/../app/Controllers/ApiKeyController.php';
+require_once __DIR__ . '/../app/Controllers/RoleController.php';
 
 // Register Global Exception Handler
 ExceptionHandler::register();
@@ -97,7 +102,10 @@ $userManagementActions = [
     'auth.users.disable',
     'auth.users.delete',
     'auth.users.changePassword',
+    'auth.users.assignRoles',
 ];
+$apiKeyActions = ['auth.apiKeys.list','auth.apiKeys.create','auth.apiKeys.enable','auth.apiKeys.disable','auth.apiKeys.revoke'];
+$roleActions = ['auth.roles.list'];
 $publicAuthenticationActions = array_merge($setupActions, $authActions);
 unset($_SERVER['GENERIC_AUTH_PROVIDER']);
 if (str_starts_with((string)($publicRequest['action'] ?? ''), 'admin.')) {
@@ -105,7 +113,7 @@ if (str_starts_with((string)($publicRequest['action'] ?? ''), 'admin.')) {
 }
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
-(new AdminAuthorizationMiddleware($userManagementActions))->handle($publicRequest);
+(new AdminAuthorizationMiddleware(array_merge($userManagementActions,$apiKeyActions,$roleActions)))->handle($publicRequest);
 (new CsrfProtectionMiddleware())->handle($publicRequest);
 
 // Execute Middleware
@@ -148,10 +156,15 @@ if (in_array($publicRequest['action'] ?? null, $userManagementActions, true)) {
     if ($request['action'] === 'auth.users.enable') $controller->enableUser($request);
     if ($request['action'] === 'auth.users.disable') $controller->disableUser($request);
     if ($request['action'] === 'auth.users.delete') $controller->deleteUser($request);
+    if ($request['action'] === 'auth.users.assignRoles') $controller->assignRoles($request);
     $controller->changePassword($request);
 }
+if (in_array($publicRequest['action'] ?? null,$apiKeyActions,true)){$request=(new ApiKeyRequestValidator())->validate($publicRequest);Response::setRequestContext(['action'=>$request['action']]);(new ApiKeyController())->dispatch($request);}
+if (in_array($publicRequest['action'] ?? null,$roleActions,true)){if(array_keys($publicRequest)!==['action'])Response::error('Invalid role request.',400,'INVALID_ROLE_REQUEST');Response::setRequestContext(['action'=>$publicRequest['action']]);(new RoleController())->list($publicRequest);}
 
 (new FeatureAccessMiddleware())->handle($publicRequest);
+(new AuthorizationMiddleware())->handle($publicRequest);
+(new DatabaseAvailabilityMiddleware())->handle($publicRequest);
 
 $phaseStarted = microtime(true);
 $validator = new QueryRequestValidator();

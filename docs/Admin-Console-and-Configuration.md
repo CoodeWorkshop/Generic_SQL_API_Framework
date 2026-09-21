@@ -1,5 +1,7 @@
 # Admin Console, runtime, and configuration
 
+The console includes user role assignment, Roles & Permissions policy visibility, and managed API-key lifecycle management. API and SQL Parser controls share a responsive layout with loading and disabled states. Database Connect, Disconnect, Restart, and Test Connection operate on the request availability gate and temporary connection tests; they never keep a permanent SQL connection.
+
 The local Admin Console is an independent loopback application. The launchers
 serve it from `admin/` on the configured Admin port and manage the API and SQL
 Parser as separate child processes. Stopping or restarting either service does

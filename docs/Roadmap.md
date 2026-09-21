@@ -69,14 +69,21 @@ transactions are not part of this release.
 
 The five basic metadata actions already exist. This version is for capabilities not yet implemented: primary/foreign keys, indexes, richer types/constraints, discovery improvements, and caching.
 
-## v1.5.0 — API Security — Planned
+## New Phase 3 — Authorization, roles, API keys, and service controls — Implemented
 
-- generalized roles and permissions, resource-level authorization, API-key
-  management, audit policy, and general rate limiting
+- common principal and deny-by-default authorization for sessions and API keys
+- explicit permissions with SQL/write-resource scopes
+- role assignment, session invalidation, and last-admin protection
+- one-time-reveal hash-only managed keys with lifecycle controls
+- responsive service controls and truthful request-scoped database availability
 
-Session authentication, one environment-provided API key, administrator user
-management, CSRF, and login throttling are already implemented. The planned work
-extends that foundation rather than replacing it.
+## v1.5.0 — Advanced API Security — Planned
+
+- editable/custom role administration, advanced audit policy, and general rate limiting
+
+Session and managed-key authentication, base roles and resource scopes,
+administrator user management, CSRF, and login throttling are implemented. The
+planned work extends that foundation rather than replacing it.
 
 ## v1.6.0 — API Improvements — Planned
 

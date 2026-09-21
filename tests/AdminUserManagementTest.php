@@ -92,7 +92,7 @@ try {
     foreach ($actions as $action) {
         $request = ['action' => $action, 'authenticated' => true, 'isAdmin' => true];
         $authentication->handle($request);
-        userManagementFailure(fn () => $authorization->handle($request), 'ADMIN_REQUIRED', 403);
+        userManagementFailure(fn () => $authorization->handle($request), 'AUTHORIZATION_DENIED', 403);
     }
     destroyUserManagementSession($sessionName);
 
@@ -108,7 +108,7 @@ try {
     userManagementAssert(
         !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'password')
             && !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'authVersion')
-            && array_keys($listed[0]) === ['username', 'enabled', 'isAdmin', 'createdAt'],
+            && array_keys($listed[0]) === ['username', 'enabled', 'isAdmin', 'roles', 'createdAt'],
         'User list exposed internal authentication material.'
     );
 

@@ -6,6 +6,9 @@ require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../Repositories/AuthRepository.php';
 require_once __DIR__ . '/../Security/ApiKeyAuthenticator.php';
 require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+require_once __DIR__ . '/../Authorization/PrincipalContext.php';
+require_once __DIR__ . '/../Services/AuthorizationService.php';
+require_once __DIR__ . '/../Services/ApiKeyService.php';
 
 final class AuthenticationMiddleware extends Middleware
 {
@@ -14,24 +17,31 @@ final class AuthenticationMiddleware extends Middleware
     private AuthSessionService $session;
     private AuthRepository $authRepository;
     private ApiKeyAuthenticator $apiKeys;
+    private AuthorizationService $authorization;
+    private ApiKeyService $managedApiKeys;
 
     public function __construct(
         bool $enforce = false,
         array $publicActions = [],
         ?AuthSessionService $session = null,
         ?AuthRepository $authRepository = null,
-        ?ApiKeyAuthenticator $apiKeys = null
+        ?ApiKeyAuthenticator $apiKeys = null,
+        ?AuthorizationService $authorization = null,
+        ?ApiKeyService $managedApiKeys = null
     ) {
         $this->enforce = $enforce;
         $this->publicActions = $publicActions;
         $this->session = $session ?? new AuthSessionService();
         $this->authRepository = $authRepository ?? new AuthRepository();
         $this->apiKeys = $apiKeys ?? new ApiKeyAuthenticator();
+        $this->authorization = $authorization ?? new AuthorizationService();
+        $this->managedApiKeys = $managedApiKeys ?? new ApiKeyService(null, $this->authRepository, $this->authorization);
     }
 
     public function handle(array $request): void
     {
         unset($_SERVER['GENERIC_AUTH_PROVIDER']);
+        PrincipalContext::clear();
         if (!$this->enforce || in_array($request['action'] ?? null, $this->publicActions, true)) {
             return;
         }
@@ -45,14 +55,16 @@ final class AuthenticationMiddleware extends Middleware
         $mode = SecurityConfiguration::authenticationMode();
         if ($mode === 'none') {
             $_SERVER['GENERIC_AUTH_PROVIDER'] = 'none';
+            $roles = $this->authorization->publicRoles();
+            PrincipalContext::set(new Principal(null, 'public', 'none', $roles, true, false, $this->authorization->permissionsForRoles($roles)));
             return;
         }
-        if (($mode === 'api_key' || $mode === 'session+api_key') && $this->validApiKey()) {
+        if (($mode === 'api_key' || $mode === 'session+api_key') && $this->resolveApiKey()) {
             $_SERVER['GENERIC_AUTH_PROVIDER'] = 'api_key';
             return;
         }
         if ($mode === 'api_key') {
-            if (!$this->apiKeys->configured()) {
+            if (!$this->apiKeys->configured() && !$this->managedApiKeys->configured()) {
                 throw new ApiRequestException(
                     'API key authentication is not configured.',
                     'AUTHENTICATION_UNAVAILABLE',
@@ -89,12 +101,31 @@ final class AuthenticationMiddleware extends Middleware
             $this->session->destroy();
             $this->authenticationRequired();
         }
+        PrincipalContext::set(new Principal(
+            $user['id'], $user['username'], 'session', $user['roles'], true, $user['isAdmin'], $this->authorization->permissionsForRoles($user['roles'])
+        ));
     }
 
-    private function validApiKey(): bool
+    private function resolveApiKey(): bool
     {
-        $provided = $_SERVER['HTTP_X_API_KEY'] ?? null;
-        return $this->apiKeys->authenticate(is_string($provided) ? $provided : null);
+        $provided = $this->apiKeys->provided();
+        if ($provided === null) return false;
+        try {
+            $resolved = $this->managedApiKeys->authenticate($provided);
+        } catch (Throwable $exception) {
+            throw new ApiRequestException('Unable to validate authentication.', 'AUTHENTICATION_UNAVAILABLE', [], 500);
+        }
+        if ($resolved !== null) {
+            $owner = $resolved['owner'];
+            PrincipalContext::set(new Principal($owner['id'], $owner['username'], 'api_key', $resolved['key']['roles'], true, in_array('admin', $resolved['key']['roles'], true), $this->authorization->permissionsForRoles($resolved['key']['roles'])));
+            return true;
+        }
+        if ($this->apiKeys->authenticate($provided)) {
+            $roles = $this->authorization->legacyApiKeyRoles();
+            PrincipalContext::set(new Principal(null, 'legacy-api-key', 'api_key', $roles, true, false, $this->authorization->permissionsForRoles($roles)));
+            return true;
+        }
+        return false;
     }
 
     private function authenticationRequired(): never

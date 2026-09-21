@@ -19,4 +19,10 @@ final class ApiKeyAuthenticator
             && strlen($provided) >= 32
             && hash_equals($expected, $provided);
     }
+
+    public function provided(): ?string
+    {
+        $value = $_SERVER['HTTP_X_API_KEY'] ?? null;
+        return is_string($value) && $value !== '' ? $value : null;
+    }
 }
