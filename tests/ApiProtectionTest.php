@@ -3,6 +3,21 @@
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Security/PasswordHasher.php';
 require_once __DIR__ . '/../app/Repositories/AdminConfigurationRepository.php';
+require_once __DIR__ . '/../core/QueryEngine.php';
+
+final class NoAuthExecutionEngine extends QueryEngine
+{
+    public function __construct()
+    {
+        parent::__construct(null, new Logger(sys_get_temp_dir()), 5, false);
+    }
+
+    protected function prepareStatement(string $sql) { return (object)['fetched' => false]; }
+    protected function configureStatementTimeout($statement): bool { return true; }
+    protected function executeStatement($statement, array $params): bool { return $params === ['active']; }
+    protected function fetchRow($statement) { if ($statement->fetched) return false; $statement->fetched = true; return ['ok' => 1]; }
+    protected function freeStatement($statement): void {}
+}
 
 function protectionAssert(bool $condition, string $message): void
 {
@@ -88,6 +103,17 @@ try {
     foreach ($protectedActions as $action) {
         protectionRequired($middleware, ['action' => $action]);
     }
+
+    $noneConfiguration = AdminConfigurationRepository::defaults();
+    $noneConfiguration['authentication']['mode'] = 'none';
+    (new AdminConfigurationRepository($adminPath))->save($noneConfiguration);
+    $middleware->handle(['action' => 'select']);
+    protectionAssert(($_SERVER['GENERIC_AUTH_PROVIDER'] ?? null) === 'none', 'No-auth mode did not reach the query pipeline.');
+    $queryResult = (new NoAuthExecutionEngine())->executePrepared('SELECT ?', ['active'], ['queryPhase' => 'data']);
+    protectionAssert($queryResult['data'] === [['ok' => 1]], 'A valid query failed after no-auth middleware acceptance.');
+    $sessionConfiguration = $noneConfiguration;
+    $sessionConfiguration['authentication']['mode'] = 'session';
+    (new AdminConfigurationRepository($adminPath))->save($sessionConfiguration);
 
     protectionRequired($middleware, [
         'action' => 'select',

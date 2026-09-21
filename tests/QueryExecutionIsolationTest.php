@@ -14,6 +14,8 @@ class FakeOdbcQueryEngine extends QueryEngine
     public array $freed = [];
     public array $configuredTimeouts = [];
     public ?string $failure = null;
+    public bool $timeoutOptionSupported = true;
+    public string $sqlState = '42000';
     private array $rowsBySql;
 
     public function __construct(array $rowsBySql, Logger $logger, int $timeout = 7)
@@ -31,15 +33,26 @@ class FakeOdbcQueryEngine extends QueryEngine
         return $statement;
     }
 
-    protected function configureStatementTimeout($statement): void
+    protected function applyStatementTimeout($statement, int $seconds): bool
     {
-        $this->configuredTimeouts[] = $this->queryTimeoutSeconds;
+        $this->configuredTimeouts[] = $seconds;
+        return $this->timeoutOptionSupported;
     }
 
     protected function executeStatement($statement, array $params): bool
     {
         $this->executions[] = ['sql' => $statement->sql, 'params' => $params];
         return $this->failure === null;
+    }
+
+    protected function executeDirect(string $sql)
+    {
+        $statement = new stdClass();
+        $statement->sql = $sql;
+        $statement->position = 0;
+        $statement->rows = $this->rowsBySql[$sql] ?? [];
+        $this->executions[] = ['sql' => $sql, 'params' => []];
+        return $statement;
     }
 
     protected function fetchRow($statement)
@@ -57,10 +70,45 @@ class FakeOdbcQueryEngine extends QueryEngine
     {
         return $this->failure ?? '';
     }
+
+    protected function lastSqlState(): string
+    {
+        return $this->failure === null ? '' : $this->sqlState;
+    }
+}
+
+final class TimeoutAttributeRetryEngine extends FakeOdbcQueryEngine
+{
+    private int $attempts = 0;
+
+    protected function executeStatement($statement, array $params): bool
+    {
+        $this->executions[] = ['sql' => $statement->sql, 'params' => $params];
+        $this->attempts++;
+        if ($this->attempts === 1) {
+            $this->failure = '[unixODBC][Driver Manager]Driver does not support this function';
+            $this->sqlState = 'IM001';
+            return false;
+        }
+        $this->failure = null;
+        return true;
+    }
+}
+
+class FailingConnectionDatabase extends Database
+{
+    public function __construct() {}
+    public function getConnection() { throw new RuntimeException('Login failed password=connection-secret (28000)'); }
 }
 
 $logDirectory = sys_get_temp_dir() . '/generic-dashboard-query-tests-' . bin2hex(random_bytes(5));
 $logger = new Logger($logDirectory);
+try {
+    new QueryEngine(new FailingConnectionDatabase(), $logger);
+    throw new RuntimeException('A failed database connection was accepted.');
+} catch (RuntimeException $exception) {
+    executionAssert(str_contains($exception->getMessage(), '28000'), 'Connection failure was not propagated safely.');
+}
 $first = new FakeOdbcQueryEngine(['SELECT first' => [['id' => 1]]], $logger);
 $second = new FakeOdbcQueryEngine(['SELECT second' => [['id' => 2]]], $logger);
 
@@ -72,6 +120,17 @@ executionAssert($first->executions[0]['params'] === ['alpha'], 'Parameters leake
 executionAssert($second->executions[0]['params'] === ['beta'], 'Parameters leaked into the second execution.');
 executionAssert($first->configuredTimeouts === [7] && $second->configuredTimeouts === [7], 'Statement timeout was not independently configured.');
 executionAssert($first->freed === ['SELECT first'] && $second->freed === ['SELECT second'], 'Successful statements were not released.');
+
+$unsupportedTimeout = new FakeOdbcQueryEngine(['SELECT portable WHERE value = ?' => [['ok' => 1]]], $logger);
+$unsupportedTimeout->timeoutOptionSupported = false;
+$portableResult = $unsupportedTimeout->executePrepared('SELECT portable WHERE value = ?', ['safe']);
+executionAssert($portableResult['data'] === [['ok' => 1]], 'Unsupported SQL_QUERY_TIMEOUT prevented valid query execution.');
+executionAssert($unsupportedTimeout->configuredTimeouts === [7], 'Unsupported timeout capability was not probed exactly once.');
+
+$retryTimeout = new TimeoutAttributeRetryEngine(['SELECT retry WHERE value = ?' => [['ok' => 2]]], $logger);
+$retryResult = $retryTimeout->executePrepared('SELECT retry WHERE value = ?', ['safe']);
+executionAssert($retryResult['data'] === [['ok' => 2]], 'IM001 timeout-option failure was not retried without the option.');
+executionAssert(count($retryTimeout->executions) === 2, 'Unsupported timeout execution was not retried exactly once.');
 
 $first->failure = '[Microsoft][ODBC Driver] Query timeout expired (HYT00)';
 try {
@@ -87,14 +146,27 @@ $recovered = $first->executePrepared('SELECT first', ['fresh']);
 executionAssert($recovered['rowsReturned'] === 1, 'A failed query corrupted the next execution.');
 executionAssert($first->executions[2]['params'] === ['fresh'], 'Failed-query parameters leaked into the next execution.');
 
+$first->failure = '[Microsoft][ODBC Driver][SQL Server] Syntax failure (42000) password=hunter2';
+try {
+    $first->executePrepared('SELECT first', ['private-filter'], ['queryPhase' => 'data']);
+    throw new RuntimeException('A failed database query was accepted as success.');
+} catch (RuntimeException $exception) {
+    executionAssert(str_contains($exception->getMessage(), '42000'), 'Database diagnostic exception lost its SQLSTATE.');
+}
+
 $payload = Response::errorPayload('Query execution timed out.', 'QUERY_ERROR');
 executionAssert($payload['success'] === false && $payload['error']['code'] === 'QUERY_ERROR', 'Timeout response broke the API error contract.');
 
 $logFile = $logDirectory . '/' . date('Y-m-d') . '.log';
 $log = (string)file_get_contents($logFile);
 executionAssert(str_contains($log, '"phase":"query_execute"'), 'Execution timing diagnostics were not written.');
+executionAssert(str_contains($log, '"queryPhase":"connect"'), 'Connection failure phase was not identified.');
+executionAssert(!str_contains($log, 'connection-secret'), 'A database connection secret was written to diagnostics.');
 executionAssert(str_contains($log, '"phase":"rows_fetch"'), 'Fetch timing diagnostics were not written.');
 executionAssert(str_contains($log, '"queryPhase":"pagination_count"'), 'Pagination count phase was not identified.');
+executionAssert(str_contains($log, '"sqlState":"42000"'), 'SQLSTATE was not written to safe server diagnostics.');
+executionAssert(str_contains($log, '"errorCategory":"sql"'), 'Database error category was not written to diagnostics.');
 executionAssert(!str_contains($log, 'secret-value'), 'A sensitive parameter value was written to diagnostics.');
+executionAssert(!str_contains($log, 'private-filter') && !str_contains($log, 'hunter2'), 'A sensitive diagnostic value was written to logs.');
 
 echo "Query execution isolation tests passed.\n";

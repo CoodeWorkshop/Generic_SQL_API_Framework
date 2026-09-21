@@ -7,6 +7,7 @@ set "PHP_INI=%ROOT%runtime\windows\php\php.ini"
 set "OPCACHE=%ROOT%runtime\windows\php\opcache"
 set "LOGS=%ROOT%logs"
 set "ADMIN=%ROOT%admin"
+set "GENERIC_RUNTIME_CONFIG_DIR=%ROOT%config"
 
 echo ========================================
 echo          Generic SQL API Framework
@@ -33,7 +34,7 @@ if not exist "%OPCACHE%" mkdir "%OPCACHE%"
 if not exist "%LOGS%" mkdir "%LOGS%"
 
 for %%E in (odbc openssl json session) do (
-    "%PHP%" -c "%PHP_INI%" -m | findstr /i /x "%%E" >nul
+    "%PHP%" -c "%PHP_INI%" -r "exit(extension_loaded('%%E') ? 0 : 1);"
     if errorlevel 1 (
         echo [FAILED] Required PHP extension is unavailable: %%E
         pause
@@ -74,6 +75,10 @@ set "ADMIN_URL=http://127.0.0.1:%ADMIN_PORT%/admin"
 if errorlevel 1 (
     echo [WARNING] API did not start. Use System Health after reviewing the configured port range.
 )
+"%PHP%" -c "%PHP_INI%" "%ROOT%scripts\sqlparser-runtime-control.php" start >nul
+if errorlevel 1 (
+    echo [WARNING] SQL Parser did not start. Use System Health after reviewing the configured port range.
+)
 
 echo [OK] PHP runtime and required extensions
 echo [OK] Runtime configuration
@@ -81,6 +86,7 @@ echo [OK] Local database encryption key
 echo [OK] Admin Console port %ADMIN_PORT%
 echo.
 echo API:   managed from System Health
+echo Parser: managed from System Health
 echo Admin: %ADMIN_URL%
 echo.
 echo The Admin Console is bound to this computer only. Press Ctrl+C to stop it.
@@ -91,5 +97,5 @@ start "" "%ADMIN_URL%"
 "%PHP%" -c "%PHP_INI%" -d "opcache.file_cache=%OPCACHE%" -d "error_log=%LOGS%\php_errors.log" -S 127.0.0.1:%ADMIN_PORT% -t "%ADMIN%" "%ADMIN%\router.php"
 
 echo.
-echo Admin Console stopped. The API lifecycle remains independently managed.
+echo Admin Console stopped. API and SQL Parser lifecycles remain independently managed.
 pause

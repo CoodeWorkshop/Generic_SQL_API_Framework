@@ -53,6 +53,14 @@ transactions are not part of this release.
 - backend-enforced Read Data, Write Data, Pagination, Sorting, and Metadata switches
 - independently hosted SQL Parser with no Admin, API runtime, session, or database dependency
 
+## New Phase 2.2 — Runtime integration and stabilization — Implemented
+
+- Admin-managed, independent API and SQL Parser lifecycles on Windows and Linux
+- separate validated port ranges, service-owned PID state, health, and safe recovery
+- automatic Admin-managed database encryption with obsolete setup scripts removed
+- platform-aware SQL Server authentication and safe structured query diagnostics
+- launcher extension checks through the selected PHP runtime and fixed config root
+
 ## v1.3.0 — Transactions — Planned
 
 - begin, commit, rollback, failure handling, and transaction-aware service boundaries

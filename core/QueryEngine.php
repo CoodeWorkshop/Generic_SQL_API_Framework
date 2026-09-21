@@ -10,6 +10,7 @@ class QueryEngine
     protected $connection = null;
     protected Logger $logger;
     protected int $queryTimeoutSeconds;
+    protected ?bool $queryTimeoutSupported = null;
 
     public function __construct(?Database $database = null, ?Logger $logger = null, ?int $queryTimeoutSeconds = null, bool $connect = true)
     {
@@ -26,6 +27,10 @@ class QueryEngine
                 $this->logger->timing('database_connection', $this->elapsed($started), [
                     'success' => false,
                     'errorType' => get_class($exception),
+                    'queryPhase' => 'connect',
+                    'sqlState' => $this->sqlState($exception),
+                    'errorCategory' => $this->errorCategory($exception),
+                    'driverMessage' => $this->sanitizedDriverMessage($exception->getMessage()),
                 ]);
                 throw $exception;
             }
@@ -70,10 +75,26 @@ class QueryEngine
                 $statement = $this->prepareStatement($sql);
                 $this->logger->timing('query_prepare', $this->elapsed($started), $logContext);
                 if (!$statement) throw new RuntimeException($this->lastError());
-                $this->configureStatementTimeout($statement);
+                $timeoutConfigured = $this->configureStatementTimeout($statement);
                 $phase = 'execute';
                 $started = microtime(true);
-                $executed = $this->executeStatement($statement, $params);
+                if (!$timeoutConfigured && $params === []) {
+                    $this->freeStatement($statement);
+                    $statement = $this->executeDirect($sql);
+                    $executed = $statement !== false;
+                } elseif (!$timeoutConfigured) {
+                    $this->freeStatement($statement);
+                    $statement = $this->prepareStatement($sql);
+                    $executed = $statement !== false && $this->executeStatement($statement, $params);
+                } else {
+                    $executed = $this->executeStatement($statement, $params);
+                }
+                if ($executed === false && $timeoutConfigured && $this->isUnsupportedStatementOption()) {
+                    $this->markTimeoutUnsupported();
+                    $this->freeStatement($statement);
+                    $statement = $this->prepareStatement($sql);
+                    $executed = $statement !== false && $this->executeStatement($statement, $params);
+                }
                 $this->logger->timing('query_execute', $this->elapsed($started), $logContext);
                 if ($executed === false) throw new RuntimeException($this->lastError());
             } else {
@@ -101,10 +122,18 @@ class QueryEngine
             $converted = $this->isTimeout($exception)
                 ? new QueryTimeoutException("Database query exceeded the configured {$this->queryTimeoutSeconds}-second timeout.", 0, $exception)
                 : $exception;
-            $this->logger->error($sql, $params, get_class($converted) . ': ' . $converted->getMessage(), $this->elapsed($totalStarted));
+            $this->logger->error(
+                $sql,
+                $params,
+                get_class($converted) . ': ' . $this->sanitizedDriverMessage($converted->getMessage()),
+                $this->elapsed($totalStarted)
+            );
             $this->logger->timing('query_error', $this->elapsed($totalStarted), $context + [
                 'queryPhase' => $phase,
                 'errorType' => get_class($converted),
+                'sqlState' => $this->sqlState($converted),
+                'errorCategory' => $this->errorCategory($converted),
+                'driverMessage' => $this->sanitizedDriverMessage($converted->getMessage()),
             ]);
             throw $converted;
         } finally {
@@ -114,13 +143,22 @@ class QueryEngine
 
     protected function prepareStatement(string $sql) { return @odbc_prepare($this->connection, $sql); }
 
-    protected function configureStatementTimeout($statement): void
+    protected function configureStatementTimeout($statement): bool
     {
-        if ($this->queryTimeoutSeconds <= 0) return;
+        if ($this->queryTimeoutSeconds <= 0) return true;
+        if ($this->queryTimeoutSupported === false) return false;
         // ODBC statement option 0 is SQL_QUERY_TIMEOUT; type 2 selects statement options.
-        if (!odbc_setoption($statement, 2, 0, $this->queryTimeoutSeconds)) {
-            throw new RuntimeException('The ODBC driver could not configure the statement execution limit.');
+        if (!$this->applyStatementTimeout($statement, $this->queryTimeoutSeconds)) {
+            $this->markTimeoutUnsupported();
+            return false;
         }
+        $this->queryTimeoutSupported = true;
+        return true;
+    }
+
+    protected function applyStatementTimeout($statement, int $seconds): bool
+    {
+        return odbc_setoption($statement, 2, 0, $seconds);
     }
 
     protected function executeStatement($statement, array $params): bool { return @odbc_execute($statement, $params); }
@@ -130,10 +168,61 @@ class QueryEngine
     protected function freeStatement($statement): void { @odbc_free_result($statement); }
     protected function lastError(): string { return (string)odbc_errormsg($this->connection); }
 
+    protected function lastSqlState(): string
+    {
+        return function_exists('odbc_error') ? (string)@odbc_error($this->connection) : '';
+    }
+
+    private function isUnsupportedStatementOption(): bool
+    {
+        return strtoupper(trim($this->lastSqlState())) === 'IM001'
+            || str_contains(strtolower($this->lastError()), 'does not support this function');
+    }
+
+    private function markTimeoutUnsupported(): void
+    {
+        $this->queryTimeoutSupported = false;
+        $this->logger->timing('query_timeout_configuration', 0, [
+            'supported' => false,
+            'errorCategory' => 'driver_capability',
+        ]);
+    }
+
     private function isTimeout(Throwable $exception): bool
     {
         return $exception instanceof QueryTimeoutException
             || preg_match('/(?:HYT00|HYT01|timeout|timed out|time limit)/i', $exception->getMessage()) === 1;
+    }
+
+    private function sqlState(Throwable $exception): ?string
+    {
+        $state = strtoupper(trim($this->lastSqlState()));
+        if (preg_match('/^[A-Z0-9]{5}$/', $state) === 1) return $state;
+        return preg_match('/\b([A-Z0-9]{5})\b/', strtoupper($exception->getMessage()), $matches) === 1
+            ? $matches[1] : null;
+    }
+
+    private function errorCategory(Throwable $exception): string
+    {
+        if ($this->isTimeout($exception)) return 'timeout';
+        $state = $this->sqlState($exception);
+        if ($state === null) return 'driver';
+        return match (substr($state, 0, 2)) {
+            '08' => 'connection',
+            '22' => 'data',
+            '23' => 'constraint',
+            '28' => 'authentication',
+            '42' => 'sql',
+            default => 'driver',
+        };
+    }
+
+    private function sanitizedDriverMessage(string $message): string
+    {
+        $message = (string)preg_replace('/(?i)(password|pwd|uid|user(?:name)?)\s*=\s*[^;\s]+/', '$1=[REDACTED]', $message);
+        $message = (string)preg_replace("/'(?:''|[^'])*'/", "'[REDACTED]'", $message);
+        $message = trim((string)preg_replace('/\s+/', ' ', $message));
+        return strlen($message) > 500 ? substr($message, 0, 500) . ' ...' : $message;
     }
 
     private function elapsed(float $started): float { return (microtime(true) - $started) * 1000; }

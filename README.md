@@ -85,8 +85,8 @@ configuration as an AES-256-GCM envelope without a plaintext backup. CORS,
 authentication mode, runtime status, and the non-executing SQL parser are also
 available there. See [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md).
 
-The manual format below remains useful for production provisioning and legacy
-migration.
+The manual format below remains useful for production provisioning. Local users
+should configure the database only through Admin Console.
 
 Create the ignored local file `database/config/database.json`:
 
@@ -104,15 +104,17 @@ Create the ignored local file `database/config/database.json`:
 }
 ```
 
-For SQL authentication use `"authentication": "sql"` plus `username` and `password`. Plaintext configuration remains supported for compatibility, but deployments can seal the complete configuration—including server, database, username, password, driver, and connection options—as one AES-256-GCM authenticated payload. The Base64-encoded 32-byte key comes from `GENERIC_SQL_API_ENCRYPTION_KEY` and must remain separate from `database.json`.
+The example's integrated authentication is Windows-only. On every platform, SQL
+authentication uses `"authentication": "sql"` plus `username` and `password`.
+Plaintext configuration remains supported for compatibility, but deployments can
+seal the complete configuration as one AES-256-GCM authenticated payload. The
+Base64-encoded 32-byte key comes from `GENERIC_SQL_API_ENCRYPTION_KEY` and must
+remain separate from `database.json`.
 
-Windows users can perform the one-time migration of an existing plaintext configuration with:
-
-```bat
-setup-database-encryption.bat
-```
-
-The setup saves the key in the Windows User environment, encrypts the complete `database.json` without retaining a plaintext backup, and validates the connection. Open a new terminal before later startup so it inherits the saved variable. Do not commit the key or configuration. See [Database Configuration](docs/Database-Configuration.md) for the encrypted format, cross-platform manual setup, failure behavior, and security limitations.
+Admin Console encrypts the complete configuration without retaining a plaintext
+backup. Do not commit the key or configuration. See
+[Database Configuration](docs/Database-Configuration.md) for the encrypted
+format, platform-aware authentication, failure behavior, and security limits.
 
 ## Start the backend
 
@@ -127,7 +129,12 @@ On Windows, run:
 start-windows.bat
 ```
 
-The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP installation is not required. The launcher validates PHP and required extensions, prepares the ignored local encryption key, starts the Admin Console on its configured loopback port, and starts the API as an independently managed process on the first free port in the configured range. A preconfigured or reachable database is not required because it can be configured and tested in the console.
+The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP
+installation is not required. The launcher validates PHP and required extensions,
+prepares the ignored local encryption key, starts Admin Console on its configured
+loopback port, and starts the API and SQL Parser as independently managed
+processes on the first free ports in their configured ranges. A preconfigured or
+reachable database is not required.
 
 On Linux, run:
 
@@ -139,7 +146,7 @@ It mirrors the loopback binding, validation, local key preparation, automatic
 port selection, and optional browser launch. It prefers
 `runtime/linux/php/php` and falls back to installed PHP when the bundled Linux
 binary is absent. The Admin Console remains available while its System Health
-screen starts, stops, or restarts the API.
+screen starts, stops, or restarts the API or SQL Parser independently.
 
 With another PHP installation, after configuring the database:
 
@@ -177,6 +184,7 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - New Phase 1 — unified local setup/configuration console: implemented
 - New Phase 2 — authentication and administrator user management: implemented
 - Phase 2.1 — independent Admin/API runtime and simplified configuration UX: implemented
+- Phase 2.2 — cross-platform API/parser lifecycle and setup stabilization: implemented
 - Generalized roles/permissions, API-key management, transactions, richer
   metadata, and additional providers: planned
 
@@ -186,7 +194,7 @@ The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md
 
 Start at the [backend documentation map](docs/README.md).
 
-Developers can run the independent `sqlparser/` application to translate
+The Admin-managed, application-independent `sqlparser/` service translates
 supported SQL into validated public request JSON. See the
 [SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
 

@@ -141,7 +141,14 @@ A browser abort stops waiting for the HTTP response, but this synchronous PHP OD
 
 Each request has a random correlation ID. Dated logs distinguish request receipt, validation, normalization, SQL generation, connection setup, statement preparation, execution, row fetching, response construction, and request total. Query entries label pagination counts, compatibility metadata, and main data queries separately. Logs include normalized SQL with literals redacted plus parameter count/types, never parameter values or credentials.
 
-The default database statement timeout is 45 seconds and can be set with `DB_QUERY_TIMEOUT_SECONDS`. `QueryEngine` applies it with ODBC `SQL_QUERY_TIMEOUT` before every execution. It is deliberately below the bundled PHP `max_execution_time` of 60 seconds so the exception handler normally has time to return a 504 `QUERY_ERROR`. The PHP limit remains a last-resort request guard; a shutdown handler converts that fatal timeout to the same safe payload. Neither setting controls the browser, reverse proxy, load balancer, or database connection/login timeout. Configure those deployment-specific HTTP timeouts slightly above the PHP request limit, and configure login behavior in the ODBC/host environment.
+The default database statement timeout is 45 seconds and can be set with
+`DB_QUERY_TIMEOUT_SECONDS`. `QueryEngine` requests ODBC `SQL_QUERY_TIMEOUT`
+before execution. Drivers that support the statement attribute enforce it;
+drivers returning the ODBC unsupported-capability result are logged once per
+engine and execution continues instead of failing every valid query. The PHP
+`max_execution_time` of 60 seconds remains the portable request guard, and the
+shutdown handler converts that fatal timeout to a safe 504 `QUERY_ERROR`.
+Neither setting controls browser, proxy, load-balancer, or login timeouts.
 
 This timeout controls duration and failure behavior; it does not make an inefficient query fast. The observed expensive grouped aggregates and derived-table counts still need SQL Server execution-plan, index, statistics, and blocking analysis using the new phase logs.
 

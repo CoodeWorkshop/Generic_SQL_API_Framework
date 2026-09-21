@@ -3,9 +3,17 @@
 require_once __DIR__ . '/ApiRequestException.php';
 require_once __DIR__ . '/../Repositories/AdminConfigurationRepository.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
+require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
 
 final class AdminRequestValidator
 {
+    private DatabaseAuthenticationSupport $databaseAuthentication;
+
+    public function __construct(?DatabaseAuthenticationSupport $databaseAuthentication = null)
+    {
+        $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
+    }
+
     private const SIMPLE_ACTIONS = [
         'admin.status',
         'admin.health',
@@ -13,7 +21,11 @@ final class AdminRequestValidator
         'admin.api.start',
         'admin.api.stop',
         'admin.api.restart',
+        'admin.sqlParser.start',
+        'admin.sqlParser.stop',
+        'admin.sqlParser.restart',
         'admin.database.get',
+        'admin.database.testCurrent',
         'admin.settings.get',
     ];
 
@@ -56,10 +68,10 @@ final class AdminRequestValidator
         if (!is_array($value) || array_is_list($value)) {
             $this->invalid([['path' => 'server', 'message' => 'Server configuration must be an object.']]);
         }
-        $this->rejectUnknown($value, ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress'], 'server.');
+        $this->rejectUnknown($value, ['apiPortMinimum', 'apiPortMaximum', 'parserPortMinimum', 'parserPortMaximum', 'adminPort', 'bindAddress'], 'server.');
         $errors = [];
         $normalized = [];
-        foreach (['apiPortMinimum', 'apiPortMaximum', 'adminPort'] as $field) {
+        foreach (['apiPortMinimum', 'apiPortMaximum', 'parserPortMinimum', 'parserPortMaximum', 'adminPort'] as $field) {
             $port = filter_var($value[$field] ?? null, FILTER_VALIDATE_INT);
             if ($port === false || $port < 1 || $port > 65535) {
                 $errors[] = ['path' => 'server.' . $field, 'message' => 'Port must be between 1 and 65535.'];
@@ -71,6 +83,10 @@ final class AdminRequestValidator
             && $normalized['apiPortMinimum'] > $normalized['apiPortMaximum']) {
             $errors[] = ['path' => 'server.apiPortMaximum', 'message' => 'Maximum port must be greater than or equal to minimum port.'];
         }
+        if (isset($normalized['parserPortMinimum'], $normalized['parserPortMaximum'])
+            && $normalized['parserPortMinimum'] > $normalized['parserPortMaximum']) {
+            $errors[] = ['path' => 'server.parserPortMaximum', 'message' => 'Maximum port must be greater than or equal to minimum port.'];
+        }
         if (($value['bindAddress'] ?? null) !== '127.0.0.1') {
             $errors[] = ['path' => 'server.bindAddress', 'message' => 'Only the loopback bind address is supported.'];
         }
@@ -78,6 +94,8 @@ final class AdminRequestValidator
         return [
             'apiPortMinimum' => $normalized['apiPortMinimum'],
             'apiPortMaximum' => $normalized['apiPortMaximum'],
+            'parserPortMinimum' => $normalized['parserPortMinimum'],
+            'parserPortMaximum' => $normalized['parserPortMaximum'],
             'adminPort' => $normalized['adminPort'],
             'bindAddress' => '127.0.0.1',
         ];
@@ -122,8 +140,10 @@ final class AdminRequestValidator
         $database = $this->connectionStringValue($value['database'] ?? null, 'database', true, $errors);
         $username = $this->connectionStringValue($value['username'] ?? '', 'username', false, $errors);
         $authentication = strtolower(trim((string)($value['authentication'] ?? '')));
-        if (!in_array($authentication, ['sql', 'windows'], true)) {
-            $errors[] = ['path' => 'database.authentication', 'message' => 'Authentication must be sql or windows.'];
+        try {
+            $this->databaseAuthentication->validate($authentication);
+        } catch (InvalidArgumentException $exception) {
+            $errors[] = ['path' => 'database.authentication', 'message' => $exception->getMessage()];
         }
         if ($authentication === 'sql' && $username === '') {
             $errors[] = ['path' => 'database.username', 'message' => 'Username is required for SQL authentication.'];

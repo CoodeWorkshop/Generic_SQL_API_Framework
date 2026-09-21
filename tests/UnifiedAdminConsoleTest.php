@@ -50,6 +50,12 @@ try {
     putenv(DatabaseCredentialEncryption::ENVIRONMENT_VARIABLE . '=' . base64_encode(random_bytes(32)));
 
     $validator = new AdminRequestValidator();
+    $linuxValidator = new AdminRequestValidator(new DatabaseAuthenticationSupport('Linux'));
+    $windowsValidator = new AdminRequestValidator(new DatabaseAuthenticationSupport('Windows'));
+    unifiedAdminAssert(
+        SqlServerDriver::cursorMode('Windows') !== SqlServerDriver::cursorMode('Linux'),
+        'SQL Server cursor handling is not platform-aware.'
+    );
     $corsRequest = $validator->validate([
         'action' => 'admin.cors.save',
         'cors' => [
@@ -87,6 +93,15 @@ try {
         'action' => 'admin.database.save',
         'database' => $validDatabase,
     ])['database'];
+    unifiedAdminFailure(fn () => $linuxValidator->validate([
+        'action' => 'admin.database.save',
+        'database' => [...$validDatabase, 'authentication' => 'windows', 'username' => ''],
+    ]), 'Windows database authentication was accepted on Linux.');
+    $windowsDatabase = $windowsValidator->validate([
+        'action' => 'admin.database.save',
+        'database' => [...$validDatabase, 'authentication' => 'windows', 'username' => ''],
+    ])['database'];
+    unifiedAdminAssert($windowsDatabase['authentication'] === 'windows', 'Implemented Windows database authentication was rejected on Windows.');
     unifiedAdminFailure(fn () => $validator->validate([
         'action' => 'admin.database.save',
         'database' => [...$validDatabase, 'server' => 'server;UID=attacker'],
@@ -114,6 +129,8 @@ try {
         unifiedAdminAssert($exception->getMessage() === 'Database connection failed.', 'Connection failure exposed driver details.');
     }
     $service->saveDatabase($normalizedDatabase);
+    $service->testCurrentDatabase();
+    unifiedAdminAssert($connectionTests === 2, 'Current database test did not open a request-scoped connection.');
     $stored = json_decode((string)file_get_contents($databasePath), true, 512, JSON_THROW_ON_ERROR);
     unifiedAdminAssert(($stored['encrypted'] ?? false) === true, 'Database configuration was not encrypted.');
     unifiedAdminAssert(!str_contains((string)file_get_contents($databasePath), 'first-secret'), 'Plaintext password reached database storage.');
@@ -121,6 +138,10 @@ try {
     $publicDatabase = $service->databaseConfiguration();
     unifiedAdminAssert(!array_key_exists('password', $publicDatabase), 'Database password was returned by the admin API.');
     unifiedAdminAssert(!array_key_exists('ciphertext', $publicDatabase), 'Encrypted credential material was returned by the admin API.');
+    unifiedAdminAssert(
+        $publicDatabase['availableAuthenticationModes'] === (PHP_OS_FAMILY === 'Windows' ? ['sql', 'windows'] : ['sql']),
+        'Database authentication choices were not platform-aware.'
+    );
 
     $updatedDatabase = $normalizedDatabase;
     $updatedDatabase['password'] = 'second-secret';
@@ -201,8 +222,23 @@ try {
         unifiedAdminAssert(str_contains($launcher, 'find-available-port.php'), 'Launcher does not use safe port selection.');
         unifiedAdminAssert(str_contains($launcher, '/admin'), 'Launcher does not display the admin URL.');
     }
+    $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'availableAuthenticationModes.map'), 'Database authentication UI does not use backend-supported modes.');
+    unifiedAdminAssert(!str_contains($adminJavaScript, '<dt>Query timeout</dt>'), 'Unsupported driver-dependent timeout remains exposed as an enforced Admin option.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/router.php'), "['127.0.0.1', '::1']"), 'Admin router lacks loopback enforcement.');
+    foreach ([
+        'setup-database-encryption.bat',
+        'setup-database-encryption.sh',
+        'scripts/generate-encryption-key.php',
+        'scripts/setup-database-encryption.php',
+        'scripts/check-database-encryption-key.php',
+        'sqlparser/start-windows.bat',
+        'sqlparser/start-linux.sh',
+    ] as $obsoletePath) {
+        unifiedAdminAssert(!file_exists(__DIR__ . '/../' . $obsoletePath), "Obsolete manual workflow remains: {$obsoletePath}");
+    }
+    unifiedAdminAssert(is_file(__DIR__ . '/../scripts/prepare-local-encryption-key.php'), 'Internal automatic key preparation was removed.');
 
     echo "Unified admin console tests passed.\n";
 } finally {

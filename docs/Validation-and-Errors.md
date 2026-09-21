@@ -106,6 +106,11 @@ control. Credential exceptions are logged without a trace, public database
 failures are sanitized, and query logging omits parameter values. Logs themselves
 remain sensitive operational data and require access controls.
 
+Database failures additionally record the request ID, execution phase, safe
+SQLSTATE, error category, and a redacted/truncated driver message. The client
+continues to receive an empty `details` array by design; driver text is never a
+public error detail.
+
 ## Explicit security boundaries
 
 The API implements configurable session/API-key authentication, administrator

@@ -24,7 +24,7 @@ final class AdminConfigurationRepository
     {
         if ($this->runtimePath) RuntimeConfiguration::ensure();
         $configuration = JsonFileStore::load($this->path);
-        if (($configuration['version'] ?? null) === 1) {
+        if (in_array($configuration['version'] ?? null, [1, 2], true)) {
             $configuration = $this->migrate($configuration);
             JsonFileStore::save($this->path, $configuration);
         }
@@ -48,7 +48,7 @@ final class AdminConfigurationRepository
         try {
             if (!flock($stream, LOCK_EX)) throw new RuntimeException('Admin configuration lock could not be acquired.');
             $configuration = JsonFileStore::load($this->path);
-            if (($configuration['version'] ?? null) === 1) $configuration = $this->migrate($configuration);
+            if (in_array($configuration['version'] ?? null, [1, 2], true)) $configuration = $this->migrate($configuration);
             $this->validate($configuration);
             $result = $operation($configuration);
             $this->validate($configuration);
@@ -90,7 +90,7 @@ final class AdminConfigurationRepository
     private function validate(array $configuration): void
     {
         if (array_diff(array_keys($configuration), ['version', 'server', 'features', 'cors', 'authentication']) !== []
-            || ($configuration['version'] ?? null) !== 2
+            || ($configuration['version'] ?? null) !== 3
             || !is_array($configuration['server'] ?? null)
             || !is_array($configuration['features'] ?? null)
             || !is_array($configuration['cors'] ?? null)
@@ -98,12 +98,16 @@ final class AdminConfigurationRepository
             throw new RuntimeException('Invalid admin configuration.');
         }
         $server = $configuration['server'];
-        if (array_keys($server) !== ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress']
+        if (array_keys($server) !== ['apiPortMinimum', 'apiPortMaximum', 'parserPortMinimum', 'parserPortMaximum', 'adminPort', 'bindAddress']
             || !is_int($server['apiPortMinimum'] ?? null)
             || !is_int($server['apiPortMaximum'] ?? null)
+            || !is_int($server['parserPortMinimum'] ?? null)
+            || !is_int($server['parserPortMaximum'] ?? null)
             || !is_int($server['adminPort'] ?? null)
             || $server['apiPortMinimum'] < 1 || $server['apiPortMaximum'] > 65535
             || $server['apiPortMinimum'] > $server['apiPortMaximum']
+            || $server['parserPortMinimum'] < 1 || $server['parserPortMaximum'] > 65535
+            || $server['parserPortMinimum'] > $server['parserPortMaximum']
             || $server['adminPort'] < 1 || $server['adminPort'] > 65535
             || ($server['bindAddress'] ?? null) !== '127.0.0.1') {
             throw new RuntimeException('Invalid server configuration.');
@@ -152,6 +156,23 @@ final class AdminConfigurationRepository
 
     private function migrate(array $configuration): array
     {
+        $version = $configuration['version'] ?? null;
+        if ($version === 2) {
+            $this->validateVersionTwo($configuration);
+            $defaults = self::defaults();
+            return [
+                ...$configuration,
+                'version' => 3,
+                'server' => [
+                    'apiPortMinimum' => $configuration['server']['apiPortMinimum'],
+                    'apiPortMaximum' => $configuration['server']['apiPortMaximum'],
+                    'parserPortMinimum' => $defaults['server']['parserPortMinimum'],
+                    'parserPortMaximum' => $defaults['server']['parserPortMaximum'],
+                    'adminPort' => $configuration['server']['adminPort'],
+                    'bindAddress' => $configuration['server']['bindAddress'],
+                ],
+            ];
+        }
         if (array_diff(array_keys($configuration), ['version', 'cors', 'authentication']) !== []
             || !is_array($configuration['cors'] ?? null)
             || !is_array($configuration['authentication'] ?? null)) {
@@ -159,11 +180,20 @@ final class AdminConfigurationRepository
         }
         $defaults = self::defaults();
         return [
-            'version' => 2,
+            'version' => 3,
             'server' => $defaults['server'],
             'features' => $defaults['features'],
             'cors' => $configuration['cors'],
             'authentication' => $configuration['authentication'],
         ];
+    }
+
+    private function validateVersionTwo(array $configuration): void
+    {
+        if (array_keys($configuration) !== ['version', 'server', 'features', 'cors', 'authentication']
+            || !is_array($configuration['server'] ?? null)
+            || array_keys($configuration['server']) !== ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress']) {
+            throw new RuntimeException('Invalid admin configuration.');
+        }
     }
 }

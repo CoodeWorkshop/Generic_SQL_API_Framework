@@ -81,6 +81,10 @@ actions always retain session authentication. API-key-authenticated write
 requests do not use browser-session CSRF because the key itself is the
 non-cookie credential. Mode `none` also has no cookie-carried authority, so it
 does not require CSRF; session-authenticated writes remain CSRF protected.
+Mode `none` changes only client authentication. Validation, feature controls,
+resource restrictions, prepared values, database credential resolution, and SQL
+execution remain unchanged; a `QUERY_ERROR` in this mode is a downstream query
+or database failure rather than an authentication rejection.
 
 The local `/admin` console is not a production administration plane. It requires
 `GENERIC_ADMIN_ENABLED=1` and a loopback source at both the router and API

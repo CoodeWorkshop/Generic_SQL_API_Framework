@@ -8,6 +8,8 @@ require_once __DIR__ . '/../Security/SecurityConfiguration.php';
 require_once __DIR__ . '/../Repositories/InstallationRepository.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../Runtime/ApiProcessManager.php';
+require_once __DIR__ . '/../Runtime/SqlParserProcessManager.php';
+require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
 require_once __DIR__ . '/../Runtime/RuntimeDetector.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
@@ -18,14 +20,18 @@ final class AdminService
     private string $databasePath;
     private $connectionTester;
     private ApiProcessManager $processManager;
+    private SqlParserProcessManager $parserProcessManager;
     private RuntimeDetector $runtimeDetector;
+    private DatabaseAuthenticationSupport $databaseAuthentication;
 
     public function __construct(
         ?AdminConfigurationRepository $configuration = null,
         ?string $databasePath = null,
         ?callable $connectionTester = null,
         ?ApiProcessManager $processManager = null,
-        ?RuntimeDetector $runtimeDetector = null
+        ?RuntimeDetector $runtimeDetector = null,
+        ?SqlParserProcessManager $parserProcessManager = null,
+        ?DatabaseAuthenticationSupport $databaseAuthentication = null
     ) {
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->databasePath = $databasePath
@@ -40,6 +46,8 @@ final class AdminService
         };
         $this->processManager = $processManager ?? new ApiProcessManager($this->configuration);
         $this->runtimeDetector = $runtimeDetector ?? new RuntimeDetector();
+        $this->parserProcessManager = $parserProcessManager ?? new SqlParserProcessManager($this->configuration);
+        $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
     }
 
     public function status(): array
@@ -47,6 +55,7 @@ final class AdminService
         $settings = $this->configuration->load();
         $database = $this->databaseHealth();
         $api = $this->processManager->status();
+        $parser = $this->parserProcessManager->status();
         return [
             'adminConsole' => [
                 'running' => true,
@@ -56,6 +65,7 @@ final class AdminService
                 'startedAt' => getenv('GENERIC_ADMIN_STARTED_AT') ?: null,
             ],
             'api' => $api,
+            'sqlParser' => $parser,
             'database' => $database,
             'phpRuntime' => [
                 'running' => true,
@@ -73,15 +83,22 @@ final class AdminService
         $settings = $this->configuration->load();
         $runtime = $this->runtimeDetector->information();
         $installation = (new InstallationRepository())->load();
+        $api = $this->processManager->status();
+        $parser = $this->parserProcessManager->status();
         return [
             ...$runtime,
-            'apiPort' => $this->processManager->status()['port'],
+            'sqlParserVersion' => $parser['version'] ?? $runtime['frameworkVersion'],
+            'apiPort' => $api['port'],
+            'sqlParserPort' => $parser['port'],
             'adminPort' => (int)($_SERVER['SERVER_PORT'] ?? $settings['server']['adminPort']),
             'apiPortMinimum' => $settings['server']['apiPortMinimum'],
             'apiPortMaximum' => $settings['server']['apiPortMaximum'],
+            'parserPortMinimum' => $settings['server']['parserPortMinimum'],
+            'parserPortMaximum' => $settings['server']['parserPortMaximum'],
             'bindAddress' => $settings['server']['bindAddress'],
             'installationVersion' => $installation['version'],
             'installationInitialized' => $installation['initialized'],
+            'supportedDatabaseAuthenticationModes' => $this->databaseAuthentication->modes(),
         ];
     }
 
@@ -102,6 +119,7 @@ final class AdminService
                 'encrypt' => true,
                 'trustServerCertificate' => false,
                 'availableDrivers' => array_merge(['auto'], SqlServerDriver::supportedDrivers()),
+                'availableAuthenticationModes' => $this->databaseAuthentication->modes(),
             ];
         }
         try {
@@ -129,12 +147,14 @@ final class AdminService
             'encrypt' => ($database['options']['encrypt'] ?? true) === true,
             'trustServerCertificate' => ($database['options']['trustServerCertificate'] ?? false) === true,
             'availableDrivers' => array_merge(['auto'], SqlServerDriver::supportedDrivers()),
+            'availableAuthenticationModes' => $this->databaseAuthentication->modes(),
         ];
     }
 
     public function testDatabase(array $database): array
     {
         $resolved = $this->withExistingPassword($database);
+        $this->validateDatabaseAuthentication($resolved);
         try {
             ($this->connectionTester)($resolved);
         } catch (Throwable $exception) {
@@ -148,9 +168,31 @@ final class AdminService
         return ['connected' => true];
     }
 
+    public function testCurrentDatabase(): array
+    {
+        try {
+            $database = DatabaseConfigurationResolver::load($this->databasePath);
+        } catch (Throwable $exception) {
+            throw new ApiRequestException(
+                'Database configuration is unavailable.',
+                'DATABASE_CONFIGURATION_UNAVAILABLE',
+                [],
+                503
+            );
+        }
+        $this->validateDatabaseAuthentication($database);
+        try {
+            ($this->connectionTester)($database);
+        } catch (Throwable $exception) {
+            throw new ApiRequestException('Database connection failed.', 'DATABASE_CONNECTION_FAILED', [], 422);
+        }
+        return ['connected' => true];
+    }
+
     public function saveDatabase(array $database): array
     {
         $resolved = $this->withExistingPassword($database);
+        $this->validateDatabaseAuthentication($resolved);
         if ($resolved['authentication'] === 'sql' && $resolved['password'] === '') {
             throw new ApiRequestException(
                 'Invalid admin request.',
@@ -198,7 +240,6 @@ final class AdminService
                 'session' => SecurityConfiguration::sessionOptions(),
             ],
             'advanced' => [
-                'queryTimeoutSeconds' => $this->runtimeDetector->information()['queryTimeoutSeconds'],
                 'debugMode' => $this->runtimeDetector->information()['debugMode'],
                 'logging' => 'server-managed',
             ],
@@ -207,7 +248,9 @@ final class AdminService
 
     public function saveServer(array $server): array
     {
+        $currentServer = $this->configuration->load()['server'];
         $runtime = $this->processManager->status();
+        $parserRuntime = $this->parserProcessManager->status();
         if (($runtime['running'] ?? false) === true && ($runtime['port'] ?? null) === $server['adminPort']) {
             throw new ApiRequestException(
                 'Invalid admin request.',
@@ -215,9 +258,31 @@ final class AdminService
                 [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running API port.']]
             );
         }
-        return $this->configuration->update(function (array &$settings) use ($server): array {
+        if (($parserRuntime['running'] ?? false) === true && ($parserRuntime['port'] ?? null) === $server['adminPort']) {
+            throw new ApiRequestException(
+                'Invalid admin request.',
+                'INVALID_ADMIN_REQUEST',
+                [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running SQL Parser port.']]
+            );
+        }
+        $apiRestartRequired = $server['apiPortMinimum'] !== $currentServer['apiPortMinimum']
+            || $server['apiPortMaximum'] !== $currentServer['apiPortMaximum'];
+        $parserRestartRequired = $server['parserPortMinimum'] !== $currentServer['parserPortMinimum']
+            || $server['parserPortMaximum'] !== $currentServer['parserPortMaximum'];
+        $adminRestartRequired = $server['adminPort'] !== $currentServer['adminPort'];
+        return $this->configuration->update(function (array &$settings) use (
+            $server,
+            $apiRestartRequired,
+            $parserRestartRequired,
+            $adminRestartRequired
+        ): array {
             $settings['server'] = $server;
-            return ['server' => $server, 'restartRequired' => true];
+            return [
+                'server' => $server,
+                'apiRestartRequired' => $apiRestartRequired,
+                'parserRestartRequired' => $parserRestartRequired,
+                'adminRestartRequired' => $adminRestartRequired,
+            ];
         });
     }
 
@@ -259,6 +324,17 @@ final class AdminService
         }
     }
 
+    public function controlSqlParser(string $operation): array
+    {
+        try {
+            if ($operation === 'start') return $this->parserProcessManager->start();
+            if ($operation === 'stop') return $this->parserProcessManager->stop();
+            return $this->parserProcessManager->restart();
+        } catch (RuntimeException $exception) {
+            throw new ApiRequestException($exception->getMessage(), 'SQL_PARSER_PROCESS_OPERATION_FAILED', [], 409);
+        }
+    }
+
     private function databaseStatus(): array
     {
         if (!is_file($this->databasePath)) {
@@ -266,7 +342,8 @@ final class AdminService
         }
         try {
             $stored = DatabaseConfigurationResolver::readStored($this->databasePath);
-            DatabaseConfigurationResolver::resolve($stored);
+            $resolved = DatabaseConfigurationResolver::resolve($stored);
+            $this->databaseAuthentication->validate((string)($resolved['authentication'] ?? ''));
             return [
                 'configured' => true,
                 'encrypted' => DatabaseConfigurationResolver::usesEncryption($stored),
@@ -320,6 +397,19 @@ final class AdminService
             );
         } catch (Throwable $exception) {
             return false;
+        }
+    }
+
+    private function validateDatabaseAuthentication(array $database): void
+    {
+        try {
+            $this->databaseAuthentication->validate((string)($database['authentication'] ?? ''));
+        } catch (InvalidArgumentException $exception) {
+            throw new ApiRequestException(
+                'Invalid admin request.',
+                'INVALID_ADMIN_REQUEST',
+                [['path' => 'database.authentication', 'message' => $exception->getMessage()]]
+            );
         }
     }
 }

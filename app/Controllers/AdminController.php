@@ -20,7 +20,11 @@ final class AdminController extends BaseController
         elseif ($action === 'admin.api.start') $result = $this->service->controlApi('start');
         elseif ($action === 'admin.api.stop') $result = $this->service->controlApi('stop');
         elseif ($action === 'admin.api.restart') $result = $this->service->controlApi('restart');
+        elseif ($action === 'admin.sqlParser.start') $result = $this->service->controlSqlParser('start');
+        elseif ($action === 'admin.sqlParser.stop') $result = $this->service->controlSqlParser('stop');
+        elseif ($action === 'admin.sqlParser.restart') $result = $this->service->controlSqlParser('restart');
         elseif ($action === 'admin.database.get') $result = $this->service->databaseConfiguration();
+        elseif ($action === 'admin.database.testCurrent') $result = $this->service->testCurrentDatabase();
         elseif ($action === 'admin.database.test') $result = $this->service->testDatabase($request['database']);
         elseif ($action === 'admin.database.save') $result = $this->service->saveDatabase($request['database']);
         elseif ($action === 'admin.settings.get') $result = $this->service->settings();

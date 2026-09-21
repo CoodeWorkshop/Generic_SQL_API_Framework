@@ -15,16 +15,24 @@ The implemented startup sequence is:
 ```text
 locate php.exe and php.ini
   -> create runtime/windows/php/opcache and logs
-  -> verify ODBC, OpenSSL, JSON, and session extensions
+  -> verify ODBC, OpenSSL, JSON, and session with extension_loaded()
   -> create missing ignored runtime configuration with safe defaults
   -> load/generate the ignored local database-encryption key
   -> verify the configured Admin loopback port
   -> start the API on the first free configured API port
+  -> start the SQL Parser on the first free configured parser port
   -> php -S 127.0.0.1:<admin-port> -t admin admin/router.php
   -> open http://127.0.0.1:<admin-port>/admin
 ```
 
-The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a working database before startup: configure and test it through Configuration → Database. The launcher generates a local key only when neither an environment key nor key file exists and no already-encrypted database file depends on a missing key. It never rewrites database configuration itself. Each built-in server is single-process/single-threaded, while the Admin and API processes retain independent lifecycles.
+The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's
+file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a
+working database before startup: configure and test it through Configuration →
+Database. The launcher generates a local key only when neither an environment
+key nor key file exists and no already-encrypted database file depends on a
+missing key. It never rewrites database configuration itself. Each built-in
+server is single-process/single-threaded, while Admin, API, and SQL Parser retain
+independent lifecycles.
 
 Configuration bootstrap creates missing `config/auth.json`,
 `config/installation.json`, and `config/admin.json`; it never overwrites existing
@@ -32,32 +40,16 @@ values. The same idempotent bootstrap runs in the Linux launcher and repository
 load path, so manual file creation is unnecessary.
 
 The Admin Console is `/admin` on its configured port. System Health reports and
-controls the independent API process. Stopping or restarting that API does not
-stop the Admin Console.
+controls the independent API and SQL Parser processes. Stopping or restarting
+either does not stop Admin Console or the other managed service.
 
 ## Linux local runtime
 
 From the backend root run `./start-linux.sh`. It prefers
 `runtime/linux/php/php`, falls back to installed PHP when that bundled binary is
 absent, and loads `runtime/linux/php/php.ini`. It performs the same bootstrap,
-starts the managed API, keeps the independent Admin server in the foreground,
+starts the managed API and SQL Parser, keeps Admin server in the foreground,
 and attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
-
-### One-time Windows encryption setup
-
-To encrypt an existing plaintext database configuration, run:
-
-```bat
-setup-database-encryption.bat
-```
-
-The setup uses the bundled PHP and `php.ini`, checks OpenSSL, verifies that `database.json` is plaintext before generating a Base64-encoded 32-byte key, and persists the key as the Windows User environment variable `GENERIC_SQL_API_ENCRYPTION_KEY`. It then encrypts the complete configuration as one AES-256-GCM payload without retaining a plaintext backup and validates the connection through `scripts/check-database.php`.
-
-Open a new terminal—or restart IIS/FastCGI or the relevant service—after setup so the new process inherits the persisted variable. Run the setup only for a plaintext configuration; do not rerun it against an already encrypted envelope. A legacy password-only encrypted configuration remains readable at runtime but requires its existing key and a manual PHP migration.
-
-This manual utility remains available for production-style environment-key
-migration. Normal local launcher startup can prepare an ignored local key, while
-the Admin Console performs the actual encrypted configuration save.
 
 ## Required deployment configuration
 
@@ -90,8 +82,9 @@ Before production deployment, configure HTTPS at the web server or reverse proxy
 - `database.json not found`: start the local console and save settings on its Database page.
 - database encryption key errors: restore the matching local key/environment value; the launcher intentionally refuses to replace a missing key for an already-encrypted file.
 - database configuration decryption failure: verify that the encrypted configuration envelope and environment key are the matching pair and have not been altered.
-- encryption setup says the configuration is already encrypted: do not rerun it; restore the matching persisted key if it was replaced.
 - `No compatible SQL Server ODBC driver`: install a supported driver or configure the exact available driver and verify server/authentication settings.
 - no API port available: change the validated range in Configuration → Server, then start or restart the API.
+- no SQL Parser port available: change the parser range, then start or restart the parser.
 - configured Admin port occupied: stop the conflicting service or update the Admin port and relaunch.
-- query failures: inspect `logs/YYYY-MM-DD.log` by request ID and `queryPhase` to distinguish count, data, prepare, execute, and fetch time. Parameter values are intentionally omitted.
+- runtime configuration bootstrap failure: use the reported safe reason code. The launcher pins `GENERIC_RUNTIME_CONFIG_DIR` to its repository `config/` directory so stale inherited overrides cannot redirect startup.
+- query failures: inspect `logs/YYYY-MM-DD.log` by request ID, SQLSTATE, `errorCategory`, and `queryPhase`. Parameter values and credential material are intentionally omitted.

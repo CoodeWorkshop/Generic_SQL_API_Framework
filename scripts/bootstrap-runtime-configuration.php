@@ -10,6 +10,10 @@ try {
     }
     echo PHP_EOL;
 } catch (Throwable $exception) {
-    fwrite(STDERR, '[FAILED] Runtime configuration could not be initialized.' . PHP_EOL);
+    $message = $exception->getMessage();
+    $reason = str_contains($message, 'directory') ? 'CONFIG_DIRECTORY_UNAVAILABLE'
+        : (str_contains($message, 'lock') ? 'CONFIG_LOCK_UNAVAILABLE'
+        : (str_contains($message, 'JSON') ? 'CONFIG_JSON_INVALID' : 'CONFIG_WRITE_FAILED'));
+    fwrite(STDERR, '[FAILED] Runtime configuration could not be initialized. Reason: ' . $reason . PHP_EOL);
     exit(1);
 }

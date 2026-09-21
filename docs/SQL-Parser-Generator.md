@@ -6,8 +6,11 @@ SQL or opens a database connection.
 
 ## Run it
 
-From `sqlparser/`, run `start-windows.bat` or `./start-linux.sh`, then open
-`http://127.0.0.1:8005/`. It does not depend on Admin authentication,
+Start the backend with the repository launcher, sign in to Admin Console, and
+use System Health to start, stop, or restart SQL Parser. Its selected loopback
+port appears in System Health and System Info. Separate parser launch scripts
+are no longer part of the supported workflow. Process control does not create an
+application dependency: the parser does not use Admin authentication,
 configuration, sessions, API runtime, or database credentials. Requests are
 limited to 200,000 bytes, responses are not cached, pasted SQL is not logged,
 and the parser accepts no execution option.
@@ -203,7 +206,7 @@ Phase 4.
 
 ## Relationship to the API
 
-`AdminService::convertSql()` invokes the existing `SqlGenerator` directly.
-`api/index.php` routes the protected admin action, while normal query execution
-remains unchanged. The parser works without SQL Server, credentials, or
-`database/config/database.json`.
+SQL Parser has its own document root, router, request handler, and process. Admin
+Console controls only that process through fixed lifecycle operations. Neither
+Admin nor the normal API imports the parser generator, and the parser works
+without SQL Server, credentials, or `database/config/database.json`.

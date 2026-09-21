@@ -13,7 +13,7 @@ The runtime accepts either the historical plaintext JSON object or the recommend
 Leaving the password field blank while editing retains an existing password;
 passwords are never returned to the browser. Saving a new configuration requires
 a password for SQL authentication. Windows integrated authentication stores no
-required password.
+required password and is available only when the backend runs on Windows.
 
 ## Plaintext fields
 
@@ -26,7 +26,7 @@ The plaintext form is retained for backward compatibility and as the input to th
 | `server` | string | yes | Host, instance, or server address |
 | `port` | number/string | no | Appended as `server,port` when supplied |
 | `database` | string | yes | Database name |
-| `authentication` | string | no | `sql` (default) or `windows` |
+| `authentication` | string | no | `sql` (default); `windows` only on Windows |
 | `username` | string | SQL auth | Empty string if omitted |
 | `password` | string | SQL auth | Empty string if omitted |
 | `options.encrypt` | boolean-like | no | false (`Encrypt=no`) |
@@ -66,61 +66,39 @@ database.json
 
 Authentication, malformed-payload, wrong-key, version, and algorithm failures stop before a connection is attempted. Fixed error messages omit decrypted configuration, connection strings, encrypted internals, and key material.
 
-## One-time migration
+## Admin-managed encryption and migration
 
 For local development, run `start-windows.bat` or `./start-linux.sh`, open the
 Database page, optionally test the plaintext settings, and save. This safely
 migrates the current values through the same resolver and encryption component.
-No `database.json.backup` is created.
-
-Before migration, configure the plaintext `database.json` and verify its values. Then generate and install the external key for the same account that runs PHP.
-
-On Windows, run from the backend root:
-
-```bat
-setup-database-encryption.bat
-```
-
-The launcher verifies the configuration is still plaintext before generating a key, checks the bundled PHP/OpenSSL runtime, persists the key as a Windows User environment variable, runs the PHP migration, and checks the database connection. Open a new terminal or restart the hosting process afterward so it receives the persisted variable.
-
-On Linux, macOS, or for manual Windows setup:
-
-```bash
-php scripts/generate-encryption-key.php
-export GENERIC_SQL_API_ENCRYPTION_KEY='<generated Base64 key>'
-php scripts/setup-database-encryption.php
-php scripts/check-database.php
-```
-
-Use the platform/service secret mechanism rather than a shell export for production workers. `scripts/setup-database-encryption.php` is the single migration utility. It:
-
-1. Reads and validates the existing plaintext JSON object.
-2. Encrypts the complete object as one AES-256-GCM payload.
-3. Writes and decrypts a temporary encrypted file to verify it.
-4. Replaces `database.json` and verifies it again.
-5. Refuses an already fully encrypted configuration.
-
-The utility does not create or retain a plaintext backup and never prints
-configuration values, ciphertext, or the key. Create any operational backup
-explicitly in protected storage before migration if deployment policy requires it.
-
-Do not rerun setup against an encrypted file. For key rotation, decrypt with the existing key in a controlled environment, create a plaintext migration input, install a new key, rerun the migration, validate the connection, and then retire the old key/configuration pair according to deployment policy.
+No `database.json.backup` is created. The launcher prepares an ignored local key
+when necessary; Admin Console validates the submitted values, encrypts the whole
+configuration, verifies the encrypted round trip, and atomically saves it. The
+removed manual key-generation and migration launchers are not part of normal
+setup. Production hosts may provide `GENERIC_SQL_API_ENCRYPTION_KEY` from their
+secret manager before starting the application.
 
 ## Windows authentication
 
-The decrypted configuration may use `authentication: "windows"`. In that mode the driver adds `Trusted_Connection=yes` and supplies empty ODBC credentials; the PHP process account must have SQL Server access.
+The decrypted configuration may use `authentication: "windows"` only on
+Windows. In that mode the driver adds `Trusted_Connection=yes` and supplies empty
+ODBC credentials; the PHP process account must have SQL Server access. Linux
+Admin responses expose only SQL authentication, crafted Admin requests selecting
+Windows authentication are rejected, and the driver enforces the same boundary.
 
 ## ODBC and validation
 
-The host needs PHP's `odbc` extension and a compatible SQL Server ODBC driver. With `driver: "auto"`, the framework tests its supported driver list newest-first and keeps the first successful connection. With an explicit driver, only that driver is attempted.
+The host needs PHP's `odbc` extension and a compatible SQL Server ODBC driver.
+With `driver: "auto"`, the framework tests its supported driver list newest-first
+and keeps the first successful connection. With an explicit driver, only that
+driver is attempted. Windows retains the ODBC cursor library used by the bundled
+runtime; unixODBC platforms use the SQL Server driver's cursor implementation so
+statement execution is not rejected with capability error `IM001`.
 
-Validate a deployment with:
-
-```bash
-php scripts/check-database.php
-```
-
-It prints `CONNECTED` on success or a sanitized failure on error. Database-independent tests neither connect nor require the local configuration file.
+Use **Test Connection** in Admin Console for the supported workflow. It loads the
+current encrypted configuration, validates platform compatibility, opens one
+temporary connection, and closes it in `finally`. `scripts/check-database.php`
+remains a developer/deployment diagnostic, not a setup requirement.
 
 ## Security and troubleshooting
 
@@ -134,4 +112,7 @@ It prints `CONNECTED` on success or a sanitized failure on error. Database-indep
 
 Encryption protects all stored connection settings when the configuration file alone is disclosed. A process or operator able to read both the key and ciphertext can decrypt it, because the application must recover the configuration in memory to connect.
 
-The query timeout is separate application configuration. `DB_QUERY_TIMEOUT_SECONDS` defaults to 45 seconds and applies to ODBC statements, not login, HTTP proxy, or browser timeouts.
+The query timeout is separate application configuration.
+`DB_QUERY_TIMEOUT_SECONDS` defaults to 45 seconds and is requested when the ODBC
+driver supports `SQL_QUERY_TIMEOUT`; unsupported drivers fall back to the PHP
+execution limit. Neither timeout controls login, HTTP proxy, or browser timeouts.

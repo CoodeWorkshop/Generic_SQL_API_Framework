@@ -73,10 +73,12 @@ final class RuntimeConfiguration
     public static function adminDefaults(): array
     {
         return [
-            'version' => 2,
+            'version' => 3,
             'server' => [
                 'apiPortMinimum' => 8000,
                 'apiPortMaximum' => 8100,
+                'parserPortMinimum' => 8101,
+                'parserPortMaximum' => 8199,
                 'adminPort' => 8090,
                 'bindAddress' => '127.0.0.1',
             ],

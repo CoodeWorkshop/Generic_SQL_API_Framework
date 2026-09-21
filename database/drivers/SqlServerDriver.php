@@ -3,6 +3,7 @@
 require_once __DIR__ . "/DatabaseDriverInterface.php";
 require_once __DIR__ . "/../../app/Security/DatabaseCredentialResolver.php";
 require_once __DIR__ . "/../../app/Security/DatabaseConfigurationResolver.php";
+require_once __DIR__ . "/../../app/Runtime/DatabaseAuthenticationSupport.php";
 
 class SqlServerDriver implements DatabaseDriverInterface
 {
@@ -42,6 +43,15 @@ class SqlServerDriver implements DatabaseDriverInterface
             // Legacy SQL Server ODBC driver
             "SQL Server"
         ];
+    }
+
+    public static function cursorMode(?string $operatingSystem = null): int
+    {
+        $operatingSystem ??= PHP_OS_FAMILY;
+        if ($operatingSystem === 'Windows') {
+            return defined('SQL_CUR_USE_ODBC') ? constant('SQL_CUR_USE_ODBC') : 1;
+        }
+        return defined('SQL_CUR_USE_DRIVER') ? constant('SQL_CUR_USE_DRIVER') : 2;
     }
 
     /**
@@ -114,7 +124,7 @@ class SqlServerDriver implements DatabaseDriverInterface
                 $dsn,
                 "",
                 "",
-                SQL_CUR_USE_ODBC
+                self::cursorMode()
             );
         }
 
@@ -125,7 +135,7 @@ class SqlServerDriver implements DatabaseDriverInterface
             $dsn,
             $username,
             $password,
-            SQL_CUR_USE_ODBC
+            self::cursorMode()
         );
     }
 
@@ -228,21 +238,7 @@ class SqlServerDriver implements DatabaseDriverInterface
         /*
          * Validate authentication mode.
          */
-        $allowedAuthenticationModes = [
-            "sql",
-            "windows"
-        ];
-
-        if (
-            !in_array(
-                $authentication,
-                $allowedAuthenticationModes,
-                true
-            )
-        ) {
-
-            throw new Exception('Unsupported database authentication type.');
-        }
+        (new DatabaseAuthenticationSupport())->validate($authentication);
 
         if (empty($server)) {
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Phase 2.2 — Runtime integration and cross-platform stabilization
+
+- Added independent SQL Parser start/stop/restart/status controls to Admin,
+  including validated ports, process identity, health, and crash/stale recovery.
+- Made both launchers start API and SQL Parser while Admin remains independent;
+  extension checks now use `extension_loaded()` with the selected runtime.
+- Removed obsolete manual encryption and parser startup scripts. Admin Console is
+  the normal encrypted database configuration workflow.
+- Limited Windows integrated database authentication to Windows in the UI,
+  backend validator, and driver; SQL authentication remains cross-platform.
+- Added safe SQLSTATE/category/phase diagnostics without parameter or credential
+  values and confirmed authentication mode `none` reaches normal query execution.
+- Pinned launcher bootstrap to the repository config directory and added safe
+  reason codes for configuration initialization failures.
+
 ## Phase 2.1 — Admin runtime and configuration UX
 
 - Split the loopback Admin Console and API into independently managed processes.

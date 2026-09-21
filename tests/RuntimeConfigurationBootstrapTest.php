@@ -45,9 +45,11 @@ try {
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
     bootstrapAssert(
-        $admin['version'] === 2
+        $admin['version'] === 3
             && $admin['server']['apiPortMinimum'] === 8000
             && $admin['server']['apiPortMaximum'] === 8100
+            && $admin['server']['parserPortMinimum'] === 8101
+            && $admin['server']['parserPortMaximum'] === 8199
             && $admin['server']['adminPort'] === 8090
             && $admin['server']['bindAddress'] === '127.0.0.1'
             && !in_array(false, $admin['features'], true),
@@ -92,11 +94,26 @@ try {
         bootstrapAssert(!str_contains($example, 'passwordHash'), "{$name} example contains credential material.");
     }
     foreach (['start-windows.bat', 'start-linux.sh'] as $launcher) {
+        $launcherSource = (string)file_get_contents(__DIR__ . '/../' . $launcher);
         bootstrapAssert(
-            str_contains((string)file_get_contents(__DIR__ . '/../' . $launcher), 'bootstrap-runtime-configuration.php'),
+            str_contains($launcherSource, 'bootstrap-runtime-configuration.php'),
             "{$launcher} does not initialize runtime configuration."
         );
+        bootstrapAssert(
+            str_contains($launcherSource, 'GENERIC_RUNTIME_CONFIG_DIR'),
+            "{$launcher} allows an inherited config-directory override to redirect startup."
+        );
+        bootstrapAssert(
+            str_contains($launcherSource, 'extension_loaded('),
+            "{$launcher} does not use runtime-native extension checks."
+        );
     }
+    $bootstrapScript = (string)file_get_contents(__DIR__ . '/../scripts/bootstrap-runtime-configuration.php');
+    bootstrapAssert(
+        str_contains($bootstrapScript, 'CONFIG_DIRECTORY_UNAVAILABLE')
+            && str_contains($bootstrapScript, 'CONFIG_LOCK_UNAVAILABLE'),
+        'Bootstrap failures do not provide safe diagnostic reason codes.'
+    );
 
     echo "Runtime configuration bootstrap tests passed.\n";
 } finally {

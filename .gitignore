@@ -19,6 +19,7 @@ runtime/windows/php/opcache/
 runtime/linux/php/opcache
 runtime/secrets/
 runtime/api/
+runtime/sqlparser/
 
 # Environment
 .env

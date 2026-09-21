@@ -37,7 +37,13 @@ The request crosses a strict boundary: public JSON uses `source`, `fields`, and 
 
 ## Runtime and testing
 
-`start-windows.bat` uses the bundled `runtime/windows/php/`, checks ODBC, OpenSSL, any required encrypted-configuration key, and the database, selects a port, and starts the API. The separate `setup-database-encryption.bat` performs the optional one-time complete-configuration migration. Normal tests are different: `php tests/run.php` uses fakes and needs neither ODBC nor a database configuration file.
+`start-windows.bat` uses the bundled `runtime/windows/php/`, verifies required
+extensions with `extension_loaded()`, initializes configuration, prepares the
+local encryption key, and starts the independently managed API and SQL Parser
+before serving Admin Console. `start-linux.sh` provides the same lifecycle with
+the documented system-PHP fallback. Database configuration and encrypted saving
+are performed through Admin Console. Normal tests use fakes and need neither
+ODBC nor a database configuration file.
 
 Continue with the [documentation map](README.md), [HTTP API](API.md),
 [frontend integration](Frontend-Integration.md), or [capability matrix](Capability-Matrix.md).

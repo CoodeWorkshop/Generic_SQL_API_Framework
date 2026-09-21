@@ -11,6 +11,7 @@ PHP_INI_PATH="$BACKEND_ROOT/runtime/linux/php/php.ini"
 OPCACHE_PATH="$BACKEND_ROOT/runtime/linux/php/opcache"
 LOG_PATH="$BACKEND_ROOT/logs"
 ADMIN_PATH="$BACKEND_ROOT/admin"
+export GENERIC_RUNTIME_CONFIG_DIR="$BACKEND_ROOT/config"
 
 echo "========================================"
 echo "       Generic SQL API Framework"
@@ -33,7 +34,7 @@ fi
 mkdir -p "$OPCACHE_PATH" "$LOG_PATH"
 
 for extension in odbc openssl json session; do
-    if ! "$PHP_BIN" -c "$PHP_INI_PATH" -m | grep -i "^${extension}$" >/dev/null; then
+    if ! "$PHP_BIN" -c "$PHP_INI_PATH" -r "exit(extension_loaded('$extension') ? 0 : 1);"; then
         echo "[FAILED] Required PHP extension is unavailable: $extension"
         exit 1
     fi
@@ -56,6 +57,9 @@ ADMIN_URL="http://127.0.0.1:$ADMIN_PORT/admin"
 if ! "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/api-runtime-control.php" start >/dev/null; then
     echo "[WARNING] API did not start. Use System Health after reviewing the configured port range."
 fi
+if ! "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/sqlparser-runtime-control.php" start >/dev/null; then
+    echo "[WARNING] SQL Parser did not start. Use System Health after reviewing the configured port range."
+fi
 
 echo "[OK] PHP runtime and required extensions"
 echo "[OK] Runtime configuration"
@@ -63,6 +67,7 @@ echo "[OK] Local database encryption key"
 echo "[OK] Admin Console port $ADMIN_PORT"
 echo
 echo "API:   managed from System Health"
+echo "Parser: managed from System Health"
 echo "Admin: $ADMIN_URL"
 echo
 echo "The Admin Console is bound to this computer only. Press Ctrl+C to stop it."

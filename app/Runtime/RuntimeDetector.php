@@ -10,7 +10,6 @@ final class RuntimeDetector
         $family = PHP_OS_FAMILY;
         $binary = $this->runtimeBinary($family);
         $application = require ROOT_PATH . '/config/app.php';
-        $performance = require ROOT_PATH . '/config/performance.php';
         return [
             'operatingSystem' => $family,
             'architecture' => php_uname('m'),
@@ -23,7 +22,6 @@ final class RuntimeDetector
             'odbcAvailable' => extension_loaded('odbc'),
             'pdoOdbcAvailable' => extension_loaded('pdo_odbc'),
             'supportedSqlServerDrivers' => SqlServerDriver::supportedDrivers(),
-            'queryTimeoutSeconds' => (int)$performance['database_query_timeout_seconds'],
             'debugMode' => ($application['debug'] ?? false) === true,
         ];
     }

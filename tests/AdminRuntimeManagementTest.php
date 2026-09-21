@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../app/Requests/AdminRequestValidator.php';
 require_once __DIR__ . '/../app/Runtime/PortSelector.php';
 require_once __DIR__ . '/../app/Runtime/ApiProcessManager.php';
+require_once __DIR__ . '/../app/Runtime/SqlParserProcessManager.php';
 require_once __DIR__ . '/../app/Runtime/RuntimeDetector.php';
 require_once __DIR__ . '/../app/Middleware/FeatureAccessMiddleware.php';
 require_once __DIR__ . '/../app/Services/AdminService.php';
@@ -26,8 +27,10 @@ function runtimeFailure(callable $operation, string $message, ?string $code = nu
 $directory = sys_get_temp_dir() . '/generic-api-runtime-' . bin2hex(random_bytes(6));
 $configurationPath = $directory . '/admin.json';
 $statePath = $directory . '/api-process.json';
+$parserStatePath = $directory . '/sqlparser-process.json';
 $oldConfigurationPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
 $manager = null;
+$parserManager = null;
 
 try {
     mkdir($directory, 0700, true);
@@ -37,6 +40,8 @@ try {
         'server' => [
             'apiPortMinimum' => 18120,
             'apiPortMaximum' => 18125,
+            'parserPortMinimum' => 18126,
+            'parserPortMaximum' => 18130,
             'adminPort' => 18123,
             'bindAddress' => '127.0.0.1',
         ],
@@ -71,10 +76,21 @@ try {
     ]);
     $migrated = $repository->load();
     runtimeAssert(
-        $migrated['version'] === 2
+        $migrated['version'] === 3
             && $migrated['authentication']['mode'] === 'none'
             && isset($migrated['server'], $migrated['features']),
         'Version-1 Admin configuration was not safely migrated.'
+    );
+    $versionTwo = AdminConfigurationRepository::defaults();
+    $versionTwo['version'] = 2;
+    unset($versionTwo['server']['parserPortMinimum'], $versionTwo['server']['parserPortMaximum']);
+    JsonFileStore::save($configurationPath, $versionTwo);
+    $migratedVersionTwo = $repository->load();
+    runtimeAssert(
+        $migratedVersionTwo['version'] === 3
+            && $migratedVersionTwo['server']['parserPortMinimum'] === 8101
+            && $migratedVersionTwo['features'] === $versionTwo['features'],
+        'Version-2 Admin configuration was not safely migrated.'
     );
     $configuration = AdminConfigurationRepository::defaults();
     $configuration['server'] = $validServer;
@@ -118,20 +134,46 @@ try {
     $configuration['server'] = [
         'apiPortMinimum' => $first,
         'apiPortMaximum' => min(65535, $first + 2),
+        'parserPortMinimum' => $first,
+        'parserPortMaximum' => min(65535, $first + 2),
         'adminPort' => $first + 1,
         'bindAddress' => '127.0.0.1',
     ];
     $repository->save($configuration);
     $manager = new ApiProcessManager($repository, null, null, $statePath, dirname(__DIR__));
+    $parserManager = new SqlParserProcessManager($repository, null, null, $parserStatePath, dirname(__DIR__));
     runtimeAssert($manager->status()['running'] === false, 'Missing PID state was not stopped.');
     $started = $manager->start();
     runtimeAssert($started['running'] && $started['healthy'] && $started['port'] !== $configuration['server']['adminPort'], 'API did not start on a healthy non-admin port.');
-    $adminService = new AdminService($repository, $directory . '/database.json', static function (): void {}, $manager);
+    runtimeAssert($parserManager->status()['running'] === false, 'Missing SQL Parser PID state was not stopped.');
+    $parserStarted = $parserManager->start();
+    runtimeAssert($parserStarted['running'] && $parserStarted['healthy'] && $parserStarted['service'] === 'sqlparser', 'SQL Parser did not start healthy.');
+    runtimeAssert($parserStarted['port'] !== $started['port'] && $parserStarted['port'] !== $configuration['server']['adminPort'], 'SQL Parser selected a conflicting port.');
+    $adminService = new AdminService($repository, $directory . '/database.json', static function (): void {}, $manager, null, $parserManager);
+    $unchangedServer = $adminService->saveServer($configuration['server']);
+    runtimeAssert(
+        !$unchangedServer['apiRestartRequired']
+            && !$unchangedServer['parserRestartRequired']
+            && !$unchangedServer['adminRestartRequired'],
+        'Unchanged server configuration requested unnecessary restarts.'
+    );
     runtimeFailure(
         fn () => $adminService->saveServer([...$configuration['server'], 'adminPort' => $started['port']]),
         'Running API/Admin port conflict was accepted.',
         'INVALID_ADMIN_REQUEST'
     );
+    if (PHP_OS_FAMILY === 'Linux' && function_exists('posix_kill')) {
+        @posix_kill($started['pid'], defined('SIGSTOP') ? SIGSTOP : 19);
+        usleep(100000);
+        $busy = $manager->status();
+        runtimeAssert(
+            $busy['running'] === true && $busy['healthy'] === false && $busy['status'] === 'unresponsive'
+                && $busy['pid'] === $started['pid'],
+            'A temporarily unresponsive API process was terminated or treated as crashed.'
+        );
+        @posix_kill($started['pid'], defined('SIGCONT') ? SIGCONT : 18);
+        usleep(200000);
+    }
     $again = $manager->start();
     runtimeAssert(($again['alreadyRunning'] ?? false) === true && $again['pid'] === $started['pid'], 'Duplicate API process was started.');
     $restarted = $manager->restart();
@@ -144,10 +186,23 @@ try {
         runtimeAssert($manager->start()['healthy'] === true, 'API could not start after crash recovery.');
     }
     runtimeAssert($manager->stop()['running'] === false, 'API stop failed.');
+    runtimeAssert($parserManager->status()['running'] === true, 'API stop terminated the SQL Parser.');
     runtimeAssert(($manager->stop()['alreadyStopped'] ?? false) === true, 'Already-stopped API was not idempotent.');
-    JsonFileStore::save($statePath, ['version' => 1, 'pid' => getmypid(), 'port' => $first, 'startedAt' => gmdate(DATE_ATOM)]);
+    JsonFileStore::save($statePath, ['version' => 2, 'service' => 'api', 'pid' => getmypid(), 'port' => $first, 'startedAt' => gmdate(DATE_ATOM)]);
     $stale = $manager->status();
     runtimeAssert(!$stale['running'] && ($stale['staleStateRecovered'] ?? false), 'Stale or foreign PID was not recovered.');
+    $parserRestarted = $parserManager->restart();
+    runtimeAssert($parserRestarted['running'] && $parserRestarted['healthy'], 'SQL Parser restart failed.');
+    if (PHP_OS_FAMILY === 'Linux' && function_exists('posix_kill')) {
+        @posix_kill($parserRestarted['pid'], defined('SIGKILL') ? SIGKILL : 9);
+        usleep(200000);
+        runtimeAssert($parserManager->status()['running'] === false, 'Crashed SQL Parser process was not recovered.');
+        runtimeAssert($parserManager->start()['healthy'] === true, 'SQL Parser could not start after crash recovery.');
+    }
+    runtimeAssert($parserManager->stop()['running'] === false, 'SQL Parser stop failed.');
+    JsonFileStore::save($parserStatePath, ['version' => 2, 'service' => 'sqlparser', 'pid' => getmypid(), 'port' => $first + 2, 'startedAt' => gmdate(DATE_ATOM)]);
+    $parserStale = $parserManager->status();
+    runtimeAssert(!$parserStale['running'] && ($parserStale['staleStateRecovered'] ?? false), 'SQL Parser stale or foreign PID was not recovered.');
 
     $adminHtml = (string)file_get_contents(__DIR__ . '/../admin/index.php');
     runtimeAssert(str_contains($adminHtml, 'id="navigation" hidden'), 'Unauthenticated navigation is not hidden.');
@@ -165,6 +220,7 @@ try {
     runtimeAssert(str_contains($linuxLauncher, 'runtime/linux/php/php'), 'Linux bundled runtime is not preferred.');
     foreach ([$windowsLauncher, $linuxLauncher] as $launcher) {
         runtimeAssert(str_contains($launcher, 'api-runtime-control.php'), 'Launcher does not start the managed API lifecycle.');
+        runtimeAssert(str_contains($launcher, 'sqlparser-runtime-control.php'), 'Launcher does not start the managed SQL Parser lifecycle.');
         runtimeAssert(str_contains($launcher, '-t') && str_contains($launcher, 'router.php'), 'Launcher does not start the independent Admin app.');
     }
 
@@ -172,6 +228,9 @@ try {
 } finally {
     if ($manager instanceof ApiProcessManager) {
         try { $manager->stop(); } catch (Throwable $exception) {}
+    }
+    if ($parserManager instanceof SqlParserProcessManager) {
+        try { $parserManager->stop(); } catch (Throwable $exception) {}
     }
     foreach (glob($directory . '/*') ?: [] as $file) @unlink($file);
     @rmdir($directory);

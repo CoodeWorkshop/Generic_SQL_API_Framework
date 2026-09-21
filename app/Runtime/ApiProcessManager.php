@@ -5,26 +5,33 @@ require_once __DIR__ . '/PortSelector.php';
 require_once __DIR__ . '/RuntimeDetector.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 
-final class ApiProcessManager
+class ApiProcessManager
 {
     private AdminConfigurationRepository $configuration;
     private PortSelector $ports;
     private RuntimeDetector $runtime;
     private string $statePath;
     private string $root;
+    private string $service;
 
     public function __construct(
         ?AdminConfigurationRepository $configuration = null,
         ?PortSelector $ports = null,
         ?RuntimeDetector $runtime = null,
         ?string $statePath = null,
-        ?string $root = null
+        ?string $root = null,
+        string $service = 'api'
     ) {
+        if (!in_array($service, ['api', 'sqlparser'], true)) {
+            throw new InvalidArgumentException('Unsupported managed service.');
+        }
+        $this->service = $service;
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->ports = $ports ?? new PortSelector();
         $this->runtime = $runtime ?? new RuntimeDetector();
         $this->root = $root ?? dirname(__DIR__, 2);
-        $this->statePath = $statePath ?? $this->root . '/runtime/api/api-process.json';
+        $this->statePath = $statePath
+            ?? $this->root . '/runtime/' . $service . '/' . $service . '-process.json';
     }
 
     public function status(): array
@@ -32,18 +39,27 @@ final class ApiProcessManager
         return $this->withLock(function (): array {
             $state = $this->readState();
             if ($state === null) return $this->stopped();
-            if (!$this->processExists($state['pid']) || !$this->belongsToApi($state)) {
+            if (!$this->processExists($state['pid']) || !$this->belongsToService($state)) {
                 $this->clearState();
                 return [...$this->stopped(), 'staleStateRecovered' => true];
             }
             $health = $this->health($state['port']);
             if ($health === null) {
-                $this->terminate($state['pid']);
-                $this->clearState();
-                return [...$this->stopped(), 'crashRecovered' => true];
+                return [
+                    'running' => true,
+                    'service' => $this->service,
+                    'healthy' => false,
+                    'status' => 'unresponsive',
+                    'port' => $state['port'],
+                    'pid' => $state['pid'],
+                    'startedAt' => $state['startedAt'],
+                    'uptimeSeconds' => max(0, time() - strtotime($state['startedAt'])),
+                    'version' => null,
+                ];
             }
             return [
                 'running' => true,
+                'service' => $this->service,
                 'healthy' => true,
                 'status' => 'running',
                 'port' => $state['port'],
@@ -59,11 +75,12 @@ final class ApiProcessManager
     {
         return $this->withLock(function (): array {
             $existing = $this->readState();
-            if ($existing !== null && $this->processExists($existing['pid']) && $this->belongsToApi($existing)) {
+            if ($existing !== null && $this->processExists($existing['pid']) && $this->belongsToService($existing)) {
                 $health = $this->health($existing['port']);
                 if ($health !== null) {
                     return [
                         'running' => true,
+                        'service' => $this->service,
                         'healthy' => true,
                         'status' => 'running',
                         'port' => $existing['port'],
@@ -74,27 +91,41 @@ final class ApiProcessManager
                         'version' => $health['version'] ?? null,
                     ];
                 }
-                $this->terminate($existing['pid']);
+                return [
+                    'running' => true,
+                    'service' => $this->service,
+                    'healthy' => false,
+                    'status' => 'unresponsive',
+                    'port' => $existing['port'],
+                    'pid' => $existing['pid'],
+                    'startedAt' => $existing['startedAt'],
+                    'uptimeSeconds' => max(0, time() - strtotime($existing['startedAt'])),
+                    'alreadyRunning' => true,
+                    'version' => null,
+                ];
             }
             if ($existing !== null) $this->clearState();
 
             $server = $this->configuration->load()['server'];
+            $minimumKey = $this->service === 'api' ? 'apiPortMinimum' : 'parserPortMinimum';
+            $maximumKey = $this->service === 'api' ? 'apiPortMaximum' : 'parserPortMaximum';
             $port = $this->ports->firstAvailable(
                 $server['bindAddress'],
-                $server['apiPortMinimum'],
-                $server['apiPortMaximum'],
+                $server[$minimumKey],
+                $server[$maximumKey],
                 [$server['adminPort']]
             );
             $startedAt = gmdate(DATE_ATOM);
             $command = $this->command($server['bindAddress'], $port);
             $directory = dirname($this->statePath);
             if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
-                throw new RuntimeException('API runtime directory is unavailable.');
+                throw new RuntimeException($this->label() . ' runtime directory is unavailable.');
             }
-            $log = $directory . '/api-server.log';
+            $log = $directory . '/' . $this->service . '-server.log';
+            $environmentPrefix = $this->service === 'api' ? 'GENERIC_API' : 'GENERIC_SQLPARSER';
             $environment = array_merge(is_array(getenv()) ? getenv() : [], [
-                'GENERIC_API_PORT' => (string)$port,
-                'GENERIC_API_STARTED_AT' => $startedAt,
+                $environmentPrefix . '_PORT' => (string)$port,
+                $environmentPrefix . '_STARTED_AT' => $startedAt,
                 'GENERIC_ADMIN_ENABLED' => '0',
             ]);
             $process = @proc_open($command, [
@@ -102,11 +133,11 @@ final class ApiProcessManager
                 1 => ['file', $log, 'a'],
                 2 => ['file', $log, 'a'],
             ], $pipes, $this->root, $environment, ['bypass_shell' => true]);
-            if (!is_resource($process)) throw new RuntimeException('API process could not be started.');
+            if (!is_resource($process)) throw new RuntimeException($this->label() . ' process could not be started.');
             $processStatus = proc_get_status($process);
             $pid = (int)($processStatus['pid'] ?? 0);
-            if ($pid < 1) throw new RuntimeException('API process identifier is unavailable.');
-            $state = ['version' => 1, 'pid' => $pid, 'port' => $port, 'startedAt' => $startedAt];
+            if ($pid < 1) throw new RuntimeException($this->label() . ' process identifier is unavailable.');
+            $state = ['version' => 2, 'service' => $this->service, 'pid' => $pid, 'port' => $port, 'startedAt' => $startedAt];
             JsonFileStore::save($this->statePath, $state);
             unset($process);
 
@@ -120,10 +151,11 @@ final class ApiProcessManager
             if ($health === null) {
                 $this->terminate($pid);
                 $this->clearState();
-                throw new RuntimeException('API process failed to become healthy.');
+                throw new RuntimeException($this->label() . ' process failed to become healthy.');
             }
             return [
                 'running' => true,
+                'service' => $this->service,
                 'healthy' => true,
                 'status' => 'running',
                 'port' => $port,
@@ -140,7 +172,7 @@ final class ApiProcessManager
         return $this->withLock(function (): array {
             $state = $this->readState();
             if ($state === null) return [...$this->stopped(), 'alreadyStopped' => true];
-            if ($this->processExists($state['pid']) && $this->belongsToApi($state)) {
+            if ($this->processExists($state['pid']) && $this->belongsToService($state)) {
                 $this->terminate($state['pid']);
                 for ($attempt = 0; $attempt < 30 && $this->processExists($state['pid']); $attempt++) {
                     usleep(100000);
@@ -162,15 +194,20 @@ final class ApiProcessManager
 
     private function command(string $address, int $port): array
     {
-        $command = [$this->runtime->runtimeBinary()];
+        $command = [];
+        if (PHP_OS_FAMILY !== 'Windows' && is_executable('/usr/bin/setsid')) {
+            $command[] = '/usr/bin/setsid';
+        }
+        $command[] = $this->runtime->runtimeBinary();
         $ini = php_ini_loaded_file();
         if (is_string($ini) && $ini !== '') array_push($command, '-c', $ini);
+        $documentRoot = $this->service === 'api' ? '/api' : '/sqlparser';
         array_push(
             $command,
             '-d', 'error_log=' . $this->root . '/logs/php_errors.log',
             '-S', $address . ':' . $port,
-            '-t', $this->root . '/api',
-            $this->root . '/api/router.php'
+            '-t', $this->root . $documentRoot,
+            $this->root . $documentRoot . '/router.php'
         );
         return $command;
     }
@@ -198,8 +235,9 @@ final class ApiProcessManager
             $this->clearState();
             return null;
         }
-        if (array_keys($state) !== ['version', 'pid', 'port', 'startedAt']
-            || ($state['version'] ?? null) !== 1
+        if (array_keys($state) !== ['version', 'service', 'pid', 'port', 'startedAt']
+            || ($state['version'] ?? null) !== 2
+            || ($state['service'] ?? null) !== $this->service
             || !is_int($state['pid'] ?? null) || $state['pid'] < 1
             || !is_int($state['port'] ?? null) || $state['port'] < 1 || $state['port'] > 65535
             || !is_string($state['startedAt'] ?? null) || strtotime($state['startedAt']) === false) {
@@ -209,7 +247,7 @@ final class ApiProcessManager
         return $state;
     }
 
-    private function belongsToApi(array $state): bool
+    private function belongsToService(array $state): bool
     {
         if (PHP_OS_FAMILY === 'Windows') {
             $output = [];
@@ -221,7 +259,8 @@ final class ApiProcessManager
         } else {
             $commandLine = @file_get_contents('/proc/' . $state['pid'] . '/cmdline');
         }
-        $router = str_replace('\\', '/', $this->root . '/api/router.php');
+        $directory = $this->service === 'api' ? 'api' : 'sqlparser';
+        $router = str_replace('\\', '/', $this->root . '/' . $directory . '/router.php');
         return is_string($commandLine)
             && str_contains(str_replace('\\', '/', $commandLine), $router)
             && str_contains($commandLine, '127.0.0.1:' . $state['port']);
@@ -259,12 +298,12 @@ final class ApiProcessManager
     {
         $directory = dirname($this->statePath);
         if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
-            throw new RuntimeException('API runtime directory is unavailable.');
+            throw new RuntimeException($this->label() . ' runtime directory is unavailable.');
         }
         $lock = @fopen($this->statePath . '.lock', 'c');
-        if ($lock === false) throw new RuntimeException('API process lock is unavailable.');
+        if ($lock === false) throw new RuntimeException($this->label() . ' process lock is unavailable.');
         try {
-            if (!flock($lock, LOCK_EX)) throw new RuntimeException('API process lock could not be acquired.');
+            if (!flock($lock, LOCK_EX)) throw new RuntimeException($this->label() . ' process lock could not be acquired.');
             return $operation();
         } finally {
             @flock($lock, LOCK_UN);
@@ -281,6 +320,7 @@ final class ApiProcessManager
     {
         return [
             'running' => false,
+            'service' => $this->service,
             'healthy' => false,
             'status' => 'stopped',
             'port' => null,
@@ -294,5 +334,10 @@ final class ApiProcessManager
     private function nullDevice(): string
     {
         return PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
+    }
+
+    private function label(): string
+    {
+        return $this->service === 'api' ? 'API' : 'SQL Parser';
     }
 }

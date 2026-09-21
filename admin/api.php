@@ -52,7 +52,8 @@ $userActions = [
 $adminActions = [
     'admin.status', 'admin.health', 'admin.system.info',
     'admin.api.start', 'admin.api.stop', 'admin.api.restart',
-    'admin.database.get', 'admin.database.test', 'admin.database.save',
+    'admin.sqlParser.start', 'admin.sqlParser.stop', 'admin.sqlParser.restart',
+    'admin.database.get', 'admin.database.testCurrent', 'admin.database.test', 'admin.database.save',
     'admin.settings.get', 'admin.server.save', 'admin.features.save',
     'admin.cors.save', 'admin.authentication.save',
 ];
