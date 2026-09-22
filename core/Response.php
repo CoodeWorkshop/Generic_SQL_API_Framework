@@ -16,7 +16,11 @@ class Response
         $rows = is_array($data) && isset($data['data']) && is_array($data['data'])
             ? $data['data']
             : (is_array($data) ? $data : []);
-        $pagination = self::$requestContext['pagination'] ?? [];
+        $pagination = self::$requestContext['pagination'] ?? (
+            isset(self::$requestContext['page'], self::$requestContext['pageSize'])
+                ? ['page' => self::$requestContext['page'], 'pageSize' => self::$requestContext['pageSize']]
+                : []
+        );
         $rowsReturned = is_array($data) && isset($data['rowsReturned'])
             ? (int)$data['rowsReturned']
             : count($rows);

@@ -34,6 +34,7 @@ final class AdminController extends BaseController
         elseif ($action === 'admin.server.save') $result = $this->service->saveServer($request['server']);
         elseif ($action === 'admin.cors.save') $result = $this->service->saveCors($request['cors']);
         elseif ($action === 'admin.authentication.save') $result = $this->service->saveAuthentication($request['mode']);
+        elseif ($action === 'admin.runtime.save') $result = $this->service->saveRuntime($request['runtime']);
         else $result = $this->service->saveAuthentication($request['mode']);
 
         $this->success([$result], 'Admin operation completed.');

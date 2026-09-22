@@ -77,12 +77,26 @@ The five basic metadata actions already exist. This version is for capabilities 
 - one-time-reveal hash-only managed keys with lifecycle controls
 - responsive service controls and truthful request-scoped database availability
 
+## New Phase 3.1 — User/auth architecture and role simplification — Implemented
+
+- fixed four-role model with separated backend and frontend access
+- System Administrator-only backend configuration and runtime controls
+- Application Administrator frontend-user management without backend authority
+- removed global feature toggles in favor of authorization
+
+## New Phase 3.2 — Runtime and performance controls — Implemented
+
+- validated `admin.json` runtime settings with atomic immediate reload
+- configurable ODBC query timeout, API/login rate limits, and session expiration
+- configurable API/Admin JSON body limit and pagination default/maximum
+- System Administrator Admin Console controls and database-independent coverage
+
 ## v1.5.0 — Advanced API Security — Planned
 
-- editable/custom role administration, advanced audit policy, and general rate limiting
+- editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure
 
 Session and managed-key authentication, base roles and resource scopes,
-administrator user management, CSRF, and login throttling are implemented. The
+administrator user management, CSRF, login throttling, and local API rate limiting are implemented. The
 planned work extends that foundation rather than replacing it.
 
 ## v1.6.0 — API Improvements — Planned

@@ -8,7 +8,7 @@ The three request flows implemented today are:
 
 ```text
 Client
-  -> api/index.php (CORS, JSON decode, middleware)
+  -> api/index.php (CORS, bounded JSON read, authentication/rate-limit middleware)
   -> QueryRequestValidator
   -> QueryRequestNormalizer
   -> QueryController -> QueryService -> QueryRepository -> specialized builders
@@ -25,7 +25,7 @@ Validation and normalization occur in `api/index.php` before controller dispatch
 
 | Layer | Current responsibility |
 |---|---|
-| `api/index.php` | CORS/preflight, JSON parsing, validation, normalization, routing, exception registration |
+| `api/index.php` | CORS/preflight, configured body-size enforcement, JSON parsing, authentication/rate limiting, validation, normalization, routing, exception registration |
 | `QueryRequestValidator` | Dispatches validation for JSON-query, controlled SQL-resource, and CRUD actions |
 | `SqlRequestValidator` | Restricts SQL mode to a resource ID and supported filter/sort/pagination runtime shapes |
 | `WriteRequestValidator` | Enforces CRUD shapes, scalar values, write-filter operators, and mandatory UPDATE/DELETE targeting |
@@ -143,8 +143,9 @@ A browser abort stops waiting for the HTTP response, but this synchronous PHP OD
 
 Each request has a random correlation ID. Dated logs distinguish request receipt, validation, normalization, SQL generation, connection setup, statement preparation, execution, row fetching, response construction, and request total. Query entries label pagination counts, compatibility metadata, and main data queries separately. Logs include normalized SQL with literals redacted plus parameter count/types, never parameter values or credentials.
 
-The default database statement timeout is 45 seconds and can be set with
-`DB_QUERY_TIMEOUT_SECONDS`. `QueryEngine` requests ODBC `SQL_QUERY_TIMEOUT`
+The default database statement timeout is 45 seconds and is stored in the
+validated runtime configuration. `DB_QUERY_TIMEOUT_SECONDS` remains a bounded
+deployment override. `QueryEngine` requests ODBC `SQL_QUERY_TIMEOUT`
 before execution. Drivers that support the statement attribute enforce it;
 drivers returning the ODBC unsupported-capability result are logged once per
 engine and execution continues instead of failing every valid query. The PHP

@@ -11,8 +11,9 @@ final class LoginRateLimiter
     private int $maximumAttempts;
     private int $windowSeconds;
     private int $lockoutSeconds;
+    private $clock;
 
-    public function __construct(?string $directory = null, ?array $options = null)
+    public function __construct(?string $directory = null, ?array $options = null, ?callable $clock = null)
     {
         $options ??= SecurityConfiguration::loginRateLimitOptions();
         $this->directory = $directory ?? ROOT_PATH . '/storage/security/login-rate-limit';
@@ -20,13 +21,14 @@ final class LoginRateLimiter
         $this->maximumAttempts = max(2, (int)($options['maximumAttempts'] ?? 5));
         $this->windowSeconds = max(60, (int)($options['windowSeconds'] ?? 900));
         $this->lockoutSeconds = max(30, (int)($options['lockoutSeconds'] ?? 300));
+        $this->clock = $clock ?? fn (): int => time();
     }
 
     public function assertAllowed(string $sourceIp, string $username): void
     {
         if (!$this->enabled) return;
         $record = $this->read($this->key($sourceIp, $username));
-        if (($record['blockedUntil'] ?? 0) > time()) {
+        if (($record['blockedUntil'] ?? 0) > ($this->clock)()) {
             $this->rateLimited();
         }
     }
@@ -36,7 +38,7 @@ final class LoginRateLimiter
         if (!$this->enabled) return false;
         $key = $this->key($sourceIp, $username);
         return $this->withLock($key, function (array $record): array {
-            $now = time();
+            $now = ($this->clock)();
             $attempts = array_values(array_filter(
                 is_array($record['attempts'] ?? null) ? $record['attempts'] : [],
                 fn ($timestamp): bool => is_int($timestamp) && $timestamp >= $now - $this->windowSeconds
@@ -93,10 +95,17 @@ final class LoginRateLimiter
         try {
             [$record, $result] = $operation($this->read($key));
             $temporary = $this->path($key) . '.tmp-' . bin2hex(random_bytes(4));
-            if (file_put_contents($temporary, json_encode($record, JSON_THROW_ON_ERROR), LOCK_EX) === false
-                || !@rename($temporary, $this->path($key))) {
+            $contents = json_encode($record, JSON_THROW_ON_ERROR);
+            if (file_put_contents($temporary, $contents, LOCK_EX) === false) {
                 @unlink($temporary);
                 throw new RuntimeException('Login protection state could not be stored.');
+            }
+            if (!@rename($temporary, $this->path($key))) {
+                if (file_put_contents($this->path($key), $contents, LOCK_EX) === false) {
+                    @unlink($temporary);
+                    throw new RuntimeException('Login protection state could not be stored.');
+                }
+                @unlink($temporary);
             }
             @chmod($this->path($key), 0600);
             return $result;

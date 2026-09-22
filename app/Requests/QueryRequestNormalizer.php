@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+
 class QueryRequestNormalizer
 {
     public function normalize(array $request): array
@@ -13,7 +15,7 @@ class QueryRequestNormalizer
                 ...isset($request['execution']) ? ['execution' => $request['execution']] : [],
                 ...isset($request['filters']) ? ['filters' => $request['filters']] : [],
                 ...isset($request['sort']) ? ['sort' => $request['sort']] : [],
-                ...isset($request['pagination']) ? ['pagination' => $request['pagination']] : [],
+                ...isset($request['pagination']) ? ['pagination' => $this->pagination($request['pagination'])] : [],
                 ...isset($request['filterLogic']) ? ['filterLogic' => strtoupper($request['filterLogic'])] : [],
             ];
         }
@@ -113,7 +115,8 @@ class QueryRequestNormalizer
         if (isset($request['sort'])) { $normalized['sort'] = $this->normalizeSort($request['sort']); }
         if (isset($request['pagination'])) {
             $normalized['page'] = $request['pagination']['page'];
-            $normalized['pageSize'] = $request['pagination']['pageSize'];
+            $normalized['pageSize'] = $request['pagination']['pageSize']
+                ?? SecurityConfiguration::requestOptions()['defaultPageSize'];
         }
         if (isset($request['with'])) {
             $with = $request['with'];
@@ -318,5 +321,13 @@ class QueryRequestNormalizer
             return ['type' => 'field', 'name' => $value];
         }
         return ['type' => 'literal', 'value' => $value];
+    }
+
+    private function pagination(array $pagination): array
+    {
+        return [
+            'page' => $pagination['page'],
+            'pageSize' => $pagination['pageSize'] ?? SecurityConfiguration::requestOptions()['defaultPageSize'],
+        ];
     }
 }

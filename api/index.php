@@ -7,6 +7,7 @@ ob_start();
 require_once __DIR__ . '/../config/constants.php';
 require_once __DIR__ . '/../core/Response.php';
 require_once __DIR__ . '/../app/Security/SecurityConfiguration.php';
+require_once __DIR__ . '/../app/Http/RequestBodyReader.php';
 
 if (SecurityConfiguration::isProduction()) {
     ini_set('display_errors', '0');
@@ -57,6 +58,7 @@ require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/DatabaseAvailabilityMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/ApiRateLimitMiddleware.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
 require_once __DIR__ . '/../app/Controllers/MetadataController.php';
@@ -79,7 +81,7 @@ require_once __DIR__ . '/../app/Controllers/RoleController.php';
 ExceptionHandler::register();
 
 // Read Request Body
-$publicRequest = json_decode(file_get_contents("php://input"), true);
+$publicRequest = json_decode(RequestBodyReader::read(), true);
 
 // Validate JSON
 if (json_last_error() !== JSON_ERROR_NONE) {
@@ -120,6 +122,7 @@ if (str_starts_with((string)($publicRequest['action'] ?? ''), 'admin.')) {
 }
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
+(new ApiRateLimitMiddleware())->handle($publicRequest);
 (new AdminAuthorizationMiddleware(array_merge($userManagementActions,$apiKeyActions,$roleActions)))->handle($publicRequest);
 (new FrontendUserAuthorizationMiddleware($frontendUserActions))->handle($publicRequest);
 (new CsrfProtectionMiddleware())->handle($publicRequest);
@@ -181,10 +184,10 @@ $validator->validate($publicRequest);
     'action' => $publicRequest['action'] ?? null,
 ]);
 
-Response::setRequestContext($publicRequest);
 $phaseStarted = microtime(true);
 $normalizer = new QueryRequestNormalizer();
 $request = $normalizer->normalize($publicRequest);
+Response::setRequestContext($request);
 (new Logger())->timing('normalization', (microtime(true) - $phaseStarted) * 1000, [
     'action' => $publicRequest['action'] ?? null,
 ]);

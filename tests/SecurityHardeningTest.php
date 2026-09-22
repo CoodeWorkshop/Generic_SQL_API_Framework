@@ -97,7 +97,7 @@ try {
         'CSRF_VALIDATION_FAILED',
         403
     );
-    foreach (['admin.server.save', 'admin.api.start', 'admin.api.stop', 'admin.api.restart'] as $action) {
+    foreach (['admin.server.save', 'admin.runtime.save', 'admin.api.start', 'admin.api.stop', 'admin.api.restart'] as $action) {
         securityFailure(fn () => $middleware->handle(['action' => $action]), 'CSRF_VALIDATION_FAILED', 403);
     }
     securityAssert($missing->getDetails() === [], 'CSRF failure exposed internal details.');

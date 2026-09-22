@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ApiRequestException.php';
+require_once __DIR__ . '/../Security/SecurityConfiguration.php';
 
 class SqlRequestValidator
 {
@@ -41,10 +42,14 @@ class SqlRequestValidator
                 $errors[] = ['path' => 'pagination', 'message' => 'Pagination must be an object.'];
             } else {
                 $this->rejectUnknown($pagination, ['page', 'pageSize'], $errors, 'pagination.');
-                foreach (['page', 'pageSize'] as $key) {
-                    if (!isset($pagination[$key]) || !is_int($pagination[$key]) || $pagination[$key] < 1) {
-                        $errors[] = ['path' => "pagination.{$key}", 'message' => 'Must be a positive integer.'];
-                    }
+                if (!array_key_exists('page', $pagination) || !is_int($pagination['page']) || $pagination['page'] < 1) {
+                    $errors[] = ['path' => 'pagination.page', 'message' => 'Must be a positive integer.'];
+                }
+                if (array_key_exists('pageSize', $pagination)
+                    && (!is_int($pagination['pageSize']) || $pagination['pageSize'] < 1)) {
+                    $errors[] = ['path' => 'pagination.pageSize', 'message' => 'Must be a positive integer.'];
+                } elseif (($pagination['pageSize'] ?? 1) > SecurityConfiguration::requestOptions()['maxPageSize']) {
+                    $errors[] = ['path' => 'pagination.pageSize', 'message' => 'Page size exceeds the configured maximum.'];
                 }
             }
         }

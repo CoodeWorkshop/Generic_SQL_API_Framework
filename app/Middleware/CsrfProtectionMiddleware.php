@@ -42,6 +42,7 @@ final class CsrfProtectionMiddleware extends Middleware
         'admin.sqlParser.restart',
         'admin.cors.save',
         'admin.authentication.save',
+        'admin.runtime.save',
         'insert',
         'update',
         'delete',

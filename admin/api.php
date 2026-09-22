@@ -12,6 +12,7 @@ require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LocalAdminMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/CsrfProtectionMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/ApiRateLimitMiddleware.php';
 require_once __DIR__ . '/../app/Requests/SetupRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/SetupController.php';
 require_once __DIR__ . '/../app/Requests/AuthRequestValidator.php';
@@ -23,6 +24,7 @@ require_once __DIR__ . '/../app/Controllers/ApiKeyController.php';
 require_once __DIR__ . '/../app/Controllers/RoleController.php';
 require_once __DIR__ . '/../app/Requests/AdminRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/AdminController.php';
+require_once __DIR__ . '/../app/Http/RequestBodyReader.php';
 
 header_remove('X-Powered-By');
 header('Content-Type: application/json; charset=utf-8');
@@ -40,7 +42,7 @@ $contentType = strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ??
 if ($contentType !== 'application/json') {
     Response::error('Content-Type must be application/json.', 415, 'UNSUPPORTED_MEDIA_TYPE');
 }
-$request = json_decode((string)file_get_contents('php://input'), true);
+$request = json_decode(RequestBodyReader::read(), true);
 if (json_last_error() !== JSON_ERROR_NONE) Response::error('Invalid JSON request.', 400, 'INVALID_JSON');
 if (!is_array($request) || array_is_list($request)) {
     Response::error('Invalid request.', 400, 'INVALID_REQUEST', [['path' => '', 'message' => 'Request body must be a JSON object.']]);
@@ -62,6 +64,7 @@ $adminActions = [
     'admin.database.get', 'admin.database.testCurrent', 'admin.database.connect', 'admin.database.disconnect', 'admin.database.restart', 'admin.database.test', 'admin.database.save',
     'admin.settings.get', 'admin.server.save',
     'admin.cors.save', 'admin.authentication.save',
+    'admin.runtime.save',
 ];
 $allActions = array_merge($setupActions, $authActions, $userActions, $apiKeyActions, $roleActions, $adminActions);
 if (!in_array($request['action'] ?? null, $allActions, true)) {
@@ -70,6 +73,7 @@ if (!in_array($request['action'] ?? null, $allActions, true)) {
 
 (new LocalAdminMiddleware())->handle($request);
 (new AuthenticationMiddleware(true, array_merge($setupActions, $authActions)))->handle($request);
+(new ApiRateLimitMiddleware())->handle($request);
 (new AdminAuthorizationMiddleware(array_merge($userActions, $apiKeyActions, $roleActions, $adminActions)))->handle($request);
 (new CsrfProtectionMiddleware())->handle($request);
 (new LoggingMiddleware())->handle($request);

@@ -1,5 +1,5 @@
 {
-    "version": 4,
+    "version": 5,
     "server": {
         "apiPortMinimum": 8000,
         "apiPortMaximum": 8100,
@@ -21,5 +21,32 @@
     },
     "authentication": {
         "mode": "session"
+    },
+    "runtime": {
+        "query": {
+            "timeoutSeconds": 45
+        },
+        "rateLimit": {
+            "api": {
+                "enabled": true,
+                "requests": 600,
+                "windowSeconds": 60
+            },
+            "login": {
+                "enabled": true,
+                "maximumAttempts": 5,
+                "windowSeconds": 900,
+                "lockoutSeconds": 300
+            }
+        },
+        "session": {
+            "idleTimeoutSeconds": 1800,
+            "absoluteTimeoutSeconds": 28800
+        },
+        "request": {
+            "maxBodyBytes": 1048576,
+            "defaultPageSize": 25,
+            "maxPageSize": 1000
+        }
     }
 }

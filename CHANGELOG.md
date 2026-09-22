@@ -1,5 +1,13 @@
 # Changelog
 
+## Phase 3.2 — Configurable runtime and performance controls
+
+- Added validated runtime configuration for SQL query timeout, API/login rate limits, session expiration, JSON request body size, and pagination defaults/maximums.
+- Added a System Administrator-only Runtime & Performance Admin Console section with atomic saves and immediate application to new requests.
+- Added local file-backed rate limiting for sessions, managed/legacy API keys, and anonymous clients with a stable HTTP 429 `RATE_LIMIT_EXCEEDED` response.
+- Migrated `admin.json` schema versions 1–4 to version 5 without changing the fixed role or authentication architecture.
+- Added database-independent runtime, boundary, migration, error-contract, and preservation tests.
+
 ## Phase 3 — Authorization, roles, API keys, and service controls
 
 - Added a common principal and deny-by-default authorization service for session, managed-key, legacy-key, and explicitly public access.

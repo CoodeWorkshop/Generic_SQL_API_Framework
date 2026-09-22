@@ -224,7 +224,8 @@ try {
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
     unifiedAdminAssert(str_contains($adminJavaScript, 'availableAuthenticationModes.map'), 'Database authentication UI does not use backend-supported modes.');
-    unifiedAdminAssert(!str_contains($adminJavaScript, '<dt>Query timeout</dt>'), 'Unsupported driver-dependent timeout remains exposed as an enforced Admin option.');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'SQL query timeout (seconds)'), 'Configured query timeout is missing from the Admin Console.');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'admin.runtime.save'), 'Runtime configuration save is missing from the Admin Console.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/router.php'), "['127.0.0.1', '::1']"), 'Admin router lacks loopback enforcement.');
     foreach ([

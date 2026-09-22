@@ -4,6 +4,7 @@ require_once __DIR__ . '/ApiRequestException.php';
 require_once __DIR__ . '/../Repositories/AdminConfigurationRepository.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
 require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
+require_once __DIR__ . '/../Configuration/RuntimeControls.php';
 
 final class AdminRequestValidator
 {
@@ -58,6 +59,22 @@ final class AdminRequestValidator
                 $this->invalid([['path' => 'mode', 'message' => 'Unsupported authentication mode.']]);
             }
             return ['action' => $action, 'mode' => $mode];
+        }
+        if ($action === 'admin.runtime.save') {
+            $this->rejectUnknown($request, ['action', 'runtime']);
+            $runtime = $request['runtime'] ?? null;
+            if (!is_array($runtime) || array_is_list($runtime)) {
+                $this->invalid([['path' => 'runtime', 'message' => 'Runtime configuration must be an object.']]);
+            }
+            try {
+                RuntimeControls::validate($runtime);
+            } catch (InvalidArgumentException $exception) {
+                $path = str_starts_with($exception->getMessage(), 'runtime.')
+                    ? explode(' ', $exception->getMessage(), 2)[0]
+                    : 'runtime';
+                $this->invalid([['path' => rtrim($path, '.'), 'message' => $exception->getMessage()]]);
+            }
+            return ['action' => $action, 'runtime' => $runtime];
         }
         throw new ApiRequestException('Invalid admin request.', 'INVALID_ADMIN_REQUEST');
     }

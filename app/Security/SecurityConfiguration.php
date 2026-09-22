@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Repositories/AdminConfigurationRepository.php';
+require_once __DIR__ . '/../Configuration/RuntimeControls.php';
 
 final class SecurityConfiguration
 {
@@ -47,23 +48,68 @@ final class SecurityConfiguration
 
     public static function sessionOptions(): array
     {
+        $configured = self::runtime()['session'];
+        $idle = self::integerEnvironment(
+            'GENERIC_SESSION_IDLE_TIMEOUT',
+            $configured['idleTimeoutSeconds'],
+            RuntimeControls::SESSION_IDLE_MINIMUM,
+            RuntimeControls::SESSION_TIMEOUT_MAXIMUM
+        );
+        $absolute = self::integerEnvironment(
+            'GENERIC_SESSION_ABSOLUTE_TIMEOUT',
+            $configured['absoluteTimeoutSeconds'],
+            RuntimeControls::SESSION_ABSOLUTE_MINIMUM,
+            RuntimeControls::SESSION_TIMEOUT_MAXIMUM
+        );
+        if ($idle > $absolute) {
+            $idle = $configured['idleTimeoutSeconds'];
+            $absolute = $configured['absoluteTimeoutSeconds'];
+        }
         return [
             'secure' => self::isProduction() || self::directHttpsRequest(),
             'httponly' => true,
             'samesite' => 'Lax',
-            'idleTimeout' => self::integerEnvironment('GENERIC_SESSION_IDLE_TIMEOUT', 1800, 60),
-            'absoluteTimeout' => self::integerEnvironment('GENERIC_SESSION_ABSOLUTE_TIMEOUT', 28800, 300),
+            'idleTimeout' => $idle,
+            'absoluteTimeout' => $absolute,
         ];
     }
 
     public static function loginRateLimitOptions(): array
     {
+        $configured = self::runtime()['rateLimit']['login'];
         return [
-            'enabled' => PHP_SAPI !== 'cli',
-            'maximumAttempts' => self::integerEnvironment('GENERIC_LOGIN_MAX_ATTEMPTS', 5, 2),
-            'windowSeconds' => self::integerEnvironment('GENERIC_LOGIN_WINDOW_SECONDS', 900, 60),
-            'lockoutSeconds' => self::integerEnvironment('GENERIC_LOGIN_LOCKOUT_SECONDS', 300, 30),
+            // Standalone CLI jobs have no remote client boundary. The built-in
+            // web server reports cli-server, so live API protection remains on.
+            'enabled' => $configured['enabled'] && PHP_SAPI !== 'cli',
+            'maximumAttempts' => self::integerEnvironment('GENERIC_LOGIN_MAX_ATTEMPTS', $configured['maximumAttempts'], RuntimeControls::LOGIN_ATTEMPTS_MINIMUM, RuntimeControls::LOGIN_ATTEMPTS_MAXIMUM),
+            'windowSeconds' => self::integerEnvironment('GENERIC_LOGIN_WINDOW_SECONDS', $configured['windowSeconds'], RuntimeControls::LOGIN_WINDOW_MINIMUM, RuntimeControls::RATE_WINDOW_MAXIMUM),
+            'lockoutSeconds' => self::integerEnvironment('GENERIC_LOGIN_LOCKOUT_SECONDS', $configured['lockoutSeconds'], RuntimeControls::LOGIN_LOCKOUT_MINIMUM, RuntimeControls::RATE_WINDOW_MAXIMUM),
         ];
+    }
+
+    public static function queryTimeoutSeconds(): int
+    {
+        return self::integerEnvironment(
+            'DB_QUERY_TIMEOUT_SECONDS',
+            self::runtime()['query']['timeoutSeconds'],
+            RuntimeControls::QUERY_TIMEOUT_MINIMUM,
+            RuntimeControls::QUERY_TIMEOUT_MAXIMUM
+        );
+    }
+
+    public static function apiRateLimitOptions(): array
+    {
+        return self::runtime()['rateLimit']['api'];
+    }
+
+    public static function requestOptions(): array
+    {
+        return self::runtime()['request'];
+    }
+
+    public static function runtime(): array
+    {
+        return self::configuration()['runtime'];
     }
 
     public static function clientIp(): string
@@ -91,12 +137,13 @@ final class SecurityConfiguration
         }
     }
 
-    private static function integerEnvironment(string $name, int $default, int $minimum): int
+    private static function integerEnvironment(string $name, int $default, int $minimum, int $maximum): int
     {
         $value = getenv($name);
         if ($value === false || filter_var($value, FILTER_VALIDATE_INT) === false) {
             return $default;
         }
-        return max($minimum, (int)$value);
+        $value = (int)$value;
+        return $value >= $minimum && $value <= $maximum ? $value : $default;
     }
 }

@@ -96,11 +96,11 @@ Never place `GENERIC_SQL_API_ENCRYPTION_KEY`, passwords, session identifiers, or
 
 ## Sessions, CSRF, and login protection
 
-Production cookies are Secure, HttpOnly, SameSite=Lax, session-only, strict-mode cookies. Application defaults enforce a 30-minute idle timeout and an eight-hour absolute timeout; both are server-side and configurable using the variables above. Login regenerates the session identifier. Logout and expiration destroy the session and its CSRF token.
+Production cookies are Secure, HttpOnly, SameSite=Lax, session-only, strict-mode cookies. Application defaults enforce a 30-minute idle timeout and an eight-hour absolute timeout; both are server-side and stored in validated runtime configuration. The listed environment variables remain bounded deployment overrides. Login regenerates the session identifier. Logout and expiration destroy the session and its CSRF token.
 
 The frontend obtains a random session-bound token through `auth.csrf` and keeps it only in memory. Successful login rotates that token after the session identifier changes and returns the replacement in `X-CSRF-Token`; logout destroys it. Login, logout, setup creation, user mutations, and reporting write actions require the header. Missing or invalid tokens return HTTP 403 with `CSRF_VALIDATION_FAILED`.
 
-Login failures are tracked server-side by source IP plus normalized username. Five failures in fifteen minutes produce a temporary five-minute block and HTTP 429. A successful login clears that key. Client responses remain identical for unknown, disabled, and incorrectly authenticated users.
+Login failures are tracked server-side by source IP plus normalized username. The defaults allow five failures in fifteen minutes before a temporary five-minute block and HTTP 429; all three thresholds are validated runtime settings. A successful login clears that key. Client responses remain identical for unknown, disabled, and incorrectly authenticated users. General API traffic is also protected by the configured local file-backed limiter; multi-host deployments require infrastructure-level distributed controls.
 
 ## TLS and headers
 

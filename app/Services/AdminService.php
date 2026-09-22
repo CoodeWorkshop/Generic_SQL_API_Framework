@@ -242,6 +242,7 @@ final class AdminService
                 'mode' => $settings['authentication']['mode'],
                 'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured() || (new ApiKeyService())->configured(),
             ],
+            'runtime' => $settings['runtime'],
             'security' => [
                 'csrfEnabled' => true,
                 'session' => SecurityConfiguration::sessionOptions(),
@@ -310,6 +311,23 @@ final class AdminService
                 'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured() || (new ApiKeyService())->configured(),
             ];
         });
+    }
+
+    public function saveRuntime(array $runtime): array
+    {
+        try {
+            return $this->configuration->update(function (array &$settings) use ($runtime): array {
+                $settings['runtime'] = $runtime;
+                return $runtime;
+            });
+        } catch (Throwable $exception) {
+            throw new ApiRequestException(
+                'Unable to save runtime configuration.',
+                'RUNTIME_CONFIGURATION_SAVE_FAILED',
+                [],
+                500
+            );
+        }
     }
 
     public function controlApi(string $operation): array

@@ -185,8 +185,9 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - New Phase 2 — authentication and administrator user management: implemented
 - Phase 2.1 — independent Admin/API runtime and simplified configuration UX: implemented
 - Phase 2.2 — cross-platform API/parser lifecycle and setup stabilization: implemented
-- Generalized roles/permissions, API-key management, transactions, richer
-  metadata, and additional providers: planned
+- Phase 3.1 — fixed authorization roles and separated backend/frontend administration: implemented
+- Phase 3.2 — configurable runtime and performance controls: implemented
+- Transactions, richer metadata, and additional providers: planned
 
 The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).
 

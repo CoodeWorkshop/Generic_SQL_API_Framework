@@ -273,7 +273,7 @@ generic HTTP 500 `QUERY_ERROR`; no SQL Server message is returned.
 
 ## Pagination and ordering
 
-`pagination` requires positive integer `page` and `pageSize`. SQL Server compatibility level 110+ uses `OFFSET/FETCH`; older compatibility levels use a `ROW_NUMBER()` wrapper. The backend normally runs a count query before the page query; the complete-first-page SQL-resource `TOP` optimization described above is the exception. SQL resources with authored OFFSET/FETCH run directly without runtime controls; combining authored and request pagination is rejected explicitly.
+`pagination` requires a positive integer `page`. `pageSize` is a positive integer when supplied; omission uses the configured default (25 initially), and values above the configured maximum (1,000 initially) are rejected rather than clamped. SQL Server compatibility level 110+ uses `OFFSET/FETCH`; older compatibility levels use a `ROW_NUMBER()` wrapper. The backend normally runs a count query before the page query; the complete-first-page SQL-resource `TOP` optimization described above is the exception. SQL resources with authored OFFSET/FETCH run directly without runtime controls; combining authored and request pagination is rejected explicitly.
 
 Public sorting uses validated logical fields or a selected alias and `ASC`/`DESC`; numeric positions such as `"1"` are rejected. Window functions likewise require a logical sort field. This prevents invalid SQL Server output such as `ROW_NUMBER() OVER (ORDER BY 1)`. If top-level `sort` is omitted, the builder supplies an order based on the first usable projection (or table metadata when needed); grouped requests default to the first group field.
 

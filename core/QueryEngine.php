@@ -3,6 +3,7 @@
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/Logger.php';
 require_once __DIR__ . '/QueryTimeoutException.php';
+require_once __DIR__ . '/../app/Security/SecurityConfiguration.php';
 
 class QueryEngine
 {
@@ -15,8 +16,7 @@ class QueryEngine
     public function __construct(?Database $database = null, ?Logger $logger = null, ?int $queryTimeoutSeconds = null, bool $connect = true)
     {
         $this->logger = $logger ?? new Logger();
-        $settings = require __DIR__ . '/../config/performance.php';
-        $this->queryTimeoutSeconds = $queryTimeoutSeconds ?? (int)$settings['database_query_timeout_seconds'];
+        $this->queryTimeoutSeconds = $queryTimeoutSeconds ?? SecurityConfiguration::queryTimeoutSeconds();
         if ($connect) {
             $started = microtime(true);
             try {

@@ -259,7 +259,7 @@ FULL/CROSS joins, non-equality join predicates, multiple ON predicates, HAVING O
 |---|---|---:|---|
 | `pagination` | object | no | no pagination |
 | `pagination.page` | integer | yes when object present | minimum 1 |
-| `pagination.pageSize` | integer | yes when object present | minimum 1 |
+| `pagination.pageSize` | integer | no | configured default when omitted; minimum 1 and configured maximum |
 
 There is no implicit page or page size. Pagination normally returns a total from a separate count, and its SQL strategy is selected from SQL Server compatibility level. SQL Resource Mode has a documented complete-first-page `TOP` optimization that can infer the total instead.
 

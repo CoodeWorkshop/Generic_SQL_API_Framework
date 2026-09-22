@@ -174,6 +174,8 @@ query defaults to its first group field.
 }
 ```
 
+When a pagination object omits `pageSize`, the backend uses the validated runtime default (25 initially). The configured maximum is enforced server-side (1,000 initially); oversized requests are rejected rather than silently truncated. Omitting the complete pagination object still requests an unpaginated result.
+
 Both members are required positive JSON integers; there are no implicit page
 defaults. SQL Server compatibility level 110+ uses OFFSET/FETCH. Older levels use
 a ROW_NUMBER wrapper. The backend normally runs a count query for `totalRows`.

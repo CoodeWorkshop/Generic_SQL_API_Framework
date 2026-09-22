@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../config/constants.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
+require_once __DIR__ . '/RuntimeControls.php';
 
 final class RuntimeConfiguration
 {
@@ -92,7 +93,7 @@ final class RuntimeConfiguration
     public static function adminDefaults(): array
     {
         return [
-            'version' => 4,
+            'version' => 5,
             'server' => [
                 'apiPortMinimum' => 8000,
                 'apiPortMaximum' => 8100,
@@ -114,6 +115,7 @@ final class RuntimeConfiguration
                 'allowedMethods' => ['POST', 'OPTIONS'],
             ],
             'authentication' => ['mode' => 'session'],
+            'runtime' => RuntimeControls::defaults(),
         ];
     }
 

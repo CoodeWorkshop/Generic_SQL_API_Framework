@@ -45,13 +45,14 @@ try {
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
     bootstrapAssert(
-        $admin['version'] === 4
+        $admin['version'] === 5
             && $admin['server']['apiPortMinimum'] === 8000
             && $admin['server']['apiPortMaximum'] === 8100
             && $admin['server']['parserPortMinimum'] === 8101
             && $admin['server']['parserPortMaximum'] === 8199
             && $admin['server']['adminPort'] === 8090
             && $admin['server']['bindAddress'] === '127.0.0.1'
+            && $admin['runtime'] === RuntimeControls::defaults()
             && !array_key_exists('features', $admin),
         'Admin runtime defaults are unsafe or malformed.'
     );
