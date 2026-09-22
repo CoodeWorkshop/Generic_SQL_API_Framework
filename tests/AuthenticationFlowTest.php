@@ -86,7 +86,12 @@ try {
     authFlowAssert(session_id() !== $anonymousId, 'Login did not regenerate the session identifier.');
     authFlowAssert($snapshot === [
         'authenticated' => true,
-        'user' => ['username' => 'Administrator', 'isAdmin' => true],
+        'user' => [
+            'username' => 'Administrator',
+            'backendRole' => RoleModel::SYSTEM_ADMINISTRATOR,
+            'frontendAccess' => true,
+            'frontendRole' => RoleModel::APPLICATION_ADMINISTRATOR,
+        ],
     ], 'Login returned an unsafe or malformed identity snapshot.');
     authFlowAssert($service->session() === $snapshot, 'Authenticated session could not be restored.');
     authFlowAssert(
@@ -97,7 +102,6 @@ try {
     authFlowAssert($_SESSION['generic_reporting_auth'] === [
         'authenticated' => true,
         'username' => 'Administrator',
-        'isAdmin' => true,
         'userId' => $storedAdministrator['id'],
         'authVersion' => $storedAdministrator['authVersion'],
     ], 'Session identity contains unsafe or malformed data.');

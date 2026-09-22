@@ -52,8 +52,9 @@ try {
     $authRepository->save($authConfiguration);
     $storedAuthentication = $authRepository->load();
     authenticationAssert(
-        $storedAuthentication['version'] === 3
-            && $storedAuthentication['users'][0]['roles'] === ['admin']
+        $storedAuthentication['version'] === 4
+            && $storedAuthentication['users'][0]['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR
+            && $storedAuthentication['users'][0]['frontendRole'] === RoleModel::APPLICATION_ADMINISTRATOR
             && count($storedAuthentication['users']) === 1
             && $storedAuthentication['users'][0]['username'] === 'Administrator',
         'Authentication storage migration round trip failed.'
@@ -90,7 +91,7 @@ try {
         authenticationAssert(
             count(array_filter(
                 $runtimeAuth['users'],
-                static fn (array $user): bool => $user['enabled'] && $user['isAdmin']
+                static fn (array $user): bool => $user['enabled'] && $user['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR
             )) >= 1,
             'Initialized installation has no enabled administrator.'
         );
@@ -105,11 +106,11 @@ try {
     authenticationAssert(!$session->resume(), 'Session resumed without a session cookie.');
     $session->start();
     $anonymousSessionId = session_id();
-    $session->establish('Administrator', true, str_repeat('a', 32), 1);
+    $session->establish('Administrator', str_repeat('a', 32), 1);
     authenticationAssert(session_id() !== $anonymousSessionId, 'Session ID was not regenerated after authentication.');
     authenticationAssert($session->isAuthenticated(), 'Established session is not authenticated.');
     authenticationAssert($session->authenticatedUsername() === 'Administrator', 'Session username was not retained.');
-    authenticationAssert($session->authenticatedUserIsAdmin(), 'Session administrator flag was not retained.');
+    authenticationAssert(!array_key_exists('backendRole', $_SESSION), 'Authorization was incorrectly cached in the session.');
     authenticationAssert(!array_key_exists('password', $_SESSION), 'Password was stored in the session.');
     authenticationAssert(!array_key_exists('passwordHash', $_SESSION), 'Password hash was stored in the session.');
     $session->destroy();

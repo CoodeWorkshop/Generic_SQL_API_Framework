@@ -90,7 +90,8 @@ try {
     $user = $authentication['users'][0];
     setupAssert($user['username'] === 'Initial.Admin', 'Initial username was not stored correctly.');
     setupAssert($user['enabled'] === true, 'Initial user is not enabled.');
-    setupAssert($user['isAdmin'] === true, 'Initial user is not an administrator.');
+    setupAssert($user['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR, 'Initial user is not a System Administrator.');
+    setupAssert($user['frontendRole'] === RoleModel::APPLICATION_ADMINISTRATOR, 'Initial user is not an Application Administrator.');
     setupAssert(!array_key_exists('password', $user), 'Plaintext password field was stored.');
     setupAssert($user['passwordHash'] !== $request['password'], 'Password was stored as plaintext.');
     setupAssert(password_verify($request['password'], $user['passwordHash']), 'Stored password hash could not be verified.');

@@ -89,25 +89,24 @@ final class AdminService
 
     public function systemInformation(): array
     {
-        $settings = $this->configuration->load();
         $runtime = $this->runtimeDetector->information();
         $installation = (new InstallationRepository())->load();
         $api = $this->processManager->status();
         $parser = $this->parserProcessManager->status();
+        $databaseAvailable = $this->databaseAvailability->available();
+        $database = $databaseAvailable ? $this->databaseHealth() : ['status' => 'disconnected'];
         return [
-            ...$runtime,
-            'sqlParserVersion' => $parser['version'] ?? $runtime['frameworkVersion'],
-            'apiPort' => $api['port'],
-            'sqlParserPort' => $parser['port'],
-            'adminPort' => (int)($_SERVER['SERVER_PORT'] ?? $settings['server']['adminPort']),
-            'apiPortMinimum' => $settings['server']['apiPortMinimum'],
-            'apiPortMaximum' => $settings['server']['apiPortMaximum'],
-            'parserPortMinimum' => $settings['server']['parserPortMinimum'],
-            'parserPortMaximum' => $settings['server']['parserPortMaximum'],
-            'bindAddress' => $settings['server']['bindAddress'],
-            'installationVersion' => $installation['version'],
-            'installationInitialized' => $installation['initialized'],
-            'supportedDatabaseAuthenticationModes' => $this->databaseAuthentication->modes(),
+            'application' => 'Generic SQL API Framework',
+            'status' => 'running',
+            'platform' => $runtime['operatingSystem'] . ' ' . $runtime['architecture'],
+            'phpRuntime' => $runtime['phpRuntime'] . ' · PHP ' . $runtime['phpVersion'],
+            'configurationStatus' => $installation['initialized'] ? 'initialized' : 'setup required',
+            'databaseStatus' => $database['status'] ?? 'unknown',
+            'services' => [
+                'adminConsole' => 'running',
+                'api' => $api['status'],
+                'sqlParser' => $parser['status'],
+            ],
         ];
     }
 
@@ -238,7 +237,6 @@ final class AdminService
         $settings = $this->configuration->load();
         return [
             'server' => $settings['server'],
-            'features' => $settings['features'],
             'cors' => $settings['cors'],
             'authentication' => [
                 'mode' => $settings['authentication']['mode'],
@@ -292,14 +290,6 @@ final class AdminService
                 'parserRestartRequired' => $parserRestartRequired,
                 'adminRestartRequired' => $adminRestartRequired,
             ];
-        });
-    }
-
-    public function saveFeatures(array $features): array
-    {
-        return $this->configuration->update(function (array &$settings) use ($features): array {
-            $settings['features'] = $features;
-            return ['features' => $features, 'restartRequired' => false];
         });
     }
 

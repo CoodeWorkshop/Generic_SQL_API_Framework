@@ -19,8 +19,6 @@ locate php.exe and php.ini
   -> create missing ignored runtime configuration with safe defaults
   -> load/generate the ignored local database-encryption key
   -> verify the configured Admin loopback port
-  -> start the API on the first free configured API port
-  -> start the SQL Parser on the first free configured parser port
   -> php -S 127.0.0.1:<admin-port> -t admin admin/router.php
   -> open http://127.0.0.1:<admin-port>/admin
 ```
@@ -31,8 +29,8 @@ working database before startup: configure and test it through Configuration →
 Database. The launcher generates a local key only when neither an environment
 key nor key file exists and no already-encrypted database file depends on a
 missing key. It never rewrites database configuration itself. Each built-in
-server is single-process/single-threaded, while Admin, API, and SQL Parser retain
-independent lifecycles.
+server is single-process/single-threaded. API and SQL Parser remain stopped until
+started from System Health, and all three services retain independent lifecycles.
 
 Configuration bootstrap creates missing `config/auth.json`,
 `config/installation.json`, and `config/admin.json`; it never overwrites existing
@@ -48,8 +46,8 @@ either does not stop Admin Console or the other managed service.
 From the backend root run `./start-linux.sh`. It prefers
 `runtime/linux/php/php`, falls back to installed PHP when that bundled binary is
 absent, and loads `runtime/linux/php/php.ini`. It performs the same bootstrap,
-starts the managed API and SQL Parser, keeps Admin server in the foreground,
-and attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
+keeps Admin server in the foreground, leaves API and SQL Parser stopped, and
+attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
 
 ## Required deployment configuration
 

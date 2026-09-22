@@ -1,71 +1,28 @@
 # Authentication and user management
 
-Authentication resolves one common request principal for sessions and managed API keys. User records include roles; role and enabled-state changes increment `authVersion` and invalidate stale sessions. The last enabled Admin-role user cannot be disabled, deleted, or stripped of that role. See [Authorization and roles](Authorization-and-Roles.md).
+Sessions and managed API keys resolve one internal principal. Local users have one identity and credential with separate `backendRole`, `frontendAccess`, and `frontendRole` fields. Authorization or enabled-state changes increment `authVersion`, so stale sessions fail closed on their next request.
 
-The local Admin Console provides first-run administrator setup, login/logout,
-and user management at `/admin/users`. Authentication decisions remain entirely
-in the backend; browsers never receive password hashes, session identifiers,
-authentication version counters, or internal user IDs.
+The runtime bootstrap creates auth schema version 4 with an empty user list. Migration preserves existing IDs where present, usernames, password hashes, enabled state, and creation dates. Legacy Admin maps to System Administrator plus Application Administrator; Data Editor maps to Data Operator; Viewer and Developer map to Read Only. See [Authorization and roles](Authorization-and-Roles.md).
 
-## Automatic configuration bootstrap
+Initial setup creates one enabled identity with both System Administrator and Application Administrator. Login returns only username and the three public authorization fields; hashes, internal IDs, session identifiers, and authentication versions remain server-side. Sessions retain only stable identity/version data, not roles, so every request resolves current authorization from storage.
 
-Users do not manually create `config/auth.json`, `config/installation.json`, or
-`config/admin.json`. Both launchers run
-`scripts/bootstrap-runtime-configuration.php`, and the repositories repeat the
-same idempotent check for non-launcher hosting. Missing files are created
-atomically with restrictive permissions where supported:
+## Backend user administration
 
-- `auth.json`: version 2 and an empty user list;
-- `installation.json`: a random 256-bit installation ID and `initialized:false`;
-- `admin.json`: safe local CORS defaults and session authentication.
+These actions require `admin.manage` (System Administrator). Mutations also require the session-bound `X-CSRF-Token`.
 
-These runtime files and their locks are ignored by Git. The tracked
-`*.example.json` files document shapes only and contain no password, hash, API
-key, encryption key, or machine identifier. Bootstrap never overwrites an
-existing file and never creates plaintext credential backups.
+| Action | Purpose |
+| --- | --- |
+| `auth.users.list` | List safe identity and domain assignments |
+| `auth.users.create` | Create an identity with backend/frontend assignments |
+| `auth.users.update` | Change username |
+| `auth.users.changePassword` | Change password |
+| `auth.users.enable/disable/delete` | Manage identity lifecycle |
+| `auth.users.assignAuthorization` | Assign backend role, frontend access, and frontend role |
 
-Existing version-1 authentication files are migrated under the authentication
-storage lock. Existing usernames, password hashes, enabled status, and
-administrator flags are retained. Each user receives a random internal ID, a
-creation timestamp based on the existing file timestamp, and an authentication
-version used for session invalidation.
+The last enabled System Administrator cannot be demoted, disabled, or deleted. The current identity cannot delete itself. Enabled identities require at least one access domain; disabled identities may have neither.
 
-## First administrator and login
+## Frontend user administration
 
-On a fresh install, `/admin` displays the existing setup form. The backend
-validates username/password confirmation, hashes with `PASSWORD_DEFAULT`, stores
-one enabled administrator, and atomically marks installation initialized.
-Repeated or concurrent initialization is rejected. An interrupted state where
-the initial administrator was stored before the installation flag is safely
-reconciled during status loading.
+`auth.frontendUsers.*` is a separate server-enforced boundary for Application Administrator and System Administrator. It supports list, create, username edit, password change, enable/disable/delete, and Application Administrator assignment. Its request contract has no backend-role field. Frontend administrators cannot mutate the credentials or lifecycle of identities protected by backend access, and cannot grant backend roles or backend permissions.
 
-Login checks the same generic error path for unknown, disabled, and incorrect
-credentials, preserves existing brute-force protection, regenerates the session
-ID, and returns only username and administrator status. Logout destroys session
-data, expires the cookie, and invalidates its CSRF token.
-
-## User-management actions
-
-All actions require an enabled administrator session. Mutations also require the
-existing session-bound `X-CSRF-Token` header and reject unknown properties.
-
-| Action | Required payload | Behavior |
-|---|---|---|
-| `auth.users.list` | none | Returns username, enabled/admin status, and creation time |
-| `auth.users.create` | `username`, `password`, `passwordConfirmation`; optional `enabled`, `isAdmin` | Creates a uniquely named user with a backend-generated hash |
-| `auth.users.update` | `username`, `newUsername` | Renames the user while retaining internal identity |
-| `auth.users.changePassword` | `username`, `newPassword`, `passwordConfirmation` | Rehashes the password and invalidates existing sessions |
-| `auth.users.enable` | `username` | Enables the account and invalidates older sessions |
-| `auth.users.disable` | `username` | Disables login and invalidates existing sessions |
-| `auth.users.delete` | `username` | Permanently removes a non-current user |
-
-Usernames are case-insensitively unique. Disabling or deleting the last enabled
-administrator is rejected. The current administrator cannot delete their own
-account. Creating another administrator remains supported by the existing
-minimal `isAdmin` flag; generalized roles and permissions are not implemented.
-
-Session invalidation is enforced on the affected user's next authenticated
-request by comparing the session's internal user ID and authentication version
-with current storage. Disabled and deleted users similarly fail closed on their
-next request. Idle and absolute timeouts, HttpOnly/SameSite cookies, HTTPS Secure
-cookies, fixation protection, and login throttling remain unchanged.
+Passwords are always hashed with `PASSWORD_DEFAULT`. User responses and logs exclude password hashes, API-key secrets, session data, and internal authentication metadata. Existing timeout, cookie, fixation, rate-limit, and CSRF protections remain in force.

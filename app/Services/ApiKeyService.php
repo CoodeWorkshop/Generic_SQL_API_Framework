@@ -31,6 +31,6 @@ final class ApiKeyService
         return ['key'=>$key,'owner'=>$owner];
     }
     private function mutate(string $id, callable $operation): array { return $this->keys->update(function (&$value) use ($id,$operation) { foreach($value['keys'] as &$key) if(hash_equals($key['id'],$id)){ $operation($key); return $this->safe($key); } throw new ApiRequestException('API key was not found.','API_KEY_NOT_FOUND',[],404); }); }
-    private function validateRoles(array $roles): void { if($roles===[]||count(array_unique($roles))!==count($roles))throw new ApiRequestException('Invalid API key request.','INVALID_API_KEY_REQUEST',[['path'=>'roles','message'=>'At least one unique role is required.']]);foreach($roles as $role)if(!is_string($role)||!$this->authorization->roleExists($role))throw new ApiRequestException('Invalid API key request.','INVALID_API_KEY_REQUEST',[['path'=>'roles','message'=>'Unknown role.']]); }
+    private function validateRoles(array $roles): void { if(count($roles)!==1||!is_string($roles[0]??null)||!$this->authorization->backendRoleExists($roles[0]))throw new ApiRequestException('Invalid API key request.','INVALID_API_KEY_REQUEST',[['path'=>'roles','message'=>'Exactly one backend role is required.']]); }
     private function safe(array $key): array { return ['id'=>$key['id'],'name'=>$key['name'],'roles'=>$key['roles'],'fingerprint'=>$key['fingerprint'],'enabled'=>$key['enabled'],'revoked'=>$key['revokedAt']!==null,'revokedAt'=>$key['revokedAt'],'createdAt'=>$key['createdAt'],'lastUsedAt'=>$key['lastUsedAt']]; }
 }

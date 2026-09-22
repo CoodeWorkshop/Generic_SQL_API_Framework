@@ -56,7 +56,8 @@ final class AuthenticationMiddleware extends Middleware
         if ($mode === 'none') {
             $_SERVER['GENERIC_AUTH_PROVIDER'] = 'none';
             $roles = $this->authorization->publicRoles();
-            PrincipalContext::set(new Principal(null, 'public', 'none', $roles, true, false, $this->authorization->permissionsForRoles($roles)));
+            $role = $roles[0] ?? null;
+            PrincipalContext::set(new Principal(null, 'public', 'none', $role, false, null, true, $this->authorization->permissionsForRoles($roles)));
             return;
         }
         if (($mode === 'api_key' || $mode === 'session+api_key') && $this->resolveApiKey()) {
@@ -96,13 +97,13 @@ final class AuthenticationMiddleware extends Middleware
         if ($user === null
             || $user['enabled'] !== true
             || $user['username'] !== $this->session->authenticatedUsername()
-            || $user['isAdmin'] !== $this->session->authenticatedUserIsAdmin()
             || $user['authVersion'] !== $this->session->authenticatedAuthVersion()) {
             $this->session->destroy();
             $this->authenticationRequired();
         }
         PrincipalContext::set(new Principal(
-            $user['id'], $user['username'], 'session', $user['roles'], true, $user['isAdmin'], $this->authorization->permissionsForRoles($user['roles'])
+            $user['id'], $user['username'], 'session', $user['backendRole'], $user['frontendAccess'],
+            $user['frontendRole'], true, $this->authorization->permissionsForRoles(array_values(array_filter([$user['backendRole'], $user['frontendRole']])))
         ));
     }
 
@@ -117,12 +118,14 @@ final class AuthenticationMiddleware extends Middleware
         }
         if ($resolved !== null) {
             $owner = $resolved['owner'];
-            PrincipalContext::set(new Principal($owner['id'], $owner['username'], 'api_key', $resolved['key']['roles'], true, in_array('admin', $resolved['key']['roles'], true), $this->authorization->permissionsForRoles($resolved['key']['roles'])));
+            $role = $resolved['key']['roles'][0] ?? null;
+            PrincipalContext::set(new Principal($owner['id'], $owner['username'], 'api_key', $role, false, null, true, $this->authorization->permissionsForRoles([$role])));
             return true;
         }
         if ($this->apiKeys->authenticate($provided)) {
             $roles = $this->authorization->legacyApiKeyRoles();
-            PrincipalContext::set(new Principal(null, 'legacy-api-key', 'api_key', $roles, true, false, $this->authorization->permissionsForRoles($roles)));
+            $role = $roles[0] ?? null;
+            PrincipalContext::set(new Principal(null, 'legacy-api-key', 'api_key', $role, false, null, true, $this->authorization->permissionsForRoles($roles)));
             return true;
         }
         return false;

@@ -5,11 +5,11 @@ Planned work is tracked separately in [Roadmap](Roadmap.md).
 
 ## Universal API and security
 
-- Authentication supports sessions and/or one environment-provided API key;
-  generalized roles, resource permissions, tenants, and API-key management are
-  not implemented.
-- Only administrators can manage users/configuration. The minimal `isAdmin`
-  model remains until generalized authorization is introduced.
+- Authentication supports sessions, managed API keys, the legacy environment
+  key, and configured anonymous mode. Tenant isolation is not implemented.
+- User identity is unified, with separate frontend and backend authorization.
+  System Administrators manage backend configuration; Application Administrators
+  can manage frontend-only access but cannot assign backend roles.
 - CORS uses exact validated backend origins; it is not itself access control.
 - The endpoint accepts POST and OPTIONS only.
 - JSON Query Mode accepts metadata-valid client-selected tables; it has no table

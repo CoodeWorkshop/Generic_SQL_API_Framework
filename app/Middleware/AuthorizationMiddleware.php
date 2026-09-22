@@ -13,11 +13,11 @@ final class AuthorizationMiddleware extends Middleware
         $principal = PrincipalContext::current();
         if ($principal === null) throw new ApiRequestException('Authentication required.', 'AUTHENTICATION_REQUIRED', [], 401);
         $action = (string)($request['action'] ?? '');
-        if (str_starts_with($action, 'metadata.')) { $this->authorization->authorize($principal, 'metadata.read'); return; }
-        if ($action === 'sql') { $this->authorization->authorize($principal, 'sql.execute', is_string($request['resource'] ?? null) ? $request['resource'] : '', 'sql'); return; }
+        if (str_starts_with($action, 'metadata.')) { $this->authorization->authorizeAny($principal, ['metadata.read', 'frontend.read']); return; }
+        if ($action === 'sql') { $this->authorization->authorizeAny($principal, ['sql.execute', 'frontend.read'], is_string($request['resource'] ?? null) ? $request['resource'] : '', 'sql'); return; }
         if (in_array($action, ['insert', 'update', 'delete', 'upsert'], true)) { $this->authorization->authorize($principal, 'data.write', is_string($request['resource'] ?? null) ? $request['resource'] : '', 'write'); return; }
-        if (in_array($action, ['procedure', 'function', 'tableFunction'], true)) { $this->authorization->authorize($principal, 'routine.execute'); return; }
-        if (in_array($action, ['select', 'union', 'unionAll'], true)) { $this->authorization->authorize($principal, 'data.read'); return; }
+        if (in_array($action, ['procedure', 'function', 'tableFunction'], true)) { $this->authorization->authorizeAny($principal, ['routine.execute', 'frontend.read']); return; }
+        if (in_array($action, ['select', 'union', 'unionAll'], true)) { $this->authorization->authorizeAny($principal, ['data.read', 'frontend.read']); return; }
         $this->authorization->authorize($principal, 'admin.manage');
     }
 }

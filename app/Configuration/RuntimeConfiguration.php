@@ -62,20 +62,20 @@ final class RuntimeConfiguration
 
     public static function authDefaults(): array
     {
-        return ['version' => 3, 'users' => []];
+        return ['version' => 4, 'users' => []];
     }
 
     public static function authorizationDefaults(): array
     {
         return [
-            'version' => 1,
-            'publicRoles' => ['viewer'],
-            'legacyApiKeyRoles' => ['viewer'],
+            'version' => 2,
+            'publicRoles' => ['read-only'],
+            'legacyApiKeyRoles' => ['read-only'],
             'roles' => [
-                'viewer' => ['name' => 'Viewer', 'permissions' => ['data.read', 'metadata.read'], 'sqlResources' => [], 'writeResources' => []],
-                'developer' => ['name' => 'Developer', 'permissions' => ['data.read', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => []],
-                'data-editor' => ['name' => 'Data Editor', 'permissions' => ['data.read', 'data.write'], 'sqlResources' => [], 'writeResources' => ['*']],
-                'admin' => ['name' => 'Admin', 'permissions' => ['admin.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
+                'read-only' => ['name' => 'Read Only', 'domain' => 'backend', 'permissions' => ['data.read', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => []],
+                'data-operator' => ['name' => 'Data Operator', 'domain' => 'backend', 'permissions' => ['data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
+                'system-administrator' => ['name' => 'System Administrator', 'domain' => 'backend', 'permissions' => ['admin.manage', 'frontend.users.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
+                'application-administrator' => ['name' => 'Application Administrator', 'domain' => 'frontend', 'permissions' => ['frontend.read', 'frontend.users.manage'], 'sqlResources' => ['*'], 'writeResources' => []],
             ],
         ];
     }
@@ -92,7 +92,7 @@ final class RuntimeConfiguration
     public static function adminDefaults(): array
     {
         return [
-            'version' => 3,
+            'version' => 4,
             'server' => [
                 'apiPortMinimum' => 8000,
                 'apiPortMaximum' => 8100,
@@ -100,13 +100,6 @@ final class RuntimeConfiguration
                 'parserPortMaximum' => 8199,
                 'adminPort' => 8090,
                 'bindAddress' => '127.0.0.1',
-            ],
-            'features' => [
-                'readData' => true,
-                'writeData' => true,
-                'pagination' => true,
-                'sorting' => true,
-                'metadata' => true,
             ],
             'cors' => [
                 'allowedOrigins' => [
@@ -131,7 +124,7 @@ final class RuntimeConfiguration
             self::INSTALLATION_FILE => self::installationDefaults(),
             self::ADMIN_FILE => self::adminDefaults(),
             self::AUTHORIZATION_FILE => self::authorizationDefaults(),
-            self::API_KEYS_FILE => ['version' => 1, 'keys' => []],
+            self::API_KEYS_FILE => ['version' => 2, 'keys' => []],
             self::DATABASE_STATE_FILE => ['version' => 1, 'available' => true, 'updatedAt' => null],
         ];
     }

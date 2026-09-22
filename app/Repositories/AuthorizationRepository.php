@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
+require_once __DIR__ . '/../Authorization/RoleModel.php';
 
 final class AuthorizationRepository
 {
@@ -12,6 +13,10 @@ final class AuthorizationRepository
     {
         RuntimeConfiguration::ensure();
         $value = JsonFileStore::load($this->path);
+        if (($value['version'] ?? null) === 1) {
+            $value = RuntimeConfiguration::authorizationDefaults();
+            JsonFileStore::save($this->path, $value);
+        }
         $this->validate($value);
         return $value;
     }
@@ -26,18 +31,19 @@ final class AuthorizationRepository
 
     private function validate(array $value): void
     {
-        if (($value['version'] ?? null) !== 1 || array_diff(array_keys($value), ['version', 'publicRoles', 'legacyApiKeyRoles', 'roles']) !== []
+        if (($value['version'] ?? null) !== 2 || array_diff(array_keys($value), ['version', 'publicRoles', 'legacyApiKeyRoles', 'roles']) !== []
             || !is_array($value['roles'] ?? null) || array_is_list($value['roles']) || $value['roles'] === []) {
             throw new RuntimeException('Invalid authorization configuration.');
         }
         foreach (['publicRoles', 'legacyApiKeyRoles'] as $field) {
             if (!is_array($value[$field] ?? null) || !array_is_list($value[$field])) throw new RuntimeException('Invalid authorization role assignment.');
         }
-        $allowedPermissions = ['admin.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'];
+        $allowedPermissions = ['admin.manage', 'frontend.read', 'frontend.users.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'];
         foreach ($value['roles'] as $id => $role) {
             if (!is_string($id) || preg_match('/^[a-z][a-z0-9-]*$/', $id) !== 1 || !is_array($role)
-                || array_diff(array_keys($role), ['name', 'permissions', 'sqlResources', 'writeResources']) !== []
+                || array_diff(array_keys($role), ['name', 'domain', 'permissions', 'sqlResources', 'writeResources']) !== []
                 || !is_string($role['name'] ?? null) || trim($role['name']) === '') throw new RuntimeException('Invalid authorization role.');
+            if (!in_array($role['domain'] ?? null, ['backend', 'frontend'], true)) throw new RuntimeException('Invalid authorization role domain.');
             foreach (['permissions', 'sqlResources', 'writeResources'] as $field) {
                 if (!is_array($role[$field] ?? null) || !array_is_list($role[$field]) || count(array_unique($role[$field])) !== count($role[$field])) throw new RuntimeException('Invalid authorization role.');
             }
@@ -47,8 +53,24 @@ final class AuthorizationRepository
             }
         }
         foreach (array_merge($value['publicRoles'], $value['legacyApiKeyRoles']) as $role) {
-            if (!is_string($role) || !isset($value['roles'][$role])) throw new RuntimeException('Unknown authorization role.');
+            if (!is_string($role) || !in_array($role, RoleModel::backendRoles(), true)) throw new RuntimeException('Unknown authorization role.');
         }
-        if (!isset($value['roles']['admin']) || !in_array('admin.manage', $value['roles']['admin']['permissions'], true)) throw new RuntimeException('Administrator authorization role is required.');
+        if (array_diff(RoleModel::backendRoles(), array_keys($value['roles'])) !== []
+            || !isset($value['roles'][RoleModel::APPLICATION_ADMINISTRATOR])
+            || count($value['roles']) !== 4
+            || $value['roles'][RoleModel::READ_ONLY]['domain'] !== 'backend'
+            || $value['roles'][RoleModel::DATA_OPERATOR]['domain'] !== 'backend'
+            || $value['roles'][RoleModel::SYSTEM_ADMINISTRATOR]['domain'] !== 'backend'
+            || $value['roles'][RoleModel::APPLICATION_ADMINISTRATOR]['domain'] !== 'frontend'
+            || in_array('data.write', $value['roles'][RoleModel::READ_ONLY]['permissions'], true)
+            || in_array('admin.manage', $value['roles'][RoleModel::READ_ONLY]['permissions'], true)
+            || in_array('admin.manage', $value['roles'][RoleModel::DATA_OPERATOR]['permissions'], true)
+            || !in_array('data.write', $value['roles'][RoleModel::DATA_OPERATOR]['permissions'], true)
+            || !in_array('admin.manage', $value['roles'][RoleModel::SYSTEM_ADMINISTRATOR]['permissions'], true)
+            || !in_array('frontend.users.manage', $value['roles'][RoleModel::APPLICATION_ADMINISTRATOR]['permissions'], true)
+            || in_array('admin.manage', $value['roles'][RoleModel::APPLICATION_ADMINISTRATOR]['permissions'], true)
+            || in_array('data.write', $value['roles'][RoleModel::APPLICATION_ADMINISTRATOR]['permissions'], true)) {
+            throw new RuntimeException('Required authorization roles are unavailable.');
+        }
     }
 }

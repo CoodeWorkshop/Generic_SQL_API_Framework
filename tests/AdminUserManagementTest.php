@@ -88,16 +88,16 @@ try {
     }
 
     $operator = $repository->findUser('Operator');
-    $session->establish('Operator', false, $operator['id'], $operator['authVersion']);
+    $session->establish('Operator', $operator['id'], $operator['authVersion']);
     foreach ($actions as $action) {
-        $request = ['action' => $action, 'authenticated' => true, 'isAdmin' => true];
+        $request = ['action' => $action, 'authenticated' => true];
         $authentication->handle($request);
         userManagementFailure(fn () => $authorization->handle($request), 'AUTHORIZATION_DENIED', 403);
     }
     destroyUserManagementSession($sessionName);
 
     $admin = $repository->findUser('Admin');
-    $session->establish('Admin', true, $admin['id'], $admin['authVersion']);
+    $session->establish('Admin', $admin['id'], $admin['authVersion']);
     foreach ($actions as $action) {
         $authentication->handle(['action' => $action]);
         $authorization->handle(['action' => $action]);
@@ -108,25 +108,25 @@ try {
     userManagementAssert(
         !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'password')
             && !str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'authVersion')
-            && array_keys($listed[0]) === ['username', 'enabled', 'isAdmin', 'roles', 'createdAt'],
+            && array_keys($listed[0]) === ['username', 'enabled', 'backendRole', 'frontendAccess', 'frontendRole', 'createdAt'],
         'User list exposed internal authentication material.'
     );
 
-    $created = $service->createUser('New.User', 'new-user-password-123', false);
+    $created = $service->createUser('New.User', 'new-user-password-123', RoleModel::READ_ONLY, false, null);
     userManagementAssert(
         $created['username'] === 'New.User'
             && $created['enabled'] === true
-            && $created['isAdmin'] === false
+            && $created['backendRole'] === RoleModel::READ_ONLY
             && strtotime($created['createdAt']) !== false
             && !str_contains(json_encode($created, JSON_THROW_ON_ERROR), 'password'),
         'Created user response was unsafe or malformed.'
     );
     userManagementFailure(
-        fn () => $service->createUser('new.user', 'another-password-123', false),
+        fn () => $service->createUser('new.user', 'another-password-123', RoleModel::READ_ONLY, false, null),
         'USER_ALREADY_EXISTS',
         409
     );
-    $disabledCreated = $service->createUser('Initially.Disabled', 'disabled-password-123', false, false);
+    $disabledCreated = $service->createUser('Initially.Disabled', 'disabled-password-123', RoleModel::READ_ONLY, false, null, false);
     userManagementAssert($disabledCreated['enabled'] === false, 'Initial disabled status was not stored.');
     userManagementFailure(
         fn () => $authService->login('Initially.Disabled', 'disabled-password-123'),
@@ -180,9 +180,9 @@ try {
     userManagementFailure(fn () => $service->setEnabled('Admin', false), 'LAST_ENABLED_ADMIN', 409);
     userManagementFailure(fn () => $service->deleteUser('Admin', 'Other.Admin'), 'LAST_ENABLED_ADMIN', 409);
 
-    $service->createUser('Second.Admin', 'second-admin-password', true);
+    $service->createUser('Second.Admin', 'second-admin-password', RoleModel::SYSTEM_ADMINISTRATOR, false, null);
     $admin = $repository->findUser('Admin');
-    $session->establish('Admin', true, $admin['id'], $admin['authVersion']);
+    $session->establish('Admin', $admin['id'], $admin['authVersion']);
     $service->setEnabled('Admin', false);
     userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
     userManagementAssert(session_status() !== PHP_SESSION_ACTIVE, 'Disabled account session was not invalidated.');
@@ -190,7 +190,7 @@ try {
     $service->deleteUser('Second.Admin', 'Admin');
     userManagementAssert($repository->findUser('Second.Admin') === null, 'A non-last enabled administrator could not be deleted.');
 
-    $service->createUser('Temporary.User', 'temporary-password', false);
+    $service->createUser('Temporary.User', 'temporary-password', RoleModel::READ_ONLY, false, null);
     $authService->login('Temporary.User', 'temporary-password');
     $service->deleteUser('Temporary.User', 'Admin');
     userManagementFailure(fn () => $authentication->handle(['action' => 'select']), 'AUTHENTICATION_REQUIRED', 401);
@@ -202,8 +202,9 @@ try {
         'username' => 'Default.Role',
         'password' => 'valid-password-123',
         'passwordConfirmation' => 'valid-password-123',
+        'backendRole' => RoleModel::READ_ONLY,
     ]);
-    userManagementAssert($validatedCreate['isAdmin'] === false, 'Create-user admin flag did not default safely.');
+    userManagementAssert($validatedCreate['backendRole'] === RoleModel::READ_ONLY && $validatedCreate['frontendAccess'] === false, 'Create-user authorization was not validated safely.');
     userManagementAssert($validatedCreate['enabled'] === true, 'Create-user enabled status did not default safely.');
     $validatedUpdate = $validator->validate([
         'action' => 'auth.users.update',

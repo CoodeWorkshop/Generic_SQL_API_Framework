@@ -32,7 +32,6 @@ final class AdminController extends BaseController
         elseif ($action === 'admin.database.save') $result = $this->service->saveDatabase($request['database']);
         elseif ($action === 'admin.settings.get') $result = $this->service->settings();
         elseif ($action === 'admin.server.save') $result = $this->service->saveServer($request['server']);
-        elseif ($action === 'admin.features.save') $result = $this->service->saveFeatures($request['features']);
         elseif ($action === 'admin.cors.save') $result = $this->service->saveCors($request['cors']);
         elseif ($action === 'admin.authentication.save') $result = $this->service->saveAuthentication($request['mode']);
         else $result = $this->service->saveAuthentication($request['mode']);

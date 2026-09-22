@@ -47,10 +47,6 @@ final class AdminRequestValidator
             $this->rejectUnknown($request, ['action', 'server']);
             return ['action' => $action, 'server' => $this->server($request['server'] ?? null)];
         }
-        if ($action === 'admin.features.save') {
-            $this->rejectUnknown($request, ['action', 'features']);
-            return ['action' => $action, 'features' => $this->features($request['features'] ?? null)];
-        }
         if ($action === 'admin.cors.save') {
             $this->rejectUnknown($request, ['action', 'cors']);
             return ['action' => $action, 'cors' => $this->cors($request['cors'] ?? null)];
@@ -102,23 +98,6 @@ final class AdminRequestValidator
             'adminPort' => $normalized['adminPort'],
             'bindAddress' => '127.0.0.1',
         ];
-    }
-
-    private function features($value): array
-    {
-        $keys = ['readData', 'writeData', 'pagination', 'sorting', 'metadata'];
-        if (!is_array($value) || array_is_list($value)) {
-            $this->invalid([['path' => 'features', 'message' => 'Feature configuration must be an object.']]);
-        }
-        $this->rejectUnknown($value, $keys, 'features.');
-        $errors = [];
-        foreach ($keys as $key) {
-            if (!is_bool($value[$key] ?? null)) {
-                $errors[] = ['path' => 'features.' . $key, 'message' => 'Feature value must be boolean.'];
-            }
-        }
-        if ($errors !== []) $this->invalid($errors);
-        return array_combine($keys, array_map(fn (string $key): bool => $value[$key], $keys));
     }
 
     private function database($value): array

@@ -1,11 +1,11 @@
 {
-  "version": 1,
-  "publicRoles": ["viewer"],
-  "legacyApiKeyRoles": ["viewer"],
+  "version": 2,
+  "publicRoles": ["read-only"],
+  "legacyApiKeyRoles": ["read-only"],
   "roles": {
-    "viewer": {"name": "Viewer", "permissions": ["data.read", "metadata.read"], "sqlResources": [], "writeResources": []},
-    "developer": {"name": "Developer", "permissions": ["data.read", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": []},
-    "data-editor": {"name": "Data Editor", "permissions": ["data.read", "data.write"], "sqlResources": [], "writeResources": ["*"]},
-    "admin": {"name": "Admin", "permissions": ["admin.manage", "data.read", "data.write", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": ["*"]}
+    "read-only": {"name": "Read Only", "domain": "backend", "permissions": ["data.read", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": []},
+    "data-operator": {"name": "Data Operator", "domain": "backend", "permissions": ["data.read", "data.write", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": ["*"]},
+    "system-administrator": {"name": "System Administrator", "domain": "backend", "permissions": ["admin.manage", "frontend.users.manage", "data.read", "data.write", "metadata.read", "sql.execute", "routine.execute"], "sqlResources": ["*"], "writeResources": ["*"]},
+    "application-administrator": {"name": "Application Administrator", "domain": "frontend", "permissions": ["frontend.read", "frontend.users.manage"], "sqlResources": ["*"], "writeResources": []}
   }
 }

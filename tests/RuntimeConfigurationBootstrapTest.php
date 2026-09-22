@@ -40,19 +40,19 @@ try {
     $auth = JsonFileStore::load($firstDirectory . '/auth.json');
     $installation = JsonFileStore::load($firstDirectory . '/installation.json');
     $admin = JsonFileStore::load($firstDirectory . '/admin.json');
-    bootstrapAssert($auth === ['version' => 3, 'users' => []], 'Auth defaults are unsafe or malformed.');
+    bootstrapAssert($auth === ['version' => 4, 'users' => []], 'Auth defaults are unsafe or malformed.');
     bootstrapAssert($installation['initialized'] === false, 'Fresh installation was initialized automatically.');
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
     bootstrapAssert(
-        $admin['version'] === 3
+        $admin['version'] === 4
             && $admin['server']['apiPortMinimum'] === 8000
             && $admin['server']['apiPortMaximum'] === 8100
             && $admin['server']['parserPortMinimum'] === 8101
             && $admin['server']['parserPortMaximum'] === 8199
             && $admin['server']['adminPort'] === 8090
             && $admin['server']['bindAddress'] === '127.0.0.1'
-            && !in_array(false, $admin['features'], true),
+            && !array_key_exists('features', $admin),
         'Admin runtime defaults are unsafe or malformed.'
     );
     $serializedDefaults = json_encode([$auth, $installation, $admin], JSON_THROW_ON_ERROR);
@@ -79,11 +79,39 @@ try {
         'isAdmin' => true,
     ]]]);
     $legacy = (new AuthRepository($legacyDirectory . '/auth.json'))->load();
-    bootstrapAssert($legacy['version'] === 3 && $legacy['users'][0]['roles'] === ['admin'], 'Legacy authentication configuration was not migrated.');
+    bootstrapAssert(
+        $legacy['version'] === 4
+            && $legacy['users'][0]['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR
+            && $legacy['users'][0]['frontendRole'] === RoleModel::APPLICATION_ADMINISTRATOR,
+        'Legacy authentication configuration was not migrated.'
+    );
     bootstrapAssert($legacy['users'][0]['passwordHash'] === $legacyHash, 'Migration changed the existing password hash.');
     bootstrapAssert($legacy['users'][0]['username'] === 'Legacy.Admin', 'Migration changed the existing username.');
     bootstrapAssert(preg_match('/^[a-f0-9]{32}$/', $legacy['users'][0]['id']) === 1, 'Migration did not create a stable user ID.');
     bootstrapAssert($legacy['users'][0]['authVersion'] === 1, 'Migration did not initialize session versioning.');
+
+    $phaseThreeId = bin2hex(random_bytes(16));
+    JsonFileStore::save($legacyDirectory . '/auth.json', ['version' => 3, 'users' => [[
+        'id' => $phaseThreeId,
+        'username' => 'Existing.Editor',
+        'passwordHash' => $legacyHash,
+        'enabled' => false,
+        'isAdmin' => false,
+        'roles' => ['data-editor'],
+        'createdAt' => '2025-01-01T00:00:00+00:00',
+        'authVersion' => 7,
+    ]]]);
+    $phaseThree = (new AuthRepository($legacyDirectory . '/auth.json'))->load()['users'][0];
+    bootstrapAssert(
+        $phaseThree['id'] === $phaseThreeId
+            && $phaseThree['username'] === 'Existing.Editor'
+            && $phaseThree['passwordHash'] === $legacyHash
+            && $phaseThree['enabled'] === false
+            && $phaseThree['backendRole'] === RoleModel::DATA_OPERATOR
+            && $phaseThree['frontendAccess'] === true
+            && $phaseThree['authVersion'] === 8,
+        'Phase-3 identity was not migrated without losing credentials or access.'
+    );
 
     $gitignore = (string)file_get_contents(__DIR__ . '/../.gitignore');
     foreach (['config/auth.json', 'config/installation.json', 'config/admin.json', 'config/authorization.json', 'config/api-keys.json', 'config/database-state.json'] as $ignoredPath) {

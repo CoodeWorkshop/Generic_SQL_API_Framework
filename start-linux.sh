@@ -54,20 +54,13 @@ export GENERIC_ADMIN_ENABLED=1
 export GENERIC_ADMIN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ADMIN_URL="http://127.0.0.1:$ADMIN_PORT/admin"
 
-if ! "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/api-runtime-control.php" start >/dev/null; then
-    echo "[WARNING] API did not start. Use System Health after reviewing the configured port range."
-fi
-if ! "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/sqlparser-runtime-control.php" start >/dev/null; then
-    echo "[WARNING] SQL Parser did not start. Use System Health after reviewing the configured port range."
-fi
-
 echo "[OK] PHP runtime and required extensions"
 echo "[OK] Runtime configuration"
 echo "[OK] Local database encryption key"
 echo "[OK] Admin Console port $ADMIN_PORT"
 echo
-echo "API:   managed from System Health"
-echo "Parser: managed from System Health"
+echo "API:   stopped until started from System Health"
+echo "Parser: stopped until started from System Health"
 echo "Admin: $ADMIN_URL"
 echo
 echo "The Admin Console is bound to this computer only. Press Ctrl+C to stop it."

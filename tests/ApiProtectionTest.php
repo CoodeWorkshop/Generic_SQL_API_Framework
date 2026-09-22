@@ -132,7 +132,6 @@ try {
     $authenticatedUser = $authRepository->findUser('Authenticated.User');
     $session->establish(
         $authenticatedUser['username'],
-        $authenticatedUser['isAdmin'],
         $authenticatedUser['id'],
         $authenticatedUser['authVersion']
     );
@@ -144,7 +143,6 @@ try {
         $_SESSION['generic_reporting_auth'] === [
             'authenticated' => true,
             'username' => 'Authenticated.User',
-            'isAdmin' => false,
             'userId' => $authenticatedUser['id'],
             'authVersion' => $authenticatedUser['authVersion'],
         ],

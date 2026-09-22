@@ -73,7 +73,7 @@ try {
     securityAssert(ini_get('session.use_only_cookies') === '1', 'Sessions may use non-cookie identifiers.');
     securityAssert(ini_get('session.use_strict_mode') === '1', 'Strict session mode is not enabled.');
 
-    $session->establish('Security.Admin', true, str_repeat('a', 32), 1);
+    $session->establish('Security.Admin', str_repeat('a', 32), 1);
     securityAssert(session_id() !== $anonymousSessionId, 'Login did not regenerate the session identifier.');
     $csrf->validate($firstToken);
     $authenticatedToken = $csrf->rotate();
@@ -82,7 +82,7 @@ try {
     $csrf->validate($authenticatedToken);
     securityAssert(!str_contains(json_encode([
         'authenticated' => true,
-        'user' => ['username' => 'Security.Admin', 'isAdmin' => true],
+        'user' => ['username' => 'Security.Admin', 'backendRole' => RoleModel::SYSTEM_ADMINISTRATOR],
     ], JSON_THROW_ON_ERROR), session_id()), 'Authentication response exposed the session identifier.');
 
     $middleware = new CsrfProtectionMiddleware($csrf);
@@ -97,7 +97,7 @@ try {
         'CSRF_VALIDATION_FAILED',
         403
     );
-    foreach (['admin.server.save', 'admin.features.save', 'admin.api.start', 'admin.api.stop', 'admin.api.restart'] as $action) {
+    foreach (['admin.server.save', 'admin.api.start', 'admin.api.stop', 'admin.api.restart'] as $action) {
         securityFailure(fn () => $middleware->handle(['action' => $action]), 'CSRF_VALIDATION_FAILED', 403);
     }
     securityAssert($missing->getDetails() === [], 'CSRF failure exposed internal details.');
@@ -115,7 +115,7 @@ try {
     securityAssert($secondToken !== $authenticatedToken, 'Logout did not invalidate the prior CSRF token.');
     securityFailure(fn () => $nextCsrf->validate($authenticatedToken), 'CSRF_VALIDATION_FAILED', 403);
 
-    $nextSession->establish('Security.Admin', true, str_repeat('a', 32), 1);
+    $nextSession->establish('Security.Admin', str_repeat('a', 32), 1);
     $_SESSION['generic_reporting_session_meta']['lastActivity'] = time() - 601;
     securityAssert($nextSession->resume() === false, 'Idle session timeout was not enforced.');
     securityAssert(session_status() !== PHP_SESSION_ACTIVE, 'Expired session was not destroyed.');

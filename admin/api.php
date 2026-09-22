@@ -51,7 +51,7 @@ $authActions = ['auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 $userActions = [
     'auth.users.list', 'auth.users.create', 'auth.users.update', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
-    'auth.users.assignRoles',
+    'auth.users.assignAuthorization',
 ];
 $apiKeyActions = ['auth.apiKeys.list','auth.apiKeys.create','auth.apiKeys.enable','auth.apiKeys.disable','auth.apiKeys.revoke'];
 $roleActions = ['auth.roles.list'];
@@ -60,7 +60,7 @@ $adminActions = [
     'admin.api.start', 'admin.api.stop', 'admin.api.restart',
     'admin.sqlParser.start', 'admin.sqlParser.stop', 'admin.sqlParser.restart',
     'admin.database.get', 'admin.database.testCurrent', 'admin.database.connect', 'admin.database.disconnect', 'admin.database.restart', 'admin.database.test', 'admin.database.save',
-    'admin.settings.get', 'admin.server.save', 'admin.features.save',
+    'admin.settings.get', 'admin.server.save',
     'admin.cors.save', 'admin.authentication.save',
 ];
 $allActions = array_merge($setupActions, $authActions, $userActions, $apiKeyActions, $roleActions, $adminActions);
@@ -100,7 +100,7 @@ if (in_array($request['action'], $userActions, true)) {
     if ($validated['action'] === 'auth.users.enable') $controller->enableUser($validated);
     if ($validated['action'] === 'auth.users.disable') $controller->disableUser($validated);
     if ($validated['action'] === 'auth.users.delete') $controller->deleteUser($validated);
-    if ($validated['action'] === 'auth.users.assignRoles') $controller->assignRoles($validated);
+    if ($validated['action'] === 'auth.users.assignAuthorization') $controller->assignAuthorization($validated);
     $controller->changePassword($validated);
 }
 if (in_array($request['action'], $apiKeyActions, true)) {

@@ -91,7 +91,6 @@ final class AuthService
             }
             $this->sessionService->establish(
                 $user['username'],
-                $user['isAdmin'],
                 $user['id'],
                 $user['authVersion']
             );
@@ -100,7 +99,7 @@ final class AuthService
                 'sourceIp' => $sourceIp,
                 'result' => 'authenticated',
             ]);
-            return $this->authenticatedSnapshot($user['username'], $user['isAdmin']);
+            return $this->authenticatedSnapshot($user);
         } catch (ApiRequestException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -115,9 +114,8 @@ final class AuthService
                 return $this->unauthenticatedSnapshot();
             }
             $username = (string)$this->sessionService->authenticatedUsername();
-            $isAdmin = $this->sessionService->authenticatedUserIsAdmin();
             $user = $this->authRepository->findUserById((string)$this->sessionService->authenticatedUserId());
-            if ($user === null || $user['enabled'] !== true || $user['isAdmin'] !== $isAdmin) {
+            if ($user === null || $user['enabled'] !== true) {
                 $this->sessionService->destroy();
                 return $this->unauthenticatedSnapshot();
             }
@@ -126,10 +124,7 @@ final class AuthService
                 $this->sessionService->destroy();
                 return $this->unauthenticatedSnapshot();
             }
-            return $this->authenticatedSnapshot(
-                $user['username'],
-                $user['isAdmin']
-            );
+            return $this->authenticatedSnapshot($user);
         } catch (Throwable $exception) {
             $this->fail($exception);
         }
@@ -153,11 +148,16 @@ final class AuthService
         }
     }
 
-    private function authenticatedSnapshot(string $username, bool $isAdmin): array
+    private function authenticatedSnapshot(array $user): array
     {
         return [
             'authenticated' => true,
-            'user' => ['username' => $username, 'isAdmin' => $isAdmin],
+            'user' => [
+                'username' => $user['username'],
+                'backendRole' => $user['backendRole'],
+                'frontendAccess' => $user['frontendAccess'],
+                'frontendRole' => $user['frontendRole'],
+            ],
         ];
     }
 

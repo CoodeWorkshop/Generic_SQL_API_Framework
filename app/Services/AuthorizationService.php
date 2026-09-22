@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Authorization/Principal.php';
+require_once __DIR__ . '/../Authorization/RoleModel.php';
 require_once __DIR__ . '/../Repositories/AuthorizationRepository.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 
@@ -12,6 +13,8 @@ final class AuthorizationService
     public function publicRoles(): array { return $this->repository->load()['publicRoles']; }
     public function legacyApiKeyRoles(): array { return $this->repository->load()['legacyApiKeyRoles']; }
     public function roleExists(string $role): bool { return isset($this->roles()[$role]); }
+    public function backendRoleExists(?string $role): bool { return $role === null || in_array($role, RoleModel::backendRoles(), true); }
+    public function frontendRoleExists(?string $role): bool { return $role === null || in_array($role, RoleModel::frontendRoles(), true); }
     public function permissionsForRoles(array $roles): array
     {
         $definitions=$this->roles();$permissions=[];
@@ -22,10 +25,13 @@ final class AuthorizationService
     public function authorize(Principal $principal, string $permission, ?string $resource = null, ?string $scope = null): void
     {
         if (!$principal->enabled) $this->deny(false);
+        // Frontend access is the base read entitlement in the frontend domain;
+        // Application Administrator adds management, not a second read model.
+        if ($permission === 'frontend.read' && $principal->frontendAccess) return;
         $configuration = $this->repository->load();
         $allowed = false;
         $resourceAllowed = $resource === null;
-        foreach ($principal->roles as $roleId) {
+        foreach ($principal->roles() as $roleId) {
             $role = $configuration['roles'][$roleId] ?? null;
             if ($role === null || !in_array($permission, $role['permissions'], true)) continue;
             $allowed = true;
@@ -34,6 +40,17 @@ final class AuthorizationService
             if (in_array('*', $resources, true) || in_array($resource, $resources, true)) $resourceAllowed = true;
         }
         if (!$allowed || !$resourceAllowed) $this->deny($resource !== null);
+    }
+
+    public function authorizeAny(Principal $principal, array $permissions, ?string $resource = null, ?string $scope = null): void
+    {
+        foreach ($permissions as $permission) {
+            try { $this->authorize($principal, $permission, $resource, $scope); return; }
+            catch (ApiRequestException $exception) {
+                if (!in_array($exception->getErrorCode(), ['AUTHORIZATION_DENIED', 'RESOURCE_ACCESS_DENIED'], true)) throw $exception;
+            }
+        }
+        $this->deny($resource !== null);
     }
 
     private function deny(bool $resource): never

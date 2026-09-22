@@ -132,10 +132,9 @@ start-windows.bat
 
 The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP
 installation is not required. The launcher validates PHP and required extensions,
-prepares the ignored local encryption key, starts Admin Console on its configured
-loopback port, and starts the API and SQL Parser as independently managed
-processes on the first free ports in their configured ranges. A preconfigured or
-reachable database is not required.
+prepares the ignored local encryption key, and starts only Admin Console on its
+configured loopback port. Start API and SQL Parser manually from System Health;
+either may remain stopped. A preconfigured or reachable database is not required.
 
 On Linux, run:
 

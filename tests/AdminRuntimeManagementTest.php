@@ -5,7 +5,6 @@ require_once __DIR__ . '/../app/Runtime/PortSelector.php';
 require_once __DIR__ . '/../app/Runtime/ApiProcessManager.php';
 require_once __DIR__ . '/../app/Runtime/SqlParserProcessManager.php';
 require_once __DIR__ . '/../app/Runtime/RuntimeDetector.php';
-require_once __DIR__ . '/../app/Middleware/FeatureAccessMiddleware.php';
 require_once __DIR__ . '/../app/Services/AdminService.php';
 
 function runtimeAssert(bool $condition, string $message): void
@@ -76,54 +75,28 @@ try {
     ]);
     $migrated = $repository->load();
     runtimeAssert(
-        $migrated['version'] === 3
+        $migrated['version'] === 4
             && $migrated['authentication']['mode'] === 'none'
-            && isset($migrated['server'], $migrated['features']),
+            && isset($migrated['server'])
+            && !isset($migrated['features']),
         'Version-1 Admin configuration was not safely migrated.'
     );
     $versionTwo = AdminConfigurationRepository::defaults();
     $versionTwo['version'] = 2;
+    $versionTwo['features'] = ['readData' => true, 'writeData' => true, 'pagination' => true, 'sorting' => true, 'metadata' => true];
     unset($versionTwo['server']['parserPortMinimum'], $versionTwo['server']['parserPortMaximum']);
     JsonFileStore::save($configurationPath, $versionTwo);
     $migratedVersionTwo = $repository->load();
     runtimeAssert(
-        $migratedVersionTwo['version'] === 3
+        $migratedVersionTwo['version'] === 4
             && $migratedVersionTwo['server']['parserPortMinimum'] === 8101
-            && $migratedVersionTwo['features'] === $versionTwo['features'],
+            && !isset($migratedVersionTwo['features']),
         'Version-2 Admin configuration was not safely migrated.'
     );
     $configuration = AdminConfigurationRepository::defaults();
     $configuration['server'] = $validServer;
     $repository->save($configuration);
     putenv('GENERIC_ADMIN_CONFIG_PATH=' . $configurationPath);
-
-    $features = $validator->validate([
-        'action' => 'admin.features.save',
-        'features' => [
-            'metadata' => false,
-            'sorting' => false,
-            'pagination' => false,
-            'writeData' => false,
-            'readData' => false,
-        ],
-    ])['features'];
-    $configuration['features'] = $features;
-    $repository->save($configuration);
-    $middleware = new FeatureAccessMiddleware($repository);
-    foreach (['select', 'sql', 'union', 'procedure', 'function', 'tableFunction'] as $action) {
-        runtimeFailure(fn () => $middleware->handle(['action' => $action]), 'Read Data was not enforced.', 'FEATURE_DISABLED');
-    }
-    foreach (['insert', 'update', 'delete', 'upsert'] as $action) {
-        runtimeFailure(fn () => $middleware->handle(['action' => $action]), 'Write Data was not enforced.', 'FEATURE_DISABLED');
-    }
-    runtimeFailure(fn () => $middleware->handle(['action' => 'metadata.tables']), 'Metadata was not enforced.', 'FEATURE_DISABLED');
-    $configuration['features'] = array_fill_keys(array_keys($features), true);
-    $configuration['features']['pagination'] = false;
-    $configuration['features']['sorting'] = false;
-    $repository->save($configuration);
-    runtimeFailure(fn () => $middleware->handle(['action' => 'select', 'pagination' => ['page' => 1]]), 'Pagination was not enforced.', 'FEATURE_DISABLED');
-    runtimeFailure(fn () => $middleware->handle(['action' => 'union', 'queries' => [['sort' => []]]]), 'Nested sorting was not enforced.', 'FEATURE_DISABLED');
-    $middleware->handle(['action' => 'select']);
 
     $runtime = (new RuntimeDetector())->information();
     runtimeAssert($runtime['operatingSystem'] !== '' && $runtime['phpVersion'] === PHP_VERSION, 'Runtime detection is incomplete.');
@@ -219,8 +192,8 @@ try {
     runtimeAssert(str_contains($windowsLauncher, 'runtime\windows\php\php.exe'), 'Windows runtime is not automatically selected.');
     runtimeAssert(str_contains($linuxLauncher, 'runtime/linux/php/php'), 'Linux bundled runtime is not preferred.');
     foreach ([$windowsLauncher, $linuxLauncher] as $launcher) {
-        runtimeAssert(str_contains($launcher, 'api-runtime-control.php'), 'Launcher does not start the managed API lifecycle.');
-        runtimeAssert(str_contains($launcher, 'sqlparser-runtime-control.php'), 'Launcher does not start the managed SQL Parser lifecycle.');
+        runtimeAssert(!str_contains($launcher, 'api-runtime-control.php start'), 'Launcher still starts the managed API lifecycle.');
+        runtimeAssert(!str_contains($launcher, 'sqlparser-runtime-control.php start'), 'Launcher still starts the managed SQL Parser lifecycle.');
         runtimeAssert(str_contains($launcher, '-t') && str_contains($launcher, 'router.php'), 'Launcher does not start the independent Admin app.');
     }
 

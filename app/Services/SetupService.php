@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Security/PasswordHasher.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../../core/Logger.php';
 require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
+require_once __DIR__ . '/../Authorization/RoleModel.php';
 
 final class SetupService
 {
@@ -83,14 +84,15 @@ final class SetupService
                 }
 
                 $updatedAuthentication = [
-                    'version' => 3,
+                    'version' => 4,
                     'users' => [[
                         'id' => bin2hex(random_bytes(16)),
                         'username' => $username,
                         'passwordHash' => $this->passwordHasher->hash($password),
                         'enabled' => true,
-                        'isAdmin' => true,
-                        'roles' => ['admin'],
+                        'backendRole' => RoleModel::SYSTEM_ADMINISTRATOR,
+                        'frontendAccess' => true,
+                        'frontendRole' => RoleModel::APPLICATION_ADMINISTRATOR,
                         'createdAt' => gmdate(DATE_ATOM),
                         'authVersion' => 1,
                     ]],
@@ -132,7 +134,7 @@ final class SetupService
     {
         return count($users) === 1
             && $users[0]['enabled'] === true
-            && $users[0]['isAdmin'] === true;
+            && $users[0]['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR;
     }
 
     private function alreadyInitialized(): never

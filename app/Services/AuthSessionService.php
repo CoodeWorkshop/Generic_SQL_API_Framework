@@ -59,7 +59,6 @@ final class AuthSessionService
         return ($identity['authenticated'] ?? false) === true
             && is_string($identity['username'] ?? null)
             && $identity['username'] !== ''
-            && is_bool($identity['isAdmin'] ?? null)
             && is_string($identity['userId'] ?? null)
             && preg_match('/^[a-f0-9]{32}$/', $identity['userId']) === 1
             && is_int($identity['authVersion'] ?? null)
@@ -69,11 +68,6 @@ final class AuthSessionService
     public function authenticatedUsername(): ?string
     {
         return $this->isAuthenticated() ? $_SESSION[self::AUTH_KEY]['username'] : null;
-    }
-
-    public function authenticatedUserIsAdmin(): bool
-    {
-        return $this->isAuthenticated() && $_SESSION[self::AUTH_KEY]['isAdmin'] === true;
     }
 
     public function authenticatedUserId(): ?string
@@ -88,7 +82,6 @@ final class AuthSessionService
 
     public function establish(
         string $username,
-        bool $isAdmin,
         string $userId,
         int $authVersion
     ): void
@@ -108,7 +101,6 @@ final class AuthSessionService
         $_SESSION[self::AUTH_KEY] = [
             'authenticated' => true,
             'username' => $username,
-            'isAdmin' => $isAdmin,
             'userId' => $userId,
             'authVersion' => $authVersion,
         ];

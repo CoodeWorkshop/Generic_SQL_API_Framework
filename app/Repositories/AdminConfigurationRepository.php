@@ -24,7 +24,7 @@ final class AdminConfigurationRepository
     {
         if ($this->runtimePath) RuntimeConfiguration::ensure();
         $configuration = JsonFileStore::load($this->path);
-        if (in_array($configuration['version'] ?? null, [1, 2], true)) {
+        if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) {
             $configuration = $this->migrate($configuration);
             JsonFileStore::save($this->path, $configuration);
         }
@@ -48,7 +48,7 @@ final class AdminConfigurationRepository
         try {
             if (!flock($stream, LOCK_EX)) throw new RuntimeException('Admin configuration lock could not be acquired.');
             $configuration = JsonFileStore::load($this->path);
-            if (in_array($configuration['version'] ?? null, [1, 2], true)) $configuration = $this->migrate($configuration);
+            if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) $configuration = $this->migrate($configuration);
             $this->validate($configuration);
             $result = $operation($configuration);
             $this->validate($configuration);
@@ -89,10 +89,9 @@ final class AdminConfigurationRepository
 
     private function validate(array $configuration): void
     {
-        if (array_diff(array_keys($configuration), ['version', 'server', 'features', 'cors', 'authentication']) !== []
-            || ($configuration['version'] ?? null) !== 3
+        if (array_diff(array_keys($configuration), ['version', 'server', 'cors', 'authentication']) !== []
+            || ($configuration['version'] ?? null) !== 4
             || !is_array($configuration['server'] ?? null)
-            || !is_array($configuration['features'] ?? null)
             || !is_array($configuration['cors'] ?? null)
             || !is_array($configuration['authentication'] ?? null)) {
             throw new RuntimeException('Invalid admin configuration.');
@@ -111,13 +110,6 @@ final class AdminConfigurationRepository
             || $server['adminPort'] < 1 || $server['adminPort'] > 65535
             || ($server['bindAddress'] ?? null) !== '127.0.0.1') {
             throw new RuntimeException('Invalid server configuration.');
-        }
-        $features = $configuration['features'];
-        if (array_keys($features) !== ['readData', 'writeData', 'pagination', 'sorting', 'metadata']) {
-            throw new RuntimeException('Invalid feature configuration.');
-        }
-        foreach ($features as $enabled) {
-            if (!is_bool($enabled)) throw new RuntimeException('Invalid feature configuration.');
         }
         $cors = $configuration['cors'];
         if (array_diff(array_keys($cors), ['allowedOrigins', 'credentialsEnabled', 'allowedMethods']) !== []
@@ -157,12 +149,24 @@ final class AdminConfigurationRepository
     private function migrate(array $configuration): array
     {
         $version = $configuration['version'] ?? null;
+        if ($version === 3) {
+            if (!is_array($configuration['server'] ?? null)
+                || !is_array($configuration['cors'] ?? null)
+                || !is_array($configuration['authentication'] ?? null)) {
+                throw new RuntimeException('Invalid admin configuration.');
+            }
+            return [
+                'version' => 4,
+                'server' => $configuration['server'],
+                'cors' => $configuration['cors'],
+                'authentication' => $configuration['authentication'],
+            ];
+        }
         if ($version === 2) {
             $this->validateVersionTwo($configuration);
             $defaults = self::defaults();
             return [
-                ...$configuration,
-                'version' => 3,
+                'version' => 4,
                 'server' => [
                     'apiPortMinimum' => $configuration['server']['apiPortMinimum'],
                     'apiPortMaximum' => $configuration['server']['apiPortMaximum'],
@@ -171,6 +175,8 @@ final class AdminConfigurationRepository
                     'adminPort' => $configuration['server']['adminPort'],
                     'bindAddress' => $configuration['server']['bindAddress'],
                 ],
+                'cors' => $configuration['cors'],
+                'authentication' => $configuration['authentication'],
             ];
         }
         if (array_diff(array_keys($configuration), ['version', 'cors', 'authentication']) !== []
@@ -180,9 +186,8 @@ final class AdminConfigurationRepository
         }
         $defaults = self::defaults();
         return [
-            'version' => 3,
+            'version' => 4,
             'server' => $defaults['server'],
-            'features' => $defaults['features'],
             'cors' => $configuration['cors'],
             'authentication' => $configuration['authentication'],
         ];
@@ -190,7 +195,8 @@ final class AdminConfigurationRepository
 
     private function validateVersionTwo(array $configuration): void
     {
-        if (array_keys($configuration) !== ['version', 'server', 'features', 'cors', 'authentication']
+        if (array_diff(array_keys($configuration), ['version', 'server', 'features', 'cors', 'authentication']) !== []
+            || array_diff(['version', 'server', 'features', 'cors', 'authentication'], array_keys($configuration)) !== []
             || !is_array($configuration['server'] ?? null)
             || array_keys($configuration['server']) !== ['apiPortMinimum', 'apiPortMaximum', 'adminPort', 'bindAddress']) {
             throw new RuntimeException('Invalid admin configuration.');

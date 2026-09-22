@@ -28,7 +28,9 @@ final class UserManagementController extends BaseController
             [$this->userService->createUser(
                 $request['username'],
                 $request['password'],
-                $request['isAdmin'],
+                $request['backendRole'],
+                $request['frontendAccess'],
+                $request['frontendRole'],
                 $request['enabled']
             )],
             'User created.',
@@ -70,8 +72,10 @@ final class UserManagementController extends BaseController
         );
     }
 
-    public function assignRoles(array $request): void
+    public function assignAuthorization(array $request): void
     {
-        $this->success([$this->userService->assignRoles($request['username'], $request['roles'])], 'User roles updated.');
+        $this->success([$this->userService->assignAuthorization(
+            $request['username'], $request['backendRole'], $request['frontendAccess'], $request['frontendRole']
+        )], 'User authorization updated.');
     }
 }

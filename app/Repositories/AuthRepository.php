@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../config/constants.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../Configuration/RuntimeConfiguration.php';
+require_once __DIR__ . '/../Authorization/RoleModel.php';
 
 final class AuthRepository
 {
@@ -19,10 +20,10 @@ final class AuthRepository
     {
         $this->bootstrapRuntimeConfiguration();
         $configuration = JsonFileStore::load($this->path);
-        if (in_array($configuration['version'] ?? null, [1, 2], true)) {
+        if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) {
             return $this->withLock(function (): array {
                 $configuration = JsonFileStore::load($this->path);
-                if (in_array($configuration['version'] ?? null, [1, 2], true)) {
+                if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) {
                     $configuration = $this->migrateLegacyConfiguration($configuration);
                     JsonFileStore::save($this->path, $configuration);
                 }
@@ -37,7 +38,7 @@ final class AuthRepository
     public function save(array $configuration): void
     {
         $this->bootstrapRuntimeConfiguration();
-        if (in_array($configuration['version'] ?? null, [1, 2], true)) {
+        if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) {
             $configuration = $this->migrateLegacyConfiguration($configuration);
         }
         $this->validate($configuration);
@@ -87,7 +88,7 @@ final class AuthRepository
         $this->bootstrapRuntimeConfiguration();
         return $this->withLock(function () use ($operation) {
             $configuration = JsonFileStore::load($this->path);
-            if (in_array($configuration['version'] ?? null, [1, 2], true)) {
+            if (in_array($configuration['version'] ?? null, [1, 2, 3], true)) {
                 $configuration = $this->migrateLegacyConfiguration($configuration);
             }
             $this->validate($configuration);
@@ -100,7 +101,7 @@ final class AuthRepository
     private function validate(array $configuration): void
     {
         if (array_diff(array_keys($configuration), ['version', 'users']) !== []
-            || ($configuration['version'] ?? null) !== 3
+            || ($configuration['version'] ?? null) !== 4
             || !is_array($configuration['users'] ?? null)
             || !array_is_list($configuration['users'])) {
             throw new RuntimeException('Invalid authentication configuration.');
@@ -111,7 +112,8 @@ final class AuthRepository
         foreach ($configuration['users'] as $user) {
             if (!is_array($user) || array_is_list($user)
                 || array_diff(array_keys($user), [
-                    'id', 'username', 'passwordHash', 'enabled', 'isAdmin', 'roles', 'createdAt', 'authVersion'
+                    'id', 'username', 'passwordHash', 'enabled', 'backendRole',
+                    'frontendAccess', 'frontendRole', 'createdAt', 'authVersion'
                 ]) !== []
                 || !is_string($user['id'] ?? null)
                 || preg_match('/^[a-f0-9]{32}$/', $user['id']) !== 1
@@ -121,13 +123,11 @@ final class AuthRepository
                 || ($user['passwordHash'] ?? '') === ''
                 || (password_get_info($user['passwordHash'])['algoName'] ?? 'unknown') === 'unknown'
                 || !is_bool($user['enabled'] ?? null)
-                || !is_bool($user['isAdmin'] ?? null)
-                || !is_array($user['roles'] ?? null)
-                || !array_is_list($user['roles'])
-                || $user['roles'] === []
-                || count(array_filter($user['roles'], fn ($role): bool => !is_string($role) || preg_match('/^[a-z][a-z0-9-]*$/', $role) !== 1)) > 0
-                || count(array_unique($user['roles'])) !== count($user['roles'])
-                || $user['isAdmin'] !== in_array('admin', $user['roles'], true)
+                || ($user['backendRole'] !== null && !in_array($user['backendRole'], RoleModel::backendRoles(), true))
+                || !is_bool($user['frontendAccess'] ?? null)
+                || ($user['frontendRole'] !== null && !in_array($user['frontendRole'], RoleModel::frontendRoles(), true))
+                || ($user['frontendRole'] !== null && $user['frontendAccess'] !== true)
+                || ($user['enabled'] === true && $user['backendRole'] === null && $user['frontendAccess'] !== true)
                 || !is_string($user['createdAt'] ?? null)
                 || strtotime($user['createdAt']) === false
                 || !is_int($user['authVersion'] ?? null)
@@ -146,28 +146,33 @@ final class AuthRepository
 
     private function migrateLegacyConfiguration(array $configuration): array
     {
-        if (!in_array($configuration['version'] ?? null, [1, 2], true)
+        if (!in_array($configuration['version'] ?? null, [1, 2, 3], true)
             || !is_array($configuration['users'] ?? null)
             || !array_is_list($configuration['users'])) {
             throw new RuntimeException('Invalid authentication configuration.');
         }
         $createdAt = gmdate(DATE_ATOM, (int)(@filemtime($this->path) ?: time()));
         $sourceVersion = $configuration['version'];
-        $configuration['version'] = 3;
+        $configuration['version'] = 4;
         foreach ($configuration['users'] as &$user) {
             if (!is_array($user) || array_is_list($user)) {
                 throw new RuntimeException('Invalid authentication user configuration.');
             }
             $isAdmin = ($user['isAdmin'] ?? null) === true;
+            $legacyRoles = is_array($user['roles'] ?? null)
+                ? $user['roles']
+                : [$isAdmin ? 'admin' : 'viewer'];
+            $backendRole = RoleModel::migrateLegacyBackendRoles($legacyRoles);
             $user = [
-                'id' => $sourceVersion === 2 ? ($user['id'] ?? null) : bin2hex(random_bytes(16)),
+                'id' => $sourceVersion >= 2 ? ($user['id'] ?? null) : bin2hex(random_bytes(16)),
                 'username' => $user['username'] ?? null,
                 'passwordHash' => $user['passwordHash'] ?? null,
                 'enabled' => $user['enabled'] ?? null,
-                'isAdmin' => $isAdmin,
-                'roles' => [$isAdmin ? 'admin' : 'viewer'],
-                'createdAt' => $sourceVersion === 2 ? ($user['createdAt'] ?? null) : $createdAt,
-                'authVersion' => $sourceVersion === 2 ? ($user['authVersion'] ?? null) : 1,
+                'backendRole' => $backendRole,
+                'frontendAccess' => true,
+                'frontendRole' => $isAdmin ? RoleModel::APPLICATION_ADMINISTRATOR : null,
+                'createdAt' => $sourceVersion >= 2 ? ($user['createdAt'] ?? null) : $createdAt,
+                'authVersion' => $sourceVersion >= 2 ? ($user['authVersion'] ?? null) + 1 : 1,
             ];
         }
         unset($user);
