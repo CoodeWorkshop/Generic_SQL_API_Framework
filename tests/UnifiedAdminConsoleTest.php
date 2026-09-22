@@ -224,6 +224,18 @@ try {
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
     unifiedAdminAssert(str_contains($adminJavaScript, 'availableAuthenticationModes.map'), 'Database authentication UI does not use backend-supported modes.');
+    unifiedAdminAssert(
+        preg_match('/async function healthView\s*\(/', $adminJavaScript) === 1
+            && preg_match('/(^|[;{}]\s*)healthView\s*=/', $adminJavaScript) !== 1,
+        'System Health view is not safely declared before Admin Console initialization.'
+    );
+    foreach (['setupView', 'loginView', 'entryView', 'infoView', 'configurationView', 'healthView', 'rolesView', 'apiKeysView'] as $view) {
+        unifiedAdminAssert(
+            preg_match('/(?:async\s+)?function\s+' . preg_quote($view, '/') . '\s*\(/', $adminJavaScript) === 1,
+            "Admin Console view {$view} is referenced without a function declaration."
+        );
+    }
+    unifiedAdminAssert(str_contains($adminJavaScript, 'let usersView;') && str_contains($adminJavaScript, 'usersView=async function()'), 'Users view binding is not declared.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'SQL query timeout (seconds)'), 'Configured query timeout is missing from the Admin Console.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'admin.runtime.save'), 'Runtime configuration save is missing from the Admin Console.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
