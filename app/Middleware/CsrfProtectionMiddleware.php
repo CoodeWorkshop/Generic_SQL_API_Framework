@@ -28,7 +28,6 @@ final class CsrfProtectionMiddleware extends Middleware
         'auth.apiKeys.revoke',
         'setup.createAdmin',
         'admin.database.test',
-        'admin.database.testCurrent',
         'admin.database.save',
         'admin.database.connect',
         'admin.database.disconnect',

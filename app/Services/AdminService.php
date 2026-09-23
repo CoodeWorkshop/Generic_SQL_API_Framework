@@ -57,7 +57,6 @@ final class AdminService
 
     public function status(): array
     {
-        $settings = $this->configuration->load();
         $databaseAvailable = $this->databaseAvailability->available();
         $database = $databaseAvailable
             ? $this->databaseHealth()
@@ -70,7 +69,10 @@ final class AdminService
                 'running' => true,
                 'healthy' => true,
                 'status' => 'running',
-                'port' => (int)($_SERVER['SERVER_PORT'] ?? $settings['server']['adminPort']),
+                'pid' => getmypid(),
+                'port' => isset($_SERVER['SERVER_PORT']) && filter_var($_SERVER['SERVER_PORT'], FILTER_VALIDATE_INT) !== false
+                    ? (int)$_SERVER['SERVER_PORT']
+                    : null,
                 'startedAt' => getenv('GENERIC_ADMIN_STARTED_AT') ?: null,
             ],
             'api' => $api,
@@ -355,7 +357,6 @@ final class AdminService
     public function controlDatabase(string $operation): array
     {
         if ($operation === 'disconnect') return $this->databaseAvailability->setAvailable(false);
-        if ($operation === 'test') { $this->testCurrentDatabase(); return [...$this->databaseAvailability->status(), 'tested' => true]; }
         if ($operation === 'restart') $this->databaseAvailability->setAvailable(false);
         try { $this->testCurrentDatabase(); return $this->databaseAvailability->setAvailable(true); }
         catch (Throwable $exception) { $this->databaseAvailability->setAvailable(false); throw $exception; }
@@ -374,6 +375,9 @@ final class AdminService
                 'configured' => true,
                 'encrypted' => DatabaseConfigurationResolver::usesEncryption($stored),
                 'readable' => true,
+                'server' => (string)($resolved['server'] ?? ''),
+                'port' => isset($resolved['port']) && $resolved['port'] !== '' ? (string)$resolved['port'] : null,
+                'database' => (string)($resolved['database'] ?? ''),
             ];
         } catch (Throwable $exception) {
             return [

@@ -81,7 +81,7 @@ Backend developers adding controlled SQL reports should also read
 ## Configure SQL Server
 
 For local setup, start the backend and use the loopback-only Admin Console at
-`/admin`. Its Database page validates/tests the connection and saves the complete
+`/admin`. Its Database page validates/tests submitted settings and saves the complete
 configuration as an AES-256-GCM envelope without a plaintext backup. CORS,
 authentication mode, runtime status, and the non-executing SQL parser are also
 available there. See [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md).
@@ -132,9 +132,10 @@ start-windows.bat
 
 The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP
 installation is not required. The launcher validates PHP and required extensions,
-prepares the ignored local encryption key, and starts only Admin Console on its
-configured loopback port. Start API and SQL Parser manually from System Health;
-either may remain stopped. A preconfigured or reachable database is not required.
+prepares the ignored local encryption key, resets database runtime access to
+disconnected, and starts only Admin Console on its configured loopback port.
+Start API and SQL Parser and connect the database manually from System Health;
+each may remain stopped or disconnected. A preconfigured or reachable database is not required.
 
 On Linux, run:
 
@@ -146,7 +147,8 @@ It mirrors the loopback binding, validation, local key preparation, automatic
 port selection, and optional browser launch. It prefers
 `runtime/linux/php/php` and falls back to installed PHP when the bundled Linux
 binary is absent. The Admin Console remains available while its System Health
-screen starts, stops, or restarts the API or SQL Parser independently.
+screen starts, stops, or restarts the API or SQL Parser and connects,
+disconnects, or restarts database runtime access independently.
 
 With another PHP installation, after configuring the database:
 
@@ -187,6 +189,7 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - Phase 2.2 — cross-platform API/parser lifecycle and setup stabilization: implemented
 - Phase 3.1 — fixed authorization roles and separated backend/frontend administration: implemented
 - Phase 3.2 — configurable runtime and performance controls: implemented
+- Phase 4.1 — runtime lifecycle and System Health cleanup: implemented
 - Transactions, richer metadata, and additional providers: planned
 
 The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).

@@ -25,11 +25,16 @@ function runtimeFailure(callable $operation, string $message, ?string $code = nu
 
 $directory = sys_get_temp_dir() . '/generic-api-runtime-' . bin2hex(random_bytes(6));
 $configurationPath = $directory . '/admin.json';
+$databasePath = $directory . '/database.json';
+$databaseStatePath = $directory . '/database-state.json';
 $statePath = $directory . '/api-process.json';
 $parserStatePath = $directory . '/sqlparser-process.json';
 $oldConfigurationPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
+$oldAdminStartedAt = getenv('GENERIC_ADMIN_STARTED_AT');
+$oldServerPort = $_SERVER['SERVER_PORT'] ?? null;
 $manager = null;
 $parserManager = null;
+$reservedPort = null;
 
 try {
     mkdir($directory, 0700, true);
@@ -118,25 +123,102 @@ try {
 
     $realSelector = new PortSelector();
     $first = $realSelector->firstAvailable('127.0.0.1', 18200, 18300);
+    $reservedPort = stream_socket_server("tcp://127.0.0.1:{$first}", $socketErrorNumber, $socketErrorMessage);
+    runtimeAssert(is_resource($reservedPort), 'Unable to reserve the first lifecycle test port.');
     $configuration['server'] = [
         'apiPortMinimum' => $first,
-        'apiPortMaximum' => min(65535, $first + 2),
+        'apiPortMaximum' => min(65535, $first + 5),
         'parserPortMinimum' => $first,
-        'parserPortMaximum' => min(65535, $first + 2),
+        'parserPortMaximum' => min(65535, $first + 5),
         'adminPort' => $first + 1,
         'bindAddress' => '127.0.0.1',
     ];
     $repository->save($configuration);
+    $_SERVER['SERVER_PORT'] = (string)($first + 4);
+    putenv('GENERIC_ADMIN_STARTED_AT=2026-09-23T07:00:00+00:00');
     $manager = new ApiProcessManager($repository, null, null, $statePath, dirname(__DIR__));
     $parserManager = new SqlParserProcessManager($repository, null, null, $parserStatePath, dirname(__DIR__));
-    runtimeAssert($manager->status()['running'] === false, 'Missing PID state was not stopped.');
+    $databaseConfiguration = [
+        'provider' => 'sqlserver',
+        'driver' => 'auto',
+        'server' => 'localhost\\SQLEXPRESS',
+        'port' => '1433',
+        'database' => 'ApplicationDb',
+        'authentication' => 'sql',
+        'username' => 'api_user',
+        'password' => 'secret',
+        'options' => ['encrypt' => true, 'trustServerCertificate' => false],
+    ];
+    JsonFileStore::save($databasePath, $databaseConfiguration);
+    JsonFileStore::save($databaseStatePath, ['version' => 1, 'available' => false, 'updatedAt' => null]);
+    $databaseAvailability = new DatabaseAvailabilityManager($databaseStatePath);
+    $connectionTests = 0;
+    $adminService = new AdminService(
+        $repository,
+        $databasePath,
+        static function () use (&$connectionTests): void { $connectionTests++; },
+        $manager,
+        null,
+        $parserManager,
+        null,
+        $databaseAvailability
+    );
+    $initialApi = $manager->status();
+    $initialParser = $parserManager->status();
+    runtimeAssert(
+        $initialApi['running'] === false
+            && $initialApi['pid'] === null
+            && $initialApi['port'] === null
+            && $initialApi['startedAt'] === null,
+        'Missing API PID state did not return a clean stopped status.'
+    );
+    runtimeAssert(
+        $initialParser['running'] === false
+            && $initialParser['pid'] === null
+            && $initialParser['port'] === null
+            && $initialParser['startedAt'] === null,
+        'Missing SQL Parser PID state did not return a clean stopped status.'
+    );
+    $initialHealth = $adminService->status();
+    runtimeAssert(
+        $initialHealth['database']['available'] === false
+            && $initialHealth['database']['status'] === 'disconnected'
+            && $connectionTests === 0,
+        'Database did not start disconnected or health polling opened a connection.'
+    );
+    runtimeAssert(
+        $initialHealth['adminConsole']['pid'] === getmypid()
+            && $initialHealth['adminConsole']['port'] === $first + 4
+            && $initialHealth['adminConsole']['startedAt'] === '2026-09-23T07:00:00+00:00',
+        'System Health did not use the Admin process runtime PID, port, and start time.'
+    );
     $started = $manager->start();
-    runtimeAssert($started['running'] && $started['healthy'] && $started['port'] !== $configuration['server']['adminPort'], 'API did not start on a healthy non-admin port.');
-    runtimeAssert($parserManager->status()['running'] === false, 'Missing SQL Parser PID state was not stopped.');
+    runtimeAssert(
+        $started['running'] && $started['healthy']
+            && $started['port'] === $first + 2
+            && is_int($started['pid'])
+            && is_string($started['startedAt']),
+        'API did not select and report the first actual available non-admin port.'
+    );
     $parserStarted = $parserManager->start();
-    runtimeAssert($parserStarted['running'] && $parserStarted['healthy'] && $parserStarted['service'] === 'sqlparser', 'SQL Parser did not start healthy.');
-    runtimeAssert($parserStarted['port'] !== $started['port'] && $parserStarted['port'] !== $configuration['server']['adminPort'], 'SQL Parser selected a conflicting port.');
-    $adminService = new AdminService($repository, $directory . '/database.json', static function (): void {}, $manager, null, $parserManager);
+    runtimeAssert(
+        $parserStarted['running'] && $parserStarted['healthy']
+            && $parserStarted['service'] === 'sqlparser'
+            && $parserStarted['port'] === $first + 3
+            && is_int($parserStarted['pid'])
+            && is_string($parserStarted['startedAt']),
+        'SQL Parser did not select and report its actual available port.'
+    );
+    $runningHealth = $adminService->status();
+    runtimeAssert(
+        $runningHealth['api']['port'] === $started['port']
+            && $runningHealth['api']['pid'] === $started['pid']
+            && $runningHealth['api']['startedAt'] === $started['startedAt']
+            && $runningHealth['sqlParser']['port'] === $parserStarted['port']
+            && $runningHealth['sqlParser']['pid'] === $parserStarted['pid']
+            && $runningHealth['sqlParser']['startedAt'] === $parserStarted['startedAt'],
+        'System Health did not expose actual managed process metadata.'
+    );
     $unchangedServer = $adminService->saveServer($configuration['server']);
     runtimeAssert(
         !$unchangedServer['apiRestartRequired']
@@ -169,27 +251,84 @@ try {
         @posix_kill($restarted['pid'], defined('SIGKILL') ? SIGKILL : 9);
         usleep(200000);
         $crashed = $manager->status();
-        runtimeAssert(!$crashed['running'], 'Crashed API process was not recovered.');
+        runtimeAssert(
+            !$crashed['running']
+                && $crashed['pid'] === null
+                && $crashed['port'] === null
+                && $crashed['startedAt'] === null,
+            'Crashed API process was not recovered without stale runtime metadata.'
+        );
         runtimeAssert($manager->start()['healthy'] === true, 'API could not start after crash recovery.');
     }
-    runtimeAssert($manager->stop()['running'] === false, 'API stop failed.');
+    $stopped = $manager->stop();
+    runtimeAssert(
+        $stopped['running'] === false
+            && $stopped['pid'] === null
+            && $stopped['port'] === null
+            && $stopped['startedAt'] === null,
+        'API stop retained stale runtime metadata.'
+    );
     runtimeAssert($parserManager->status()['running'] === true, 'API stop terminated the SQL Parser.');
     runtimeAssert(($manager->stop()['alreadyStopped'] ?? false) === true, 'Already-stopped API was not idempotent.');
     JsonFileStore::save($statePath, ['version' => 2, 'service' => 'api', 'pid' => getmypid(), 'port' => $first, 'startedAt' => gmdate(DATE_ATOM)]);
     $stale = $manager->status();
-    runtimeAssert(!$stale['running'] && ($stale['staleStateRecovered'] ?? false), 'Stale or foreign PID was not recovered.');
+    runtimeAssert(
+        !$stale['running'] && ($stale['staleStateRecovered'] ?? false)
+            && $stale['pid'] === null
+            && $stale['port'] === null
+            && $stale['startedAt'] === null,
+        'Stale or foreign API PID was not recovered without stale runtime metadata.'
+    );
     $parserRestarted = $parserManager->restart();
     runtimeAssert($parserRestarted['running'] && $parserRestarted['healthy'], 'SQL Parser restart failed.');
     if (PHP_OS_FAMILY === 'Linux' && function_exists('posix_kill')) {
         @posix_kill($parserRestarted['pid'], defined('SIGKILL') ? SIGKILL : 9);
         usleep(200000);
-        runtimeAssert($parserManager->status()['running'] === false, 'Crashed SQL Parser process was not recovered.');
+        $parserCrashed = $parserManager->status();
+        runtimeAssert(
+            $parserCrashed['running'] === false
+                && $parserCrashed['pid'] === null
+                && $parserCrashed['port'] === null
+                && $parserCrashed['startedAt'] === null,
+            'Crashed SQL Parser process was not recovered without stale runtime metadata.'
+        );
         runtimeAssert($parserManager->start()['healthy'] === true, 'SQL Parser could not start after crash recovery.');
     }
-    runtimeAssert($parserManager->stop()['running'] === false, 'SQL Parser stop failed.');
+    $parserStopped = $parserManager->stop();
+    runtimeAssert(
+        $parserStopped['running'] === false
+            && $parserStopped['pid'] === null
+            && $parserStopped['port'] === null
+            && $parserStopped['startedAt'] === null,
+        'SQL Parser stop retained stale runtime metadata.'
+    );
     JsonFileStore::save($parserStatePath, ['version' => 2, 'service' => 'sqlparser', 'pid' => getmypid(), 'port' => $first + 2, 'startedAt' => gmdate(DATE_ATOM)]);
     $parserStale = $parserManager->status();
-    runtimeAssert(!$parserStale['running'] && ($parserStale['staleStateRecovered'] ?? false), 'SQL Parser stale or foreign PID was not recovered.');
+    runtimeAssert(
+        !$parserStale['running'] && ($parserStale['staleStateRecovered'] ?? false)
+            && $parserStale['pid'] === null
+            && $parserStale['port'] === null
+            && $parserStale['startedAt'] === null,
+        'SQL Parser stale or foreign PID was not recovered without stale runtime metadata.'
+    );
+
+    $connected = $adminService->controlDatabase('connect');
+    runtimeAssert($connected['available'] === true && $connectionTests === 1, 'Database connect did not validate and enable runtime access.');
+    $databaseHealth = $adminService->status()['database'];
+    runtimeAssert(
+        $databaseHealth['available'] === true
+            && $databaseHealth['status'] === 'connected'
+            && $databaseHealth['server'] === 'localhost\\SQLEXPRESS'
+            && $databaseHealth['port'] === '1433'
+            && $databaseHealth['database'] === 'ApplicationDb'
+            && !array_key_exists('pid', $databaseHealth),
+        'Database health did not expose only safe connection and runtime status fields.'
+    );
+    runtimeAssert(!str_contains(json_encode($databaseHealth, JSON_THROW_ON_ERROR), 'secret'), 'Database health exposed credentials.');
+    runtimeAssert($adminService->controlDatabase('disconnect')['available'] === false, 'Database disconnect failed.');
+    $reconnected = $adminService->controlDatabase('restart');
+    runtimeAssert($reconnected['available'] === true && $connectionTests === 3, 'Database restart did not reconnect runtime access.');
+    $adminService->controlDatabase('disconnect');
 
     $adminHtml = (string)file_get_contents(__DIR__ . '/../admin/index.php');
     runtimeAssert(str_contains($adminHtml, 'id="navigation" hidden'), 'Unauthenticated navigation is not hidden.');
@@ -208,11 +347,28 @@ try {
     foreach ([$windowsLauncher, $linuxLauncher] as $launcher) {
         runtimeAssert(!str_contains($launcher, 'api-runtime-control.php start'), 'Launcher still starts the managed API lifecycle.');
         runtimeAssert(!str_contains($launcher, 'sqlparser-runtime-control.php start'), 'Launcher still starts the managed SQL Parser lifecycle.');
+        runtimeAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Launcher does not reset database runtime access to disconnected.');
+        runtimeAssert(!str_contains($launcher, 'database-runtime-control.php connect'), 'Launcher automatically connects database runtime access.');
         runtimeAssert(str_contains($launcher, '-t') && str_contains($launcher, 'router.php'), 'Launcher does not start the independent Admin app.');
+    }
+
+    $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
+    runtimeAssert(!str_contains(strtolower($adminJavaScript), 'test saved configuration'), 'Removed saved-configuration runtime test remains in the Admin Console.');
+    runtimeAssert(!str_contains($adminJavaScript, 'Runtime access'), 'Database runtime controls remain under Configuration.');
+    runtimeAssert(!str_contains($adminJavaScript, 'data-database="'), 'Legacy Configuration database runtime controls remain.');
+    runtimeAssert(str_contains($adminJavaScript, 'data-database-runtime'), 'System Health database runtime controls are missing.');
+    runtimeAssert(str_contains($adminJavaScript, "['Port',health.api.port]") && str_contains($adminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not render actual API and SQL Parser ports.');
+
+    $adminApiSource = (string)file_get_contents(__DIR__ . '/../admin/api.php');
+    $adminControllerSource = (string)file_get_contents(__DIR__ . '/../app/Controllers/AdminController.php');
+    $adminValidatorSource = (string)file_get_contents(__DIR__ . '/../app/Requests/AdminRequestValidator.php');
+    foreach ([$adminApiSource, $adminControllerSource, $adminValidatorSource] as $source) {
+        runtimeAssert(!str_contains($source, 'admin.database.testCurrent'), 'Test Saved Configuration remains exposed as an Admin action.');
     }
 
     echo "Admin runtime management tests passed.\n";
 } finally {
+    if (is_resource($reservedPort)) fclose($reservedPort);
     if ($manager instanceof ApiProcessManager) {
         try { $manager->stop(); } catch (Throwable $exception) {}
     }
@@ -224,4 +380,9 @@ try {
     $oldConfigurationPath === false
         ? putenv('GENERIC_ADMIN_CONFIG_PATH')
         : putenv('GENERIC_ADMIN_CONFIG_PATH=' . $oldConfigurationPath);
+    $oldAdminStartedAt === false
+        ? putenv('GENERIC_ADMIN_STARTED_AT')
+        : putenv('GENERIC_ADMIN_STARTED_AT=' . $oldAdminStartedAt);
+    if ($oldServerPort === null) unset($_SERVER['SERVER_PORT']);
+    else $_SERVER['SERVER_PORT'] = $oldServerPort;
 }

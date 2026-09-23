@@ -18,6 +18,7 @@ locate php.exe and php.ini
   -> verify ODBC, OpenSSL, JSON, and session with extension_loaded()
   -> create missing ignored runtime configuration with safe defaults
   -> load/generate the ignored local database-encryption key
+  -> reset database runtime availability to disconnected
   -> verify the configured Admin loopback port
   -> php -S 127.0.0.1:<admin-port> -t admin admin/router.php
   -> open http://127.0.0.1:<admin-port>/admin
@@ -25,12 +26,13 @@ locate php.exe and php.ini
 
 The script explicitly loads `runtime/windows/php/php.ini`, configures OPcache's
 file cache, and writes PHP errors to `logs/php_errors.log`. It does not require a
-working database before startup: configure and test it through Configuration →
-Database. The launcher generates a local key only when neither an environment
+working database before startup: configure and test submitted settings through
+Configuration → Database, then connect runtime access from System Health. The launcher generates a local key only when neither an environment
 key nor key file exists and no already-encrypted database file depends on a
 missing key. It never rewrites database configuration itself. Each built-in
-server is single-process/single-threaded. API and SQL Parser remain stopped until
-started from System Health, and all three services retain independent lifecycles.
+server is single-process/single-threaded. API and SQL Parser remain stopped and
+database runtime access remains disconnected until manually controlled from
+System Health; all services retain independent lifecycles.
 
 Configuration bootstrap creates missing `config/auth.json`,
 `config/installation.json`, and `config/admin.json`; it never overwrites existing
@@ -38,15 +40,16 @@ values. The same idempotent bootstrap runs in the Linux launcher and repository
 load path, so manual file creation is unnecessary.
 
 The Admin Console is `/admin` on its configured port. System Health reports and
-controls the independent API and SQL Parser processes. Stopping or restarting
-either does not stop Admin Console or the other managed service.
+controls the independent API and SQL Parser processes and the database
+availability gate. Stopping or restarting either process does not stop Admin
+Console or the other managed service.
 
 ## Linux local runtime
 
 From the backend root run `./start-linux.sh`. It prefers
 `runtime/linux/php/php`, falls back to installed PHP when that bundled binary is
 absent, and loads `runtime/linux/php/php.ini`. It performs the same bootstrap,
-keeps Admin server in the foreground, leaves API and SQL Parser stopped, and
+keeps Admin server in the foreground, leaves API and SQL Parser stopped and the database disconnected, and
 attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
 
 ## Required deployment configuration

@@ -91,6 +91,14 @@ The five basic metadata actions already exist. This version is for capabilities 
 - configurable API/Admin JSON body limit and pagination default/maximum
 - System Administrator Admin Console controls and database-independent coverage
 
+## New Phase 4.1 — Runtime lifecycle and System Health cleanup — Implemented
+
+- Admin-only startup with API and SQL Parser stopped and database runtime access disconnected
+- one System Health lifecycle surface for API, SQL Parser, and database availability
+- actual managed PID, dynamically selected port, and start-time reporting without stale stopped-state values
+- configuration-only Database page with submitted-value testing and encrypted saves
+- fixed lifecycle operations, safe database health fields, and cross-platform launcher coverage
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

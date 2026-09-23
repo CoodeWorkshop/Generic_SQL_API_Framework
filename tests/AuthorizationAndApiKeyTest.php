@@ -101,7 +101,7 @@ try {
     $keys->setEnabled($created['id'], true); $keys->revoke($created['id']); phase3Assert($keys->authenticate($created['apiKey']) === null, 'Revoked API key authenticated.');
 
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
-    foreach (['data-service="api"','data-service="sqlParser"','data-database="connect"','auth.users.assignAuthorization','Application Administrator','System Administrator'] as $marker) phase3Assert(str_contains($adminJavaScript, $marker), "Admin UI is missing {$marker}.");
+    foreach (["serviceControls('api',health.api)", "serviceControls('sqlParser',health.sqlParser)", 'data-database-runtime', 'auth.users.assignAuthorization', 'Application Administrator', 'System Administrator'] as $marker) phase3Assert(str_contains($adminJavaScript, $marker), "Admin UI is missing {$marker}.");
     phase3Assert(!str_contains($adminJavaScript, 'admin.features.save'), 'Removed global feature controls remain in the Admin Console.');
     foreach (['start-linux.sh','start-windows.bat'] as $launcher) {
         $source=(string)file_get_contents(__DIR__.'/../'.$launcher);

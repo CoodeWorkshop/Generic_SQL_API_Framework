@@ -1,5 +1,13 @@
 # Changelog
 
+## Phase 4.1 — Runtime lifecycle and System Health cleanup
+
+- Made System Health the single lifecycle surface for API, SQL Parser, and database runtime access while keeping database editing/testing/saving under Configuration.
+- Made local launchers start Admin alone, with API and SQL Parser stopped and database runtime access explicitly disconnected.
+- Added truthful managed PID, dynamically selected port, and start-time reporting, with stale operational fields removed after stop, crash, or stale-state recovery.
+- Removed the saved-database test Admin action and retained only Connect, Disconnect, and Restart against the request-scoped database availability gate.
+- Added dynamic-port, startup-state, safe-health-field, lifecycle-location, and launcher regression coverage.
+
 ## Phase 3.2 — Configurable runtime and performance controls
 
 - Added validated runtime configuration for SQL query timeout, API/login rate limits, session expiration, JSON request body size, and pagination defaults/maximums.

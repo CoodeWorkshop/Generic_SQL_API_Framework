@@ -93,6 +93,20 @@ if errorlevel 1 (
 echo [OK] Runtime configuration
 
 REM ==================================================
+REM Reset request-scoped database runtime access
+REM ==================================================
+
+"%PHP%" -c "%PHP_INI%" "%ROOT%\scripts\database-runtime-control.php" disconnect >nul
+
+if errorlevel 1 (
+    echo [FAILED] Unable to reset database runtime state.
+    pause
+    exit /b 1
+)
+
+echo [OK] Database runtime disconnected
+
+REM ==================================================
 REM Prepare local database encryption key
 REM ==================================================
 REM

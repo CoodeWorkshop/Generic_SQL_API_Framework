@@ -220,6 +220,8 @@ try {
         unifiedAdminAssert(str_contains($launcher, '127.0.0.1'), 'Launcher does not bind to loopback.');
         unifiedAdminAssert(!str_contains($launcher, '0.0.0.0'), 'Launcher exposes the admin console to the network.');
         unifiedAdminAssert(str_contains($launcher, 'find-available-port.php'), 'Launcher does not use safe port selection.');
+        unifiedAdminAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Launcher does not start with database runtime access disconnected.');
+        unifiedAdminAssert(!str_contains($launcher, 'database-runtime-control.php connect'), 'Launcher automatically connects database runtime access.');
         unifiedAdminAssert(str_contains($launcher, '/admin'), 'Launcher does not display the admin URL.');
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
@@ -238,7 +240,19 @@ try {
     unifiedAdminAssert(str_contains($adminJavaScript, 'let usersView;') && str_contains($adminJavaScript, 'usersView=async function()'), 'Users view binding is not declared.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'SQL query timeout (seconds)'), 'Configured query timeout is missing from the Admin Console.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'admin.runtime.save'), 'Runtime configuration save is missing from the Admin Console.');
+    unifiedAdminAssert(!str_contains(strtolower($adminJavaScript), 'test saved configuration'), 'Removed saved database test remains in the Admin Console.');
+    unifiedAdminAssert(!str_contains($adminJavaScript, 'Runtime access'), 'Database runtime lifecycle remains under Configuration.');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'data-database-runtime'), 'Database runtime lifecycle is missing from System Health.');
+    unifiedAdminAssert(str_contains($adminJavaScript, "['Port',health.api.port]") && str_contains($adminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not display actual managed service ports.');
+    unifiedAdminAssert(str_contains($adminJavaScript, "['Server',health.database.server]") && str_contains($adminJavaScript, "['Database',health.database.database]"), 'System Health omits safe database connection details.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
+    foreach ([
+        __DIR__ . '/../admin/api.php',
+        __DIR__ . '/../app/Controllers/AdminController.php',
+        __DIR__ . '/../app/Requests/AdminRequestValidator.php',
+    ] as $adminActionSource) {
+        unifiedAdminAssert(!str_contains((string)file_get_contents($adminActionSource), 'admin.database.testCurrent'), 'Saved database test remains exposed as an Admin API action.');
+    }
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/router.php'), "['127.0.0.1', '::1']"), 'Admin router lacks loopback enforcement.');
     foreach ([
         'setup-database-encryption.bat',

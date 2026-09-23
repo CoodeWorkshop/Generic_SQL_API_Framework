@@ -40,10 +40,12 @@ try {
     $auth = JsonFileStore::load($firstDirectory . '/auth.json');
     $installation = JsonFileStore::load($firstDirectory . '/installation.json');
     $admin = JsonFileStore::load($firstDirectory . '/admin.json');
+    $databaseState = JsonFileStore::load($firstDirectory . '/database-state.json');
     bootstrapAssert($auth === ['version' => 4, 'users' => []], 'Auth defaults are unsafe or malformed.');
     bootstrapAssert($installation['initialized'] === false, 'Fresh installation was initialized automatically.');
     bootstrapAssert(preg_match('/^[a-f0-9]{64}$/', $installation['installationId']) === 1, 'Installation ID was not generated securely.');
     bootstrapAssert($admin['authentication']['mode'] === 'session', 'Authentication default was not session mode.');
+    bootstrapAssert($databaseState === ['version' => 1, 'available' => false, 'updatedAt' => null], 'Database runtime did not start disconnected.');
     bootstrapAssert(
         $admin['version'] === 5
             && $admin['server']['apiPortMinimum'] === 8000

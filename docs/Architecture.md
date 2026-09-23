@@ -115,6 +115,8 @@ Nested SELECT construction snapshots and restores the expression alias scope, so
 
 ## Database and metadata
 
+Local launcher startup and Admin runtime ownership are deliberately separate from request execution. The launchers start only the loopback Admin Console, reset database availability to disconnected, and do not start API or SQL Parser. System Health invokes fixed process-manager operations for API and SQL Parser and fixed availability-gate operations for the database. Managed process state records the PID, dynamically selected active port, and start time; status validation clears dead, foreign, or stale state and returns null operational fields when stopped. Database status has no process identity and returns only safe configured server, explicit port, database name, and connection state.
+
 `DriverFactory` currently creates only `SqlServerDriver`. A `Database` construction immediately connects, which is why production repositories are connection-backed. Query and write repositories pass their request-owned `QueryEngine` to `MetadataRepository`, so metadata and data use one connection in sequence instead of opening a second connection. Other requests construct different engines and connections. Statements are freed in `finally`, including after failures, and the engine closes its connection at the end of its lifetime. `MetadataRepository` queries `INFORMATION_SCHEMA` for query validation and integer-backed date handling. CRUD additionally queries `sys.columns`, `sys.tables`, `sys.schemas`, and `sys.types` for length, precision/scale, nullability, identity, computed, generated/hidden, and default flags.
 
 Database configuration protection is a configuration-layer concern:

@@ -47,6 +47,9 @@ $oldAdminPath = getenv('GENERIC_ADMIN_CONFIG_PATH');
 $actions = [
     'auth.users.list', 'auth.users.create', 'auth.users.update', 'auth.users.enable',
     'auth.users.disable', 'auth.users.delete', 'auth.users.changePassword',
+    'admin.api.start', 'admin.api.stop', 'admin.api.restart',
+    'admin.sqlParser.start', 'admin.sqlParser.stop', 'admin.sqlParser.restart',
+    'admin.database.connect', 'admin.database.disconnect', 'admin.database.restart',
 ];
 $publicActions = ['setup.status', 'setup.createAdmin', 'auth.csrf', 'auth.login', 'auth.session', 'auth.logout'];
 

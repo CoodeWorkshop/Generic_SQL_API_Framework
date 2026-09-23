@@ -41,6 +41,7 @@ for extension in odbc openssl json session; do
 done
 
 "$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/bootstrap-runtime-configuration.php"
+"$PHP_BIN" -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/database-runtime-control.php" disconnect >/dev/null
 
 GENERIC_SQL_API_ENCRYPTION_KEY="$($PHP_BIN -c "$PHP_INI_PATH" "$BACKEND_ROOT/scripts/prepare-local-encryption-key.php")"
 if [ -z "$GENERIC_SQL_API_ENCRYPTION_KEY" ]; then
@@ -56,6 +57,7 @@ ADMIN_URL="http://127.0.0.1:$ADMIN_PORT/admin"
 
 echo "[OK] PHP runtime and required extensions"
 echo "[OK] Runtime configuration"
+echo "[OK] Database runtime disconnected"
 echo "[OK] Local database encryption key"
 echo "[OK] Admin Console port $ADMIN_PORT"
 echo

@@ -1,6 +1,6 @@
 # Database Configuration
 
-System Health manages a runtime availability gate, not a permanent SQL connection. **Connect** temporarily validates encrypted configuration and enables new requests. **Disconnect** denies new database requests. **Restart** disables, retests, and re-enables only on success. **Test Connection** opens and closes a temporary request-scoped connection without changing availability.
+System Health manages a runtime availability gate, not a permanent SQL connection. **Connect** temporarily validates encrypted configuration and enables new requests. **Disconnect** denies new database requests. **Restart** disables, retests, and re-enables only on success. Configuration → Database's **Test Connection** tests the currently submitted form values through a temporary request-scoped connection without changing availability. There is no separate saved-configuration test action.
 
 ## Configuration file
 

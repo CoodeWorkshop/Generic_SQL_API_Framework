@@ -24,7 +24,6 @@ final class AdminController extends BaseController
         elseif ($action === 'admin.sqlParser.stop') $result = $this->service->controlSqlParser('stop');
         elseif ($action === 'admin.sqlParser.restart') $result = $this->service->controlSqlParser('restart');
         elseif ($action === 'admin.database.get') $result = $this->service->databaseConfiguration();
-        elseif ($action === 'admin.database.testCurrent') $result = $this->service->testCurrentDatabase();
         elseif ($action === 'admin.database.connect') $result = $this->service->controlDatabase('connect');
         elseif ($action === 'admin.database.disconnect') $result = $this->service->controlDatabase('disconnect');
         elseif ($action === 'admin.database.restart') $result = $this->service->controlDatabase('restart');
