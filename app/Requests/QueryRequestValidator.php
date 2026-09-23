@@ -676,7 +676,7 @@ class QueryRequestValidator
             $hasExpression = array_key_exists('expression', $item);
             if ($hasField === $hasExpression) {
                 $errors[] = ['path' => "{$path}.{$index}", 'message' => 'Sort requires exactly one field or expression.'];
-            } elseif ($hasField && (!$this->isIdentifier($item['field']) || ctype_digit((string)$item['field']))) {
+            } elseif ($hasField && (!$this->isIdentifier($item['field']) || preg_match('/^[0-9]+$/D', (string)$item['field']) === 1)) {
                 $errors[] = ['path' => "{$path}.{$index}.field", 'message' => 'Sort field must be a non-positional logical identifier.'];
             } elseif ($hasExpression) {
                 $this->validateExpressionNode($item['expression'], "{$path}.{$index}.expression", $errors, $depth + 1, 0, 'order');

@@ -126,6 +126,16 @@ The five basic metadata actions already exist. This version is for capabilities 
 - production session-storage ownership, location, lifetime, and cleanup requirements
 - preserved API-key separation and hostname-consistent local HTTP development
 
+## New Phase 4.5 — Runtime and concurrency hardening — Implemented
+
+- shared/read and exclusive/write coordination for complete file-backed JSON snapshots
+- deterministic concurrent runtime-configuration and rate-limit updates with malformed-state recovery
+- login reset serialization with failed-attempt updates
+- atomic local process restart plus verified termination and extension-free Linux signal fallback
+- request-owned non-persistent ODBC lifecycle and timeout cleanup verification
+- deterministic multi-process regression harness and documented single-host/multi-host boundaries
+- explicit IIS/FastCGI and Nginx/PHP-FPM production load-testing responsibilities
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

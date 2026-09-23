@@ -58,7 +58,7 @@ class OrderByBuilder
             $isAlias = false;
             $isPosition = false;
 
-            if (ctype_digit($orderColumn)) {
+            if (preg_match('/^[0-9]+$/D', $orderColumn) === 1) {
                 $position = (int)$orderColumn;
                 if ($position < 1) {
                     throw new Exception('ORDER BY position must be greater than zero.');

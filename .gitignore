@@ -32,6 +32,7 @@ Thumbs.db
 database/config/database.json
 database/config/database.json.backup*
 database/config/database.json.tmp*
+database/config/*.lock
 !database/config/database.example.json
 
 # Runtime authentication locks

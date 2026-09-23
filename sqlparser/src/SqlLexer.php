@@ -12,7 +12,7 @@ class SqlLexer
         for ($index = 0; $index < $length;) {
             $character = $sql[$index];
 
-            if (ctype_space($character)) {
+            if ($this->isWhitespace($character)) {
                 $index++;
                 continue;
             }
@@ -50,14 +50,14 @@ class SqlLexer
                 $tokens[] = $this->scanQuotedIdentifier($sql, $index, $length);
                 continue;
             }
-            if (ctype_digit($character)) {
+            if ($this->isDigit($character)) {
                 $start = $index;
-                while ($index < $length && ctype_digit($sql[$index])) {
+                while ($index < $length && $this->isDigit($sql[$index])) {
                     $index++;
                 }
                 if (($sql[$index] ?? '') === '.') {
                     $index++;
-                    while ($index < $length && ctype_digit($sql[$index])) {
+                    while ($index < $length && $this->isDigit($sql[$index])) {
                         $index++;
                     }
                 }
@@ -69,10 +69,10 @@ class SqlLexer
                 ];
                 continue;
             }
-            if (ctype_alpha($character) || $character === '_' || $character === '#') {
+            if ($this->isAlpha($character) || $character === '_' || $character === '#') {
                 $start = $index++;
                 while ($index < $length
-                    && (ctype_alnum($sql[$index]) || in_array($sql[$index], ['_', '$', '#'], true))) {
+                    && ($this->isAlphaNumeric($sql[$index]) || in_array($sql[$index], ['_', '$', '#'], true))) {
                     $index++;
                 }
                 $tokens[] = [
@@ -99,6 +99,26 @@ class SqlLexer
 
         $tokens[] = ['type' => 'eof', 'value' => '', 'position' => $length];
         return $tokens;
+    }
+
+    private function isWhitespace(string $character): bool
+    {
+        return str_contains(" \t\n\r\0\x0B", $character);
+    }
+
+    private function isDigit(string $character): bool
+    {
+        return $character >= '0' && $character <= '9';
+    }
+
+    private function isAlpha(string $character): bool
+    {
+        return ($character >= 'A' && $character <= 'Z') || ($character >= 'a' && $character <= 'z');
+    }
+
+    private function isAlphaNumeric(string $character): bool
+    {
+        return $this->isAlpha($character) || $this->isDigit($character);
     }
 
     private function scanString(string $sql, int &$index, int $length): array

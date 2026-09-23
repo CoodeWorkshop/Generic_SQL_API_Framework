@@ -73,7 +73,11 @@ class ApiProcessManager
 
     public function start(): array
     {
-        return $this->withLock(function (): array {
+        return $this->withLock(fn (): array => $this->startLocked());
+    }
+
+    private function startLocked(): array
+    {
             $existing = $this->readState();
             if ($existing !== null && $this->processExists($existing['pid']) && $this->belongsToService($existing)) {
                 $health = $this->health($existing['port']);
@@ -136,9 +140,23 @@ class ApiProcessManager
             if (!is_resource($process)) throw new RuntimeException($this->label() . ' process could not be started.');
             $processStatus = proc_get_status($process);
             $pid = (int)($processStatus['pid'] ?? 0);
-            if ($pid < 1) throw new RuntimeException($this->label() . ' process identifier is unavailable.');
+            if ($pid < 1) {
+                @proc_terminate($process);
+                @proc_close($process);
+                throw new RuntimeException($this->label() . ' process identifier is unavailable.');
+            }
             $state = ['version' => 2, 'service' => $this->service, 'pid' => $pid, 'port' => $port, 'startedAt' => $startedAt];
-            JsonFileStore::save($this->statePath, $state);
+            try {
+                JsonFileStore::save($this->statePath, $state);
+            } catch (Throwable $exception) {
+                @proc_terminate($process);
+                unset($process);
+                if (!$this->terminateAndWait($pid)) {
+                    throw new RuntimeException($this->label() . ' process cleanup failed after state storage failed.', 0, $exception);
+                }
+                $this->clearState();
+                throw $exception;
+            }
             unset($process);
 
             $health = null;
@@ -149,7 +167,9 @@ class ApiProcessManager
                 if (!$this->processExists($pid)) break;
             }
             if ($health === null) {
-                $this->terminate($pid);
+                if (!$this->terminateAndWait($pid)) {
+                    throw new RuntimeException($this->label() . ' process failed to become healthy and could not be stopped.');
+                }
                 $this->clearState();
                 throw new RuntimeException($this->label() . ' process failed to become healthy.');
             }
@@ -164,32 +184,32 @@ class ApiProcessManager
                 'uptimeSeconds' => 0,
                 'version' => $health['version'] ?? null,
             ];
-        });
     }
 
     public function stop(): array
     {
-        return $this->withLock(function (): array {
+        return $this->withLock(fn (): array => $this->stopLocked());
+    }
+
+    private function stopLocked(): array
+    {
             $state = $this->readState();
             if ($state === null) return [...$this->stopped(), 'alreadyStopped' => true];
             if ($this->processExists($state['pid']) && $this->belongsToService($state)) {
-                $this->terminate($state['pid']);
-                for ($attempt = 0; $attempt < 30 && $this->processExists($state['pid']); $attempt++) {
-                    usleep(100000);
-                }
-                if ($this->processExists($state['pid'])) {
-                    $this->forceTerminate($state['pid']);
+                if (!$this->terminateAndWait($state['pid'])) {
+                    throw new RuntimeException($this->label() . ' process could not be stopped.');
                 }
             }
             $this->clearState();
             return $this->stopped();
-        });
     }
 
     public function restart(): array
     {
-        $this->stop();
-        return $this->start();
+        return $this->withLock(function (): array {
+            $this->stopLocked();
+            return $this->startLocked();
+        });
     }
 
     private function command(string $address, int $port): array
@@ -273,6 +293,14 @@ class ApiProcessManager
             exec('tasklist /FI "PID eq ' . $pid . '" /NH', $output, $code);
             return $code === 0 && str_contains(implode("\n", $output), (string)$pid);
         }
+        if (PHP_OS_FAMILY === 'Linux') {
+            $stat = @file_get_contents('/proc/' . $pid . '/stat');
+            if (is_string($stat)
+                && preg_match('/^\d+ \(.*\) ([A-Z]) /', $stat, $matches) === 1
+                && $matches[1] === 'Z') {
+                return false;
+            }
+        }
         return function_exists('posix_kill') ? @posix_kill($pid, 0) : is_dir('/proc/' . $pid);
     }
 
@@ -282,7 +310,12 @@ class ApiProcessManager
             exec('taskkill /PID ' . $pid . ' /T', $output, $code);
             return;
         }
-        if (function_exists('posix_kill')) @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
+        if (function_exists('posix_kill')) {
+            @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
+            return;
+        }
+        $kill = is_executable('/bin/kill') ? '/bin/kill' : 'kill';
+        exec(escapeshellarg($kill) . ' -TERM ' . (int)$pid . ' 2>/dev/null', $output, $code);
     }
 
     private function forceTerminate(int $pid): void
@@ -291,7 +324,27 @@ class ApiProcessManager
             exec('taskkill /F /PID ' . $pid . ' /T', $output, $code);
             return;
         }
-        if (function_exists('posix_kill')) @posix_kill($pid, defined('SIGKILL') ? SIGKILL : 9);
+        if (function_exists('posix_kill')) {
+            @posix_kill($pid, defined('SIGKILL') ? SIGKILL : 9);
+            return;
+        }
+        $kill = is_executable('/bin/kill') ? '/bin/kill' : 'kill';
+        exec(escapeshellarg($kill) . ' -KILL ' . (int)$pid . ' 2>/dev/null', $output, $code);
+    }
+
+    private function terminateAndWait(int $pid): bool
+    {
+        if (!$this->processExists($pid)) return true;
+        $this->terminate($pid);
+        for ($attempt = 0; $attempt < 30 && $this->processExists($pid); $attempt++) {
+            usleep(100000);
+        }
+        if (!$this->processExists($pid)) return true;
+        $this->forceTerminate($pid);
+        for ($attempt = 0; $attempt < 20 && $this->processExists($pid); $attempt++) {
+            usleep(100000);
+        }
+        return !$this->processExists($pid);
     }
 
     private function withLock(callable $operation)

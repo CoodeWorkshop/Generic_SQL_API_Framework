@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../config/constants.php';
+require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/SecurityConfiguration.php';
 
@@ -56,24 +57,18 @@ final class ApiRateLimiter
         try {
             $record = [];
             if (is_file($path)) {
-                $decoded = json_decode((string)@file_get_contents($path), true);
-                if (is_array($decoded)) $record = $decoded;
+                try {
+                    $record = JsonFileStore::load($path);
+                } catch (Throwable $exception) {
+                    $record = [];
+                }
             }
             [$next, $result] = $operation($record);
-            $temporary = $path . '.tmp-' . bin2hex(random_bytes(4));
-            $contents = json_encode($next, JSON_THROW_ON_ERROR);
-            if (file_put_contents($temporary, $contents, LOCK_EX) === false) {
-                @unlink($temporary);
+            try {
+                JsonFileStore::save($path, $next);
+            } catch (Throwable $exception) {
                 throw new RuntimeException('API protection state could not be stored.');
             }
-            if (!@rename($temporary, $path)) {
-                if (file_put_contents($path, $contents, LOCK_EX) === false) {
-                    @unlink($temporary);
-                    throw new RuntimeException('API protection state could not be stored.');
-                }
-                @unlink($temporary);
-            }
-            @chmod($path, 0600);
             return $result;
         } finally {
             flock($lock, LOCK_UN);

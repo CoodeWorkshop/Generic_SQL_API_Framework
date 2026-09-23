@@ -27,13 +27,16 @@ $tests = [
     __DIR__ . '/UnifiedAdminConsoleTest.php',
     __DIR__ . '/AdminRuntimeManagementTest.php',
     __DIR__ . '/RuntimePerformanceControlsTest.php',
+    __DIR__ . '/RuntimeConcurrencyTest.php',
     __DIR__ . '/ProductionHostingTest.php',
     __DIR__ . '/HttpsSecurityTest.php'
 ];
 
 foreach ($tests as $test) {
     echo 'Running ' . basename($test) . PHP_EOL;
-    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($test);
+    $command = escapeshellarg(PHP_BINARY)
+        . (php_ini_loaded_file() === false ? ' -n' : '')
+        . ' ' . escapeshellarg($test);
     passthru($command, $status);
     if ($status !== 0) {
         fwrite(STDERR, basename($test) . " failed.\n");

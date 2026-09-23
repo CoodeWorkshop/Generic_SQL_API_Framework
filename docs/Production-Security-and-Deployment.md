@@ -166,6 +166,20 @@ Certificate paths are intentionally placeholders. Renewal may be performed by an
 
 PHP-FPM pool mode and `pm.max_children` are infrastructure sizing choices. Determine them from per-worker memory, CPU, database connection capacity, request latency, and desired queueing. Monitor FPM saturation and Nginx upstream timing before changing them. Multiple FPM workers provide request concurrency; synchronous ODBC work still occupies one worker per active request.
 
+## Runtime concurrency and resource ownership
+
+Each PHP request constructs its own controllers, repositories, `QueryEngine`, ODBC driver, connection, and statements. Persistent ODBC connections and application-level connection pooling are not used. Statements are released in `finally`, including preparation, execution, fetch, and timeout failures; the request-owned connection closes when the engine is explicitly closed or destroyed. A driver-level operation blocked inside `odbc_execute` cannot be safely cancelled by another request, so production worker, proxy, and SQL Server timeout behavior must also be validated under load.
+
+Runtime JSON, authentication, API-key, availability, process-state, and rate-limit files are single-host state. JSON readers and writers coordinate through adjacent I/O lock files; writers encode and validate complete values before replacement, and the Windows overwrite fallback remains hidden behind the same lock. Read-modify-write repositories and rate-limit identities use additional operation locks so concurrent mutations are serialized. Malformed rate-limit records recover to an empty bounded window; malformed configuration remains a controlled error and never silently replaces valid configuration.
+
+The runtime configuration directories must therefore permit the PHP identity to create narrowly permissioned `*.lock` and temporary files even when configuration changes are rare. Lock files contain no secrets. Keep all participating IIS FastCGI or PHP-FPM workers on the same local filesystem. These advisory file locks are not distributed locks and do not make the deployment safe across multiple application hosts or network filesystems with unreliable locking semantics.
+
+API and login rate limiting is exact only for workers sharing that local filesystem. Concurrent counter updates are serialized per hashed identity; login reset uses the same identity lock and cannot race a failed-attempt write. Process start, stop, status recovery, and restart are serialized per managed local service. Restart holds one lifecycle lock across stop and start, verifies forced termination before clearing state, and supports Linux runtimes without the POSIX extension through the host `kill` utility. These process managers remain development/local-Admin controls and do not manage IIS, Nginx, or PHP-FPM production workers.
+
+PHP's file-session handler normally locks one session while a request is active. Concurrent requests carrying the same browser session may therefore serialize until the first request writes/closes the session; requests using different sessions and API-key requests are independent. This expected consistency behavior is not application-wide serialization. Long authenticated requests should be included in staging load tests before changing session-lock behavior.
+
+Production load testing remains deployment-owned. Exercise representative reads, pagination counts, writes, authentication bursts, distinct and same-session traffic, API-key traffic, configured rate limits, database blocking, timeout paths, worker saturation, memory, file-lock latency, log throughput, and client/proxy disconnects. Repository concurrency tests use isolated local processes and fake/database-independent execution; they do not establish IIS/FPM sizing or live SQL Server capacity.
+
 ## Environment and secrets
 
 Set server-side values on the IIS FastCGI application/application-pool identity or PHP-FPM service/pool:

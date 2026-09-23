@@ -38,6 +38,10 @@ The local file-backed implementation is suitable for the supported single-host r
 
 Drivers supporting the ODBC statement timeout enforce the configured value. If the driver returns the standard unsupported-option result, the engine logs a sanitized capability event and continues without claiming the statement timeout was enforced. The existing safe HTTP 504 `QUERY_ERROR` conversion, correlation IDs, SQL redaction, and parameter metadata logging are unchanged. PHP, proxy, browser, and load-balancer timeouts are separate.
 
+Every request owns its non-persistent ODBC connection and statements. Statement handles are freed in `finally` on success, driver failure, and recognized timeout, and a failed execution cannot reuse another request's connection. PHP's fatal execution-time shutdown handler preserves the controlled 504 response, but PHP cannot guarantee driver cancellation while blocked inside `odbc_execute`; verify SQL Server-side cancellation and connection cleanup with the deployed driver.
+
+Local file-backed API and login counters use per-identity exclusive locks and atomic complete-record replacement. Concurrent increments are preserved, login reset takes the same lock, and malformed records recover as a new empty window. This guarantee applies only to workers sharing one reliable local filesystem, not to multi-host deployments.
+
 ## Audit decisions
 
 | Value | Previous location/default | Phase 3.2 decision |
@@ -53,7 +57,7 @@ Drivers supporting the ODBC statement timeout enforce the configured value. If t
 | CSRF retry count | One frontend compatibility retry | Kept in client code; not a server runtime threshold |
 | Frontend cache TTL/refresh intervals | Frontend/report definitions | Kept frontend-owned; not backend operational controls |
 | API-key count | No artificial limit | No limit introduced |
-| Connections/concurrent requests | Hosting process model | Not simulated; configure in IIS/FastCGI/Apache/Nginx infrastructure |
+| Connections/concurrent requests | Hosting process model | Local process contention is regression-tested; production IIS/FastCGI/Nginx/PHP-FPM capacity still requires load testing |
 | Cryptography, token entropy, identifiers, authorization | Security code and fixed role model | Never configurable |
 
 The bundled PHP development server has no production-grade worker or connection controls. Windows ODBC and Linux unixODBC behavior remains driver-dependent; no cursor-library or platform-specific connection change is introduced by these controls.

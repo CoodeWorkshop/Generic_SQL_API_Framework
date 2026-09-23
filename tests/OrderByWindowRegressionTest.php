@@ -29,7 +29,7 @@ class OrderByTestMetadataRepository extends MetadataRepository
     public function columnExists($table, $column)
     {
         $this->validatedColumns[] = [$table, $column];
-        return !ctype_digit((string)$column);
+        return preg_match('/^[0-9]+$/D', (string)$column) !== 1;
     }
     public function getColumnDataType($table, $column) { return 'varchar'; }
     public function getColumns($tableName)

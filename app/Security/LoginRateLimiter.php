@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../config/constants.php';
+require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/SecurityConfiguration.php';
 
@@ -55,8 +56,13 @@ final class LoginRateLimiter
     public function reset(string $sourceIp, string $username): void
     {
         if (!$this->enabled) return;
-        $path = $this->path($this->key($sourceIp, $username));
-        if (is_file($path)) @unlink($path);
+        $key = $this->key($sourceIp, $username);
+        $this->withStateLock($key, function () use ($key): void {
+            $path = $this->path($key);
+            if (is_file($path) && !@unlink($path)) {
+                throw new RuntimeException('Login protection state could not be reset.');
+            }
+        });
     }
 
     public function throwRateLimited(): never
@@ -78,11 +84,27 @@ final class LoginRateLimiter
     {
         $path = $this->path($key);
         if (!is_file($path)) return [];
-        $decoded = json_decode((string)@file_get_contents($path), true);
-        return is_array($decoded) ? $decoded : [];
+        try {
+            return JsonFileStore::load($path);
+        } catch (Throwable $exception) {
+            return [];
+        }
     }
 
     private function withLock(string $key, callable $operation): bool
+    {
+        return $this->withStateLock($key, function () use ($key, $operation): bool {
+            [$record, $result] = $operation($this->read($key));
+            try {
+                JsonFileStore::save($this->path($key), $record);
+            } catch (Throwable $exception) {
+                throw new RuntimeException('Login protection state could not be stored.');
+            }
+            return $result;
+        });
+    }
+
+    private function withStateLock(string $key, callable $operation)
     {
         if (!is_dir($this->directory) && !@mkdir($this->directory, 0700, true) && !is_dir($this->directory)) {
             throw new RuntimeException('Login protection storage is unavailable.');
@@ -93,22 +115,7 @@ final class LoginRateLimiter
             throw new RuntimeException('Login protection lock is unavailable.');
         }
         try {
-            [$record, $result] = $operation($this->read($key));
-            $temporary = $this->path($key) . '.tmp-' . bin2hex(random_bytes(4));
-            $contents = json_encode($record, JSON_THROW_ON_ERROR);
-            if (file_put_contents($temporary, $contents, LOCK_EX) === false) {
-                @unlink($temporary);
-                throw new RuntimeException('Login protection state could not be stored.');
-            }
-            if (!@rename($temporary, $this->path($key))) {
-                if (file_put_contents($this->path($key), $contents, LOCK_EX) === false) {
-                    @unlink($temporary);
-                    throw new RuntimeException('Login protection state could not be stored.');
-                }
-                @unlink($temporary);
-            }
-            @chmod($this->path($key), 0600);
-            return $result;
+            return $operation();
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
