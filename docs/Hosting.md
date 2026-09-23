@@ -72,7 +72,7 @@ Use IIS/FastCGI on Windows or Nginx/PHP-FPM on Linux for production concurrency.
 
 IIS `web.config` examples, an Nginx HTTPS server-block example, PHP production/OPcache settings, route boundaries, TLS, security headers, permissions, logging, and deployment steps are documented in [Production web-server hosting](Production-Security-and-Deployment.md).
 
-Before exposing a production deployment, install a hostname-valid trusted certificate, validate the HTTP-to-HTTPS redirect and TLS policy, review the exact HTTPS origins in `config/admin.json` (or the explicit environment override), protect private keys, database JSON, encryption keys, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only HTTPS application boundary.
+Before exposing a production deployment, install a hostname-valid trusted certificate, validate the HTTP-to-HTTPS redirect and TLS policy, review the exact HTTPS origins in `config/admin.json` (or the explicit environment override), and configure a dedicated PHP session directory outside every web root with worker-only access and cleanup retention compatible with the absolute session timeout. Protect private keys, database JSON, encryption keys, session files, and logs; use a least-privilege SQL identity; and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only HTTPS application boundary.
 
 ## CI versus runtime
 

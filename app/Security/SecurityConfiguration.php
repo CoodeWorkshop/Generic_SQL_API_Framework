@@ -66,6 +66,9 @@ final class SecurityConfiguration
             $absolute = $configured['absoluteTimeoutSeconds'];
         }
         return [
+            'lifetime' => 0,
+            'path' => '/',
+            'domain' => '',
             'secure' => self::isProduction() || self::directHttpsRequest(),
             'httponly' => true,
             'samesite' => 'Lax',

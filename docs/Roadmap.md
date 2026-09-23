@@ -117,6 +117,15 @@ The five basic metadata actions already exist. This version is for capabilities 
 - Secure/HttpOnly/SameSite cookie, exact-origin CORS, and CSRF preservation
 - explicit distrust of arbitrary forwarded headers with documented trusted-edge deployment rules
 
+## New Phase 4.4 — Session and cookie hardening — Implemented
+
+- centralized host-only, session-lifetime, Secure, HttpOnly, and SameSite cookie policy
+- strict cookie-only session transport with transparent URL session IDs disabled
+- login regeneration, logout destruction, idle/absolute timeout, and auth-version invalidation verification
+- session-bound CSRF rotation and stale-response race-protection verification
+- production session-storage ownership, location, lifetime, and cleanup requirements
+- preserved API-key separation and hostname-consistent local HTTP development
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

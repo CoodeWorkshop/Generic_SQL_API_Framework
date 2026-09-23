@@ -175,6 +175,7 @@ try {
     $_SERVER['HTTP_X_API_KEY'] = str_repeat('k', 32);
     $authentication->handle(['action' => 'select']);
     unifiedAdminAssert(($_SERVER['GENERIC_AUTH_PROVIDER'] ?? null) === 'api_key', 'API-key provider was not recorded.');
+    unifiedAdminAssert(session_status() !== PHP_SESSION_ACTIVE, 'API-key authentication created a browser session.');
     unset($_SERVER['GENERIC_AUTH_PROVIDER']);
     $_SERVER['HTTP_X_API_KEY'] = str_repeat('x', 32);
     unifiedAdminFailure(fn () => $authentication->handle(['action' => 'select']), 'Invalid API key was accepted.', 'AUTHENTICATION_REQUIRED');

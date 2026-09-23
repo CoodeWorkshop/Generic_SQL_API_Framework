@@ -152,6 +152,9 @@ try {
         is_int($_SESSION['generic_reporting_session_meta']['lastActivity'] ?? null),
         'Protection middleware did not maintain the server-side timeout.'
     );
+    $_SESSION['generic_reporting_session_meta']['lastActivity'] = time() - 1801;
+    protectionRequired($middleware, ['action' => 'select']);
+    protectionAssert(session_status() !== PHP_SESSION_ACTIVE, 'An idle-expired session remained active after a protected request.');
 
     echo "API protection tests passed.\n";
 } finally {

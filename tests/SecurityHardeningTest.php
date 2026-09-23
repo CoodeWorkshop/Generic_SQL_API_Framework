@@ -62,23 +62,49 @@ try {
         'idleTimeout' => 600,
         'absoluteTimeout' => 3600,
     ];
+    ini_set('session.cookie_domain', '.unsafe.example.test');
+    $urlSessionId = str_repeat('a', 32);
+    $_GET[$sessionName] = $urlSessionId;
     $session = new AuthSessionService($sessionName, $sessionOptions);
+    securityAssert($session->resume() === false, 'A URL-provided session identifier was accepted without a cookie.');
+    securityAssert(session_status() !== PHP_SESSION_ACTIVE, 'A URL-provided session identifier started a session.');
+    unset($_GET[$sessionName]);
     $csrf = new CsrfTokenService($session);
     $firstToken = $csrf->token();
     $anonymousSessionId = session_id();
     $cookie = session_get_cookie_params();
+    securityAssert($cookie['lifetime'] === 0, 'Session cookie became persistent.');
+    securityAssert($cookie['path'] === '/', 'Session cookie path is not the shared application root.');
+    securityAssert($cookie['domain'] === '', 'Session cookie domain was broadened beyond the request host.');
     securityAssert($cookie['secure'] === true, 'Production session cookie was not Secure.');
     securityAssert($cookie['httponly'] === true, 'Session cookie was not HttpOnly.');
     securityAssert(($cookie['samesite'] ?? null) === 'Lax', 'Session cookie SameSite policy is incorrect.');
+    securityAssert(ini_get('session.use_cookies') === '1', 'Session cookie transport is disabled.');
     securityAssert(ini_get('session.use_only_cookies') === '1', 'Sessions may use non-cookie identifiers.');
     securityAssert(ini_get('session.use_strict_mode') === '1', 'Strict session mode is not enabled.');
+    securityAssert(ini_get('session.use_trans_sid') === '0', 'Transparent URL session identifiers are enabled.');
+    securityAssert(ini_get('session.cookie_lifetime') === '0', 'PHP session cookie lifetime is persistent.');
+    securityAssert(ini_get('session.gc_maxlifetime') === '3600', 'Session storage lifetime does not match the absolute timeout.');
 
     $session->establish('Security.Admin', str_repeat('a', 32), 1);
     securityAssert(session_id() !== $anonymousSessionId, 'Login did not regenerate the session identifier.');
+    $authenticatedSessionId = session_id();
     $csrf->validate($firstToken);
     $authenticatedToken = $csrf->rotate();
     securityAssert($authenticatedToken !== $firstToken, 'Authentication did not rotate the CSRF token.');
     securityFailure(fn () => $csrf->validate($firstToken), 'CSRF_VALIDATION_FAILED', 403);
+    $csrf->validate($authenticatedToken);
+    session_write_close();
+    $_COOKIE[$sessionName] = $anonymousSessionId;
+    session_id($anonymousSessionId);
+    $replayedLoginSession = new AuthSessionService($sessionName, $sessionOptions);
+    securityAssert($replayedLoginSession->resume(), 'Old login session replay did not reach safe anonymous handling.');
+    securityAssert(!$replayedLoginSession->isAuthenticated(), 'The pre-login session remained authenticated after regeneration.');
+    securityAssert(session_id() !== $anonymousSessionId, 'Strict mode accepted the deleted pre-login session identifier.');
+    $replayedLoginSession->destroy();
+    $_COOKIE[$sessionName] = $authenticatedSessionId;
+    session_id($authenticatedSessionId);
+    securityAssert($session->resume() && $session->isAuthenticated(), 'The regenerated authenticated session could not resume.');
     $csrf->validate($authenticatedToken);
     securityAssert(!str_contains(json_encode([
         'authenticated' => true,
@@ -107,7 +133,17 @@ try {
     $middleware->handle(['action' => 'auth.logout']);
     $middleware->handle(['action' => 'select']);
 
+    $logoutSessionId = session_id();
     $session->destroy();
+    securityAssert(!is_file($sessionPath . DIRECTORY_SEPARATOR . 'sess_' . $logoutSessionId), 'Logout left the server-side session file reusable.');
+    $_COOKIE[$sessionName] = $logoutSessionId;
+    session_id($logoutSessionId);
+    $replayedLogoutSession = new AuthSessionService($sessionName, $sessionOptions);
+    securityAssert($replayedLogoutSession->resume(), 'Logged-out session replay did not reach safe anonymous handling.');
+    securityAssert(!$replayedLogoutSession->isAuthenticated(), 'The logged-out session remained authenticated.');
+    securityAssert(session_id() !== $logoutSessionId, 'Strict mode accepted the destroyed logout session identifier.');
+    $replayedLogoutSession->destroy();
+    session_id('');
     unset($_COOKIE[$sessionName], $_SERVER['HTTP_X_CSRF_TOKEN']);
     $nextSession = new AuthSessionService($sessionName, $sessionOptions);
     $nextCsrf = new CsrfTokenService($nextSession);
@@ -120,6 +156,16 @@ try {
     securityAssert($nextSession->resume() === false, 'Idle session timeout was not enforced.');
     securityAssert(session_status() !== PHP_SESSION_ACTIVE, 'Expired session was not destroyed.');
     unset($_COOKIE[$sessionName]);
+    session_id('');
+
+    $absoluteSession = new AuthSessionService($sessionName, $sessionOptions);
+    $absoluteSession->establish('Security.Admin', str_repeat('a', 32), 1);
+    $_SESSION['generic_reporting_session_meta']['createdAt'] = time() - 3601;
+    $_SESSION['generic_reporting_session_meta']['lastActivity'] = time();
+    securityAssert($absoluteSession->resume() === false, 'Absolute session timeout was not enforced.');
+    securityAssert(session_status() !== PHP_SESSION_ACTIVE, 'Absolute-expired session was not destroyed.');
+    unset($_COOKIE[$sessionName]);
+    session_id('');
 
     $hasher = new PasswordHasher();
     $repository = new AuthRepository($authPath);

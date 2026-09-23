@@ -181,9 +181,19 @@ Optional validated overrides such as `GENERIC_API_ALLOWED_ORIGINS`, session/logi
 
 The encryption key must be available to the PHP worker identity but stored separately from `database/config/database.json`. Never place credentials, keys, session data, or real production hostnames in repository templates.
 
+## Session storage and lifetime
+
+Configure PHP `session.save_path` as a dedicated directory outside every frontend or backend web root. It must be readable and writable only by the PHP FastCGI/FPM worker identity and the operating-system account responsible for session cleanup; it must never be served by IIS/Nginx or included in application logs or backups without equivalent secret-data controls. All workers serving the same application instance must use the same local session directory. A future multi-host deployment would require an explicitly designed shared session store and is not provided by this phase.
+
+The application enforces cookie-only transport, strict mode, disabled transparent URL session IDs, and a garbage-collection lifetime equal to `runtime.session.absoluteTimeoutSeconds` before starting a session. The production INI contains the secure defaults as defense in depth. Verify the effective `session.save_path`, ownership, free space, and cleanup mechanism using an offline command under the actual worker identity. Some distributions use an operating-system cleanup job instead of request-probability garbage collection; its retention threshold must be at least the configured absolute timeout while still removing expired files.
+
+Idle and absolute expiration are checked against server-side timestamps. Successful login regenerates the session identifier and deletes the prior server-side session. Logout and timeout clear state, expire the host-only cookie, and destroy the server-side session. Username, password, enabled-state, or authorization changes increment the stored authentication version or remove the identity, so the next protected request destroys the stale session.
+
 ## Cookies, CORS, CSRF, and trusted proxies
 
-Production sessions remain `Secure`, `HttpOnly`, `SameSite=Lax`, strict-mode, session-only cookies. HTTPS does not weaken CSRF: session-authenticated mutations still require the session-bound token, while the existing API-key and unauthenticated-mode rules remain unchanged. Exact-origin CORS remains application-owned; configure the production HTTPS origin exactly and never replace it with `*`.
+Production sessions use a host-only cookie with path `/`, no `Domain` attribute, no persistent lifetime, `Secure`, `HttpOnly`, and `SameSite=Lax`. Root path is intentional because the SPA, `/api`, and Admin entry points share the session architecture; the host-only scope prevents exposure to sibling subdomains. Local HTTP development omits `Secure` but retains every other protection. Keep frontend and API on the same `localhost` or `127.0.0.1` hostname—the frontend client normalizes those two development aliases because cookies are hostname-scoped and ports do not create separate cookie scopes.
+
+CSRF tokens are generated from 256 bits of randomness, stored only in the PHP session, and compared in constant time. Login rotates the token after session-ID regeneration; logout and expiration destroy it with the session. The frontend and Admin clients reject stale response-token updates so an older concurrent response cannot replace a newer token. Session-authenticated mutations require the token, while API-key requests remain independent and do not create browser-session authorization. Exact-origin CORS remains application-owned; configure the production HTTPS origin exactly and never replace it with `*`.
 
 The supplied templates terminate TLS directly at IIS/Nginx and pass the authoritative server HTTPS state to FastCGI (`HTTPS=on` in Nginx). The PHP application does not trust `X-Forwarded-Proto`, `X-Forwarded-Host`, or `Forwarded` from arbitrary clients. This prevents spoofed forwarded headers from changing cookie or redirect behavior.
 
@@ -211,7 +221,7 @@ Grant the PHP identity write access to application/PHP log targets and deny brow
 6. Verify frontend history fallback, `POST /api`, Admin loopback `/admin` plus `/api.php`, and the independent SQL Parser listener over HTTPS.
 7. Verify non-entry-point PHP files, `config/`, `database/config/`, `logs/`, `runtime/`, `storage/`, `.git/`, `.env`, backups, and temporary files are unreachable.
 8. Inspect frontend, API, Admin, Parser, static-asset, error, and redirect responses for the intended headers; HSTS must occur only over HTTPS.
-9. Exercise authentication, Secure/HttpOnly/SameSite cookies, CSRF, exact-origin CORS, authorization, API keys, database availability, SQL resource reads, and an allowed CRUD operation in staging.
+9. Exercise authentication, session-ID regeneration, logout/replay rejection, idle/absolute expiration, Secure/HttpOnly/SameSite host-only cookies, CSRF rotation, exact-origin CORS, authorization, API-key separation, database availability, SQL resource reads, and an allowed CRUD operation in staging.
 10. Validate certificate hostname/SAN, chain, expiry, TLS 1.2/1.3, rejected obsolete protocols, and renewal/reload behavior from a separate client.
 11. Confirm production responses contain no PHP warnings, filesystem paths, stack traces, SQL credentials, private-key paths, or secrets.
 12. Review permissions and recycle workers after deployment before serving traffic.
@@ -229,6 +239,8 @@ Grant the PHP identity write access to application/PHP log targets and deny brow
 - **Redirect loop:** confirm TLS terminates on the server applying the redirect. If a trusted edge terminates TLS, move the redirect there and restrict forwarded-header trust to that edge.
 - **Browser CSP violation:** identify the exact blocked resource. Do not add script wildcards, `'unsafe-eval'`, or inline-script allowances; update the narrow boundary policy only when the application genuinely requires it.
 - **Secure cookie not returned:** confirm the browser is using the intended HTTPS hostname and the certificate is trusted; production cookies are intentionally not usable over plain HTTP.
+- **Session disappears early:** verify all workers use the same `session.save_path`, the directory remains writable, and the operating-system cleanup threshold is not shorter than `runtime.session.absoluteTimeoutSeconds`.
+- **Local CSRF mismatch:** use the same hostname form for the browser and API. `localhost` and `127.0.0.1` are different cookie hosts even when they resolve to the same machine.
 - **Wrong/expired certificate:** verify the active IIS binding or Nginx chain/key placeholders, SANs, renewal job, service read permissions, and successful reload.
 
 Live IIS/FastCGI, Schannel, Nginx/PHP-FPM, certificates, private-key permissions, renewal, client trust, DNS, firewall, and protocol negotiation must be verified on target hosts. Repository tests validate template structure, redirect guards, header policies, application fallbacks, and sensitive-path intent but cannot prove a live TLS deployment.

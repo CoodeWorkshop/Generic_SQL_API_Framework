@@ -25,12 +25,18 @@ final class AuthSessionService
             throw new RuntimeException('Session cannot be started after response output.');
         }
 
-        ini_set('session.use_only_cookies', '1');
-        ini_set('session.use_strict_mode', '1');
+        $absoluteTimeout = max(300, (int)($this->options['absoluteTimeout'] ?? 28800));
+        $this->requireIniSetting('session.use_cookies', '1');
+        $this->requireIniSetting('session.use_only_cookies', '1');
+        $this->requireIniSetting('session.use_strict_mode', '1');
+        $this->requireIniSetting('session.use_trans_sid', '0');
+        $this->requireIniSetting('session.cookie_lifetime', '0');
+        $this->requireIniSetting('session.gc_maxlifetime', (string)$absoluteTimeout);
         session_name($this->sessionName);
         session_set_cookie_params([
-            'lifetime' => 0,
-            'path' => '/',
+            'lifetime' => (int)($this->options['lifetime'] ?? 0),
+            'path' => (string)($this->options['path'] ?? '/'),
+            'domain' => (string)($this->options['domain'] ?? ''),
             'secure' => ($this->options['secure'] ?? false) === true,
             'httponly' => ($this->options['httponly'] ?? true) === true,
             'samesite' => (string)($this->options['samesite'] ?? 'Lax'),
@@ -155,5 +161,13 @@ final class AuthSessionService
         }
         $_SESSION[self::META_KEY]['lastActivity'] = $now;
         return false;
+    }
+
+    private function requireIniSetting(string $name, string $value): void
+    {
+        ini_set($name, $value);
+        if ((string)ini_get($name) !== $value) {
+            throw new RuntimeException("Required session setting {$name} could not be applied.");
+        }
     }
 }
