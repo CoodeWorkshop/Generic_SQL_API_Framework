@@ -1,5 +1,13 @@
 # Changelog
 
+## Phase 4.2 — Production web-server hosting
+
+- Added fixed-entry-point IIS/FastCGI templates for the frontend/API, loopback Admin Console, and independent SQL Parser boundaries.
+- Added a Linux Nginx/PHP-FPM example with a public `/api` route and separate loopback Admin and SQL Parser listeners.
+- Expanded the production PHP template with safe error handling, request/resource limits, UTC, and deployment-aware OPcache settings.
+- Documented filesystem permissions, secrets, worker/concurrency ownership, logging, route verification, and the separation between development process managers and operating-system production services.
+- Added database-independent template, sensitive-path, entry-point, launcher-preservation, and production configuration regression tests.
+
 ## Phase 4.1 — Runtime lifecycle and System Health cleanup
 
 - Made System Health the single lifecycle surface for API, SQL Parser, and database runtime access while keeping database editing/testing/saving under Configuration.

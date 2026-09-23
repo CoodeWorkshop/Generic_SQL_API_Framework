@@ -50,7 +50,7 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Managed API keys](API-Keys.md)
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)
-- [Production security and deployment](Production-Security-and-Deployment.md)
+- [Production web-server hosting](Production-Security-and-Deployment.md)
 - [Roadmap](Roadmap.md)
 - [Changelog](../CHANGELOG.md)
 

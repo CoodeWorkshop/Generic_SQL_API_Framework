@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copy to the built frontend dist directory. The /api IIS application is excluded. -->
+<configuration>
+  <system.webServer>
+    <defaultDocument enabled="true">
+      <files>
+        <clear />
+        <add value="index.html" />
+      </files>
+    </defaultDocument>
+    <directoryBrowse enabled="false" />
+    <rewrite>
+      <rules>
+        <clear />
+        <rule name="Do not rewrite API application" stopProcessing="true">
+          <match url="^api(?:/.*)?$" />
+          <action type="None" />
+        </rule>
+        <rule name="Serve existing frontend asset" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" />
+          </conditions>
+          <action type="None" />
+        </rule>
+        <rule name="Frontend history fallback" stopProcessing="true">
+          <match url=".*" />
+          <action type="Rewrite" url="index.html" />
+        </rule>
+      </rules>
+    </rewrite>
+    <security>
+      <requestFiltering>
+        <hiddenSegments>
+          <add segment=".git" />
+        </hiddenSegments>
+        <fileExtensions allowUnlisted="true">
+          <add fileExtension=".env" allowed="false" />
+          <add fileExtension=".ini" allowed="false" />
+          <add fileExtension=".json" allowed="false" />
+          <add fileExtension=".log" allowed="false" />
+          <add fileExtension=".sql" allowed="false" />
+          <add fileExtension=".bak" allowed="false" />
+        </fileExtensions>
+      </requestFiltering>
+    </security>
+  </system.webServer>
+</configuration>

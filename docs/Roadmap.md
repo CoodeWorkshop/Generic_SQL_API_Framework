@@ -99,6 +99,15 @@ The five basic metadata actions already exist. This version is for capabilities 
 - configuration-only Database page with submitted-value testing and encrypted saves
 - fixed lifecycle operations, safe database health fields, and cross-platform launcher coverage
 
+## New Phase 4.2 — Production web-server hosting — Implemented
+
+- IIS with PHP FastCGI templates and deployment instructions for Windows
+- Nginx with PHP-FPM fixed-entry-point routing for Linux
+- independent API, loopback Admin, and SQL Parser application boundaries
+- production PHP error, request, resource, and OPcache configuration guidance
+- filesystem, secret, logging, service-management, worker-sizing, and route-hardening coverage
+- HTTPS/TLS, HSTS, CSP, and certificate deployment explicitly deferred to Phase 4.3
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure
@@ -124,8 +133,7 @@ Existing MySQL, PostgreSQL, Oracle, and SQLite driver files are not selectable p
 
 ## v2.0.0 — Platform & Deployment — Future
 
-- supported Linux deployment/runtime guidance
 - containerization and environment-based configuration evaluation
-- production deployment/process-manager helpers and optional live integration testing
+- optional live IIS/Nginx/SQL Server integration testing
 
 Version targets may change, but released/current/planned status must always follow the implementation.

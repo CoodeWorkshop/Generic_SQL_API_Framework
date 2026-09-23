@@ -1,149 +1,180 @@
-# Production security and deployment
+# Production web-server hosting
 
-## Architecture
+Phase 4.2 replaces the PHP development server with a production web-server and FastCGI worker model. It does not configure HTTPS, certificates, HSTS, CSP, or additional web-server security headers; those are Phase 4.3 concerns. Do not expose an HTTP-only example to an untrusted network.
 
-```text
-Browser
-  -> HTTPS
-Nginx
-  |-> React static files from Frontend/Generic-Reporting-Framework/dist
-  `-> /api or /api/index.php
-        -> PHP FastCGI
-        -> Backend/api/index.php
-        -> private SQL Server network
-```
-
-The browser uses one HTTPS origin. Build the frontend with `VITE_API_URL=/api`; do not publish a backend port or SQL Server to users. The PHP built-in server remains development-only.
-
-## Windows layout and FastCGI
-
-One suitable layout is:
+## Development and production boundaries
 
 ```text
-C:\nginx\
-C:\php\
-C:\GenericReporting\
-  Frontend\Generic-Reporting-Framework\dist\
-  Backend\api\
-  Backend\app\
-  Backend\config\
-  Backend\core\
-  Backend\database\
-  Backend\logs\
-  Backend\storage\
+Development                         Production
+
+start-windows.bat / start-linux.sh  Windows: IIS -> FastCGI -> PHP
+  -> php -S                         Linux:  Nginx -> PHP-FPM -> PHP
+  -> local Admin Console
+  -> Admin-managed local API/parser
 ```
 
-Copy `deployment/nginx/generic-reporting.windows.example.conf` into the Nginx configuration and replace every example hostname, certificate path, and application path. Merge `deployment/php-production-security.ini` into the production `php.ini`; do not replace extension/ODBC configuration blindly.
+The launchers remain the supported local-development workflow and intentionally use PHP's built-in server. It is single-process and is not a production host.
 
-Windows PHP provides `php-cgi.exe`, not PHP-FPM. Run `C:\php\php-cgi.exe -b 127.0.0.1:9000` under an organization-approved Windows service supervisor so it restarts on failure and startup. Bind only to loopback and restrict port 9000 with the firewall. Nginx passes `/api` internally to `Backend/api/index.php`. Do not use `php -S` in production.
+Production web-server services are started, stopped, monitored, and restarted by IIS, Windows Service Control, systemd, Nginx, and PHP-FPM—not by `ApiProcessManager`, `SqlParserProcessManager`, or arbitrary Admin Console commands. Phase 4.1 remains intact for the locally managed child processes. When the applications are hosted by FastCGI, infrastructure monitoring is authoritative for the IIS/Nginx/FPM lifecycle; do not interpret the Admin Console's local child-process state as IIS or FPM worker state.
 
-Validate after substituting real paths:
+## Application boundaries and routes
+
+Keep the applications as separate web-server sites, applications, or listeners:
+
+| Boundary | Production route | PHP entry point | Static files |
+| --- | --- | --- | --- |
+| Reporting/API | `/api` and `/api/index.php` | `Backend/api/index.php` | built frontend `dist/` only |
+| Admin Console | loopback site: `/admin/*`, `/api.php` | `Backend/admin/index.php`, `Backend/admin/api.php` | `Backend/admin/assets/` |
+| SQL Parser | separate internal site: `/` and `/index.php` | `Backend/sqlparser/index.php` | `Backend/sqlparser/assets/` |
+
+The development-only `router.php` files express the same route boundaries for `php -S`, but IIS and Nginx use their own fixed routing rules. They must not send arbitrary `.php` paths to FastCGI. SQL Parser remains database-free and does not inherit Admin or API authentication.
+
+The Admin Console remains loopback-only. Both its application middleware and the provided web-server examples enforce that boundary. Remote production administration needs a separately designed, authenticated access path and is not introduced here.
+
+## Filesystem layout and permissions
+
+Keep the repository/backend outside the public frontend document root. A representative layout is:
+
+```text
+/srv/generic-reporting/                 C:\GenericReporting\
+  Frontend/.../dist/                      Frontend\...\dist\
+  Backend/                                Backend\
+    api/ admin/ sqlparser/                  api\ admin\ sqlparser\
+    app/ core/ database/ config/            app\ core\ database\ config\
+    logs/ runtime/ storage/                  logs\ runtime\ storage\
+```
+
+Apply least privilege to the PHP service identity:
+
+| Path | Web addressable | PHP service permission |
+| --- | ---: | --- |
+| frontend `dist/` | yes, static only | read |
+| `api/index.php` | fixed FastCGI target only | read/execute |
+| `admin/index.php`, `admin/api.php`, `admin/assets/` | loopback site only | read/execute |
+| `sqlparser/index.php`, `sqlparser/assets/` | selected internal listener | read/execute |
+| `app/`, `core/`, `database/drivers/`, `queries/` | no | read |
+| `config/`, `database/config/` | no | read; write only if Admin configuration changes are permitted |
+| `logs/`, `runtime/`, `storage/security/`, PHP session directory | no | read/write |
+| `runtime/secrets/` or external secret store | no | narrowly restricted read |
+| `.git/`, backups, temporary files | never | no web-server access |
+
+Do not place `.env`, keys, logs, JSON configuration, backups, or repository metadata under a static document root. The supplied configurations use fixed public roots and fixed FastCGI targets as defense in depth.
+
+## PHP runtime requirements
+
+Use a maintained PHP 8.2-or-newer runtime compatible with the project's tested syntax. Production PHP requires:
+
+- JSON and session support;
+- OpenSSL for AES-256-GCM database configuration;
+- ODBC plus a compatible Microsoft SQL Server ODBC driver for API database access;
+- OPcache for production execution;
+- optional `mbstring` for exact multibyte write-length validation (the application has a safe byte-length fallback).
+
+The SQL Parser itself does not require ODBC or database credentials. If one shared FPM pool or IIS FastCGI application hosts all boundaries, its runtime still needs the union of required extensions.
+
+Merge [`deployment/php-production-security.ini`](../deployment/php-production-security.ini) into the installed production `php.ini`; do not replace distribution extension configuration blindly. The example disables displayed errors and uploads, enables server-side error logging and OPcache, uses UTC, and supplies bounded example memory/request/execution values. Confirm the effective configuration through an offline administrative command, not a public `phpinfo()` page.
+
+### OPcache deployment behavior
+
+The template uses `opcache.validate_timestamps=0`. After an atomic code deployment, recycle the IIS application pool or reload/restart PHP-FPM so workers cannot execute stale bytecode. If an operator chooses timestamp validation instead, select the revalidation interval as an operational policy and test its deployment consistency. OPcache sizing and worker counts must be measured from the deployed code and workload; the repository does not claim universal production sizing values.
+
+## Windows: IIS and PHP FastCGI
+
+### Prerequisites
+
+1. Install IIS with CGI/FastCGI, URL Rewrite, and IP and Domain Restrictions.
+2. Install a supported 64-bit Non-Thread-Safe PHP runtime and the matching Visual C++ runtime.
+3. Install the SQL Server ODBC driver and enable `odbc`, `openssl`, `session`, and OPcache in the selected `php.ini`.
+4. Register `C:\PHP\php-cgi.exe` as an IIS FastCGI application. Set `PHPRC` to the production PHP directory and set `GENERIC_APP_ENV=production` plus server-side application variables on the FastCGI/application-pool environment.
+5. Use a dedicated, non-administrator application-pool identity and grant only the filesystem permissions listed above.
+
+Do not use the bundled development `php.ini` without reviewing it. The IIS handler examples use `C:\PHP\php-cgi.exe`; replace that path consistently if PHP is installed elsewhere.
+
+### IIS sites and applications
+
+1. Build the reporting frontend and create the main IIS site with its physical path set to `Frontend\Generic-Reporting-Framework\dist`.
+2. Copy `deployment/iis/frontend.web.config.example` to the deployed frontend as `web.config`.
+3. Add `/api` as an IIS application whose physical path is `Backend\api`, then copy `deployment/iis/api.web.config.example` there as `web.config`.
+4. Create a separate Admin site bound only to `127.0.0.1:8090` (and loopback IPv6 if required), rooted at `Backend\admin`. Copy `deployment/iis/admin.web.config.example` there as `web.config`.
+5. Create a separate SQL Parser site on an intentionally selected loopback/internal binding, rooted at `Backend\sqlparser`. Copy `deployment/iis/sqlparser.web.config.example` there as `web.config`.
+6. Set `VITE_API_URL=/api` when building the frontend. `VITE_*` values are public; never place secrets in them.
+
+The templates require the IIS URL Rewrite module. They disable directory listing, allow only the intended entry points/assets, cap request size, and prevent access to parser source and common sensitive extensions. Keep detailed IIS errors local and let PHP application responses pass through unchanged.
+
+IIS FastCGI starts and maintains multiple `php-cgi.exe` workers through the application pool. Configure queue length, instance limits, idle timeouts, and recycling from measured request duration, memory usage, and database capacity. The project's query timeout and request limits are application controls, not worker-pool sizing recommendations.
+
+Validate on Windows after installing the examples:
 
 ```bat
-C:\nginx\nginx.exe -t
-C:\nginx\nginx.exe -s reload
+C:\Windows\System32\inetsrv\appcmd.exe list config /section:system.webServer/fastCgi
+C:\Windows\System32\inetsrv\appcmd.exe list site
+%windir%\system32\inetsrv\appcmd.exe list apppool
 ```
 
-Verify `/`, a refreshed client-side route such as `/settings`, `/api`, and `/api/index.php`. Requests to `/.git/`, `/.env`, `/config/auth.json`, `/config/database.json`, and arbitrary `/api/*` paths must be denied or not found.
+Recycle the application pool after code or OPcache configuration changes. Review IIS access and failed-request logs without enabling detailed remote error pages.
 
-## Environment configuration
+## Linux: Nginx and PHP-FPM
 
-Frontend variables are public and bundled at build time:
+1. Install Nginx, PHP-FPM 8.2 or newer, OPcache, OpenSSL/session/JSON support, PHP ODBC, and the Microsoft SQL Server ODBC driver.
+2. Deploy the application outside Nginx's public frontend root and assign it to a dedicated service account/group.
+3. Configure a PHP-FPM pool socket owned by the Nginx worker group. Replace `/run/php/php-fpm.sock` in `deployment/nginx/generic-sql-api.linux.example.conf` with the distribution's actual socket.
+4. Put secrets and environment values in the service manager or FPM pool environment, subject to the host's `clear_env` policy. Do not put secrets in the Nginx file.
+5. Replace example paths and hostnames, install the server block, and run `nginx -t` before reload.
+6. Merge the production PHP INI fragment, validate `php-fpm -t`, then reload/restart PHP-FPM so OPcache and environment changes apply.
 
-```text
-VITE_API_URL=/api
-```
+The Nginx example has three independent server blocks. The public block serves only built frontend files and fixed `/api` targets. Admin and SQL Parser default to loopback listeners. There is no generic `location ~ \.php$`; internal PHP files therefore cannot become executable merely because they exist.
 
-Backend process variables are server-side:
+PHP-FPM pool mode and `pm.max_children` are infrastructure sizing choices. Determine them from per-worker memory, CPU, database connection capacity, request latency, and desired queueing. Monitor FPM saturation and Nginx upstream timing before changing them. Multiple FPM workers provide request concurrency; synchronous ODBC work still occupies one worker per active request.
+
+## Environment and secrets
+
+Set server-side values on the IIS FastCGI application/application-pool identity or PHP-FPM service/pool:
 
 ```text
 GENERIC_APP_ENV=production
-GENERIC_SQL_API_ENCRYPTION_KEY=<Base64-encoded 32-byte key>
-GENERIC_SQL_API_KEY=<at-least-32-byte-api-key-when-enabled>
-GENERIC_SESSION_IDLE_TIMEOUT=1800
-GENERIC_SESSION_ABSOLUTE_TIMEOUT=28800
-GENERIC_LOGIN_MAX_ATTEMPTS=5
-GENERIC_LOGIN_WINDOW_SECONDS=900
-GENERIC_LOGIN_LOCKOUT_SECONDS=300
+GENERIC_RUNTIME_CONFIG_DIR=<absolute path to Backend/config>
+GENERIC_SQL_API_ENCRYPTION_KEY=<secret supplied outside the repository>
+GENERIC_SQL_API_KEY=<legacy key only when that authentication path is used>
 ```
 
-Validated CORS origins, credential behavior, and allowed methods are stored in
-`config/admin.json`. `GENERIC_API_ALLOWED_ORIGINS` is an explicit comma-separated
-origin-list override for deployment automation. Wildcards and arbitrary origin
-reflection are not supported by the Admin Console. The shipped development list
-allows localhost and 127.0.0.1 on ports 5173, 5314, and 5341 and should be
-reduced to the origins actually used by a deployment.
+Optional validated overrides such as `GENERIC_API_ALLOWED_ORIGINS`, session/login limits, and `DB_QUERY_TIMEOUT_SECONDS` retain their documented behavior. Prefer `config/admin.json` for validated runtime settings unless deployment automation intentionally owns an environment override.
 
-Normal API actions enforce the stored authentication mode: `none`, `session`,
-`api_key`, or `session+api_key`. API-key mode reads only the server-side
-`GENERIC_SQL_API_KEY`; a missing configured key fails closed. Admin and `auth.*`
-actions always retain session authentication. API-key-authenticated write
-requests do not use browser-session CSRF because the key itself is the
-non-cookie credential. Mode `none` also has no cookie-carried authority, so it
-does not require CSRF; session-authenticated writes remain CSRF protected.
-Mode `none` changes only client authentication. Validation, feature controls,
-resource restrictions, prepared values, database credential resolution, and SQL
-execution remain unchanged; a `QUERY_ERROR` in this mode is a downstream query
-or database failure rather than an authentication rejection.
+The encryption key must be available to the PHP worker identity but stored separately from `database/config/database.json`. Never place credentials, keys, session data, or real production hostnames in repository templates.
 
-The local `/admin` console is not a production administration plane. It requires
-`GENERIC_ADMIN_ENABLED=1` and a loopback source at both the router and API
-middleware, and the provided launchers bind only to `127.0.0.1`. Leave it
-disabled and unmapped in production. Use reviewed configuration deployment and
-secret-management procedures instead.
+## Error handling and logging
 
-Never place `GENERIC_SQL_API_ENCRYPTION_KEY`, passwords, session identifiers, or server paths in `VITE_*`, React source, Nginx public files, or Git. The PHP service account must inherit the encryption key securely.
+`api/index.php` disables displayed errors in production, and `ExceptionHandler` preserves the safe JSON error envelope and request correlation ID. The web server must pass application error responses through rather than replace them with detailed remote pages.
 
-## Sessions, CSRF, and login protection
+Keep separate logs with separate rotation policy:
 
-Production cookies are Secure, HttpOnly, SameSite=Lax, session-only, strict-mode cookies. Application defaults enforce a 30-minute idle timeout and an eight-hour absolute timeout; both are server-side and stored in validated runtime configuration. The listed environment variables remain bounded deployment overrides. Login regenerates the session identifier. Logout and expiration destroy the session and its CSRF token.
+- IIS or Nginx access/error logs for request and upstream failures;
+- PHP-FastCGI/PHP-FPM error logs for runtime/startup failures;
+- `Backend/logs/YYYY-MM-DD.log` for application timing, safe SQL, and request IDs.
 
-The frontend obtains a random session-bound token through `auth.csrf` and keeps it only in memory. Successful login rotates that token after the session identifier changes and returns the replacement in `X-CSRF-Token`; logout destroys it. Login, logout, setup creation, user mutations, and reporting write actions require the header. Missing or invalid tokens return HTTP 403 with `CSRF_VALIDATION_FAILED`.
+Grant the PHP identity write access to application/PHP log targets and deny browser access. Rotate and retain logs according to volume and organizational policy. Existing application logging records parameter counts/types rather than values; operators must also avoid adding passwords, encryption keys, API keys, cookies, authorization headers, session identifiers, or raw credentials to web-server log formats.
 
-Login failures are tracked server-side by source IP plus normalized username. The defaults allow five failures in fifteen minutes before a temporary five-minute block and HTTP 429; all three thresholds are validated runtime settings. A successful login clears that key. Client responses remain identical for unknown, disabled, and incorrectly authenticated users. General API traffic is also protected by the configured local file-backed limiter; multi-host deployments require infrastructure-level distributed controls.
+## Deployment verification
 
-## TLS and headers
+1. Bootstrap runtime configuration offline and provision the encryption key through the service identity.
+2. Verify PHP version and required extensions from the same FastCGI/FPM installation used by the web server.
+3. Validate IIS configuration on Windows or run `nginx -t` and `php-fpm -t` on Linux.
+4. Start/recycle the web-server and worker services through the operating system.
+5. Verify frontend history fallback, `POST /api`, Admin loopback `/admin` plus `/api.php`, and the independent SQL Parser listener.
+6. Verify non-entry-point PHP files, `config/`, `database/config/`, `logs/`, `runtime/`, `storage/`, `.git/`, `.env`, backups, and temporary files are unreachable.
+7. Exercise authentication, CSRF, authorization, API keys, database availability, SQL resource reads, and an allowed CRUD operation in a staging environment.
+8. Confirm production responses contain no PHP warnings, filesystem paths, stack traces, SQL credentials, or secrets.
+9. Review access, PHP, application, session, rate-limit, and writable-directory permissions.
+10. Recycle workers after deployment and confirm the new code is active before serving traffic.
 
-The Nginx TLS server applies HSTS (without `preload`), CSP, anti-framing, MIME-sniffing, referrer, and permissions policies. HSTS belongs only on the HTTPS server after a valid certificate is installed. The API also emits restrictive defense-in-depth headers. Production PHP disables browser error display and logs errors server-side.
+## Troubleshooting
 
-The CSP permits only same-origin scripts/styles/fonts/API connections and local/data images. The Vite production build uses external generated assets and source maps are disabled. Revalidate the CSP if external resources are introduced later.
+- **502/500 from IIS or Nginx:** verify the FastCGI executable/socket, service identity, PHP error log, and entry-point filesystem access.
+- **404 for a valid route:** confirm the expected application/site boundary and install IIS URL Rewrite where applicable.
+- **Admin returns 404:** access it from loopback, set `GENERIC_ADMIN_ENABLED=1` only for that Admin FastCGI boundary, and verify the web-server loopback restriction.
+- **ODBC unavailable:** enable PHP ODBC and install a driver supported by `SqlServerDriver` for the worker architecture.
+- **Encrypted configuration unavailable:** restore the external encryption key for the worker identity; never generate a replacement for existing ciphertext.
+- **Stale code after deployment:** recycle the IIS application pool or reload/restart PHP-FPM because production OPcache timestamp checks are disabled.
+- **Requests serialize or queue:** confirm traffic is not using `php -S`, then inspect IIS FastCGI/FPM worker saturation and downstream database capacity.
+- **Permission failures:** verify code is readable while only config/database-config, logs, runtime, storage, and session locations that actually require mutation are writable.
 
-## Sensitive files and backups
-
-Nginx serves only `Frontend/dist`; the backend is outside its public root and only the fixed API front controller is mapped. Defense-in-depth rules deny backend directories, dotfiles, JSON, lock, SQL, backup, log, INI, and PHP files. Restrict filesystem permissions on generated `auth.json`, `installation.json`, `admin.json`, the encrypted database configuration, logs, session storage, and rate-limit storage to administrators and the PHP service identity.
-
-The repository contains secret-free `config/*.example.json` templates. Actual
-`auth.json`, `installation.json`, and `admin.json` files are generated at runtime
-and ignored by Git. Secure backups must include these runtime files and the
-encrypted database configuration. Back up `GENERIC_SQL_API_ENCRYPTION_KEY`
-separately: the encrypted database configuration is unrecoverable without it.
-Never place backups under an Nginx-served directory.
-
-Deleting `auth.json` while installation remains initialized does not reopen setup. Recovery requires an offline, authenticated administrative restore; there is no default password or setup bypass.
-
-## LAN deployment
-
-Use internal DNS and an internal-CA or organization-approved certificate:
-
-```text
-Client PCs -> HTTPS internal hostname -> Nginx -> React + PHP -> private SQL Server
-```
-
-Every client must trust the issuing CA. A self-signed certificate is acceptable only when its trust anchor is deliberately installed on every managed client; do not disable certificate verification. Permit inbound HTTPS only from intended LAN segments, keep FastCGI loopback-only, and keep SQL Server private.
-
-## Internet deployment
-
-Point DNS to the hardened application server or approved edge, install a publicly trusted certificate, expose only HTTPS (plus HTTP solely for redirect/certificate automation), and restrict administrative access. Keep FastCGI, backend files, and SQL Server off the public Internet. Use a least-privilege database identity and firewall the database connection to the application server.
-
-## Release checklist
-
-1. Build the frontend with `VITE_API_URL=/api` and deploy only `dist/`.
-2. Scan `dist/` for secret names/values and confirm there are no `.map` files.
-3. Set backend environment variables on the PHP service identity.
-4. Apply the PHP production settings and start supervised PHP FastCGI on loopback.
-5. Substitute real Nginx paths, hostname, and certificates; run `nginx -t`.
-6. Test setup/session/login/logout/settings/admin operations and read/write authorization over HTTPS.
-7. Confirm security headers and cookie flags in browser developer tools.
-8. Confirm sensitive paths are denied and review filesystem permissions, logs, backups, firewall, and private database routing.
-
-Configuration can be statically validated in the repository, but certificates, DNS, firewall rules, Windows service supervision, and live HTTPS require validation on the target server.
+Live IIS/FastCGI, Nginx/PHP-FPM, Windows service, Linux service, firewall, DNS, and Phase 4.3 transport verification must be performed on the target hosts. Repository tests can validate entry points, template structure, fixed routes, and sensitive-path intent but cannot prove installed server modules or operating-system policy.

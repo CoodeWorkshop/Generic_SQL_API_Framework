@@ -139,6 +139,8 @@ Pagination normally performs a count query when both page values are present, th
 
 Controllers, services, repositories, `QueryEngine`, and the ODBC connection are constructed within each PHP request. The application contains no global query queue, cancellation flag, or SQL execution lock, so cancellation state is not shared between users. Concurrent execution depends on the hosting process model: a production FastCGI/Apache/IIS deployment can use independent workers, while PHP's built-in development server is single-threaded by default and can make a second request wait behind a slow first request.
 
+The supported Phase 4.2 production process models are IIS with PHP FastCGI on Windows and Nginx with PHP-FPM on Linux. Web-server/FastCGI workers own production concurrency and service lifecycle; the Admin process managers continue to own only their fixed local child processes and never issue IIS, Nginx, PHP-FPM, systemd, or Windows service commands. API, loopback Admin, and SQL Parser remain separate routing boundaries with fixed public entry points.
+
 A browser abort stops waiting for the HTTP response, but this synchronous PHP ODBC execution path exposes no safe statement-cancellation hook while `odbc_execute` is blocked. Client disconnect therefore must not be described as guaranteed SQL Server cancellation. The PHP request and ODBC resources finish or time out normally; the frontend must discard any obsolete result. No speculative cross-request SQL cancellation is implemented.
 
 ## Timing and timeout model

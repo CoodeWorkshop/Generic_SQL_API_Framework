@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copy to Backend\sqlparser\web.config. Choose an intentional internal binding. -->
+<configuration>
+  <system.webServer>
+    <defaultDocument enabled="true">
+      <files>
+        <clear />
+        <add value="index.php" />
+      </files>
+    </defaultDocument>
+    <directoryBrowse enabled="false" />
+    <handlers>
+      <remove name="GenericSqlParserPhpFastCgi" />
+      <add name="GenericSqlParserPhpFastCgi" path="*.php" verb="*" modules="FastCgiModule"
+           scriptProcessor="C:\PHP\php-cgi.exe" resourceType="File" requireAccess="Script" />
+    </handlers>
+    <rewrite>
+      <rules>
+        <clear />
+        <rule name="Allow Parser public files" stopProcessing="true">
+          <match url="^(?:index\.php|assets/(?:css/app\.css|js/app\.js))$" />
+          <action type="None" />
+        </rule>
+        <rule name="Route Parser root" stopProcessing="true">
+          <match url="^$" />
+          <action type="Rewrite" url="index.php" />
+        </rule>
+        <rule name="Reject Parser source and other paths" stopProcessing="true">
+          <match url=".*" />
+          <action type="CustomResponse" statusCode="404" statusReason="Not Found" statusDescription="Not Found" />
+        </rule>
+      </rules>
+    </rewrite>
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="10485760" />
+        <hiddenSegments>
+          <add segment="src" />
+        </hiddenSegments>
+        <fileExtensions allowUnlisted="true">
+          <add fileExtension=".config" allowed="false" />
+          <add fileExtension=".env" allowed="false" />
+          <add fileExtension=".ini" allowed="false" />
+          <add fileExtension=".json" allowed="false" />
+          <add fileExtension=".log" allowed="false" />
+          <add fileExtension=".bak" allowed="false" />
+        </fileExtensions>
+      </requestFiltering>
+    </security>
+    <httpErrors errorMode="DetailedLocalOnly" existingResponse="PassThrough" />
+  </system.webServer>
+</configuration>

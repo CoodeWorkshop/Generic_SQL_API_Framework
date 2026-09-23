@@ -156,7 +156,7 @@ With another PHP installation, after configuring the database:
 php -S 127.0.0.1:8000 -t api
 ```
 
-The built-in server is suitable for local use, not production. See [Hosting.md](docs/Hosting.md).
+The built-in server is suitable for local use, not production. Production targets are IIS with PHP FastCGI on Windows and Nginx with PHP-FPM on Linux. See [Hosting](docs/Hosting.md) and [Production web-server hosting](docs/Production-Security-and-Deployment.md).
 
 ## Test without a database
 
@@ -190,6 +190,7 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - Phase 3.1 — fixed authorization roles and separated backend/frontend administration: implemented
 - Phase 3.2 — configurable runtime and performance controls: implemented
 - Phase 4.1 — runtime lifecycle and System Health cleanup: implemented
+- Phase 4.2 — production IIS/FastCGI and Nginx/PHP-FPM hosting: implemented
 - Transactions, richer metadata, and additional providers: planned
 
 The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).

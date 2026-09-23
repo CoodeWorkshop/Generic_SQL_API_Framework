@@ -1,6 +1,10 @@
 # Hosting
 
-## Windows bundled runtime
+## Local development
+
+The bundled launchers use PHP's built-in server only for local development. Production uses IIS with PHP FastCGI on Windows or Nginx with PHP-FPM on Linux; see [Production web-server hosting](Production-Security-and-Deployment.md).
+
+### Windows bundled runtime
 
 The repository includes a PHP runtime at `runtime/windows/php/` and a launcher at `start-windows.bat`. A user of this path does not need to install PHP, XAMPP, or WAMP. The machine still needs a SQL Server ODBC driver because the bundled PHP ODBC extension is only the PHP side of the connection.
 
@@ -44,7 +48,7 @@ controls the independent API and SQL Parser processes and the database
 availability gate. Stopping or restarting either process does not stop Admin
 Console or the other managed service.
 
-## Linux local runtime
+### Linux local runtime
 
 From the backend root run `./start-linux.sh`. It prefers
 `runtime/linux/php/php`, falls back to installed PHP when that bundled binary is
@@ -56,20 +60,19 @@ attempts to open a browser through `xdg-open` or WSL `cmd.exe`.
 
 Create `database/config/database.json` as described in [Database Configuration](Database-Configuration.md). SQL Server must be reachable and the PHP process identity or SQL credentials must have the needed permissions. For the recommended complete encrypted envelope (or a legacy encrypted password), expose the matching Base64-encoded 32-byte `GENERIC_SQL_API_ENCRYPTION_KEY` through the host's environment or secret manager to the PHP process; do not place the key in the JSON or launcher. The `logs/` directory must be writable; `Logger` creates it if absent and writes dated `YYYY-MM-DD.log` files containing successful and failed SQL execution details.
 
-## Other PHP environments
+## Production hosting
 
-The backend can run under another PHP installation with the ODBC extension. To
-enable the console manually, do so only on a loopback-bound server:
+For an ad hoc local installation, the backend can run under another PHP installation with the ODBC extension. Enable the console only on a loopback-bound development server:
 
 ```bash
 GENERIC_ADMIN_ENABLED=1 php -S 127.0.0.1:8090 -t admin admin/router.php
 ```
 
-Use IIS/FastCGI, Apache with multiple PHP workers, or Nginx with PHP FastCGI for concurrent production requests. Windows uses `php-cgi.exe`; do not assume PHP-FPM is available. Size the worker pool and SQL Server connection capacity together. PHP's built-in server and `start-windows.bat` are development/convenience launchers, not production process managers.
+Use IIS/FastCGI on Windows or Nginx/PHP-FPM on Linux for production concurrency. Windows uses `php-cgi.exe`; it does not provide PHP-FPM. Size workers, request queues, memory, and SQL Server capacity from target-host measurements. PHP's built-in server and both launchers are development conveniences, not production process managers.
 
-The Windows Nginx/PHP FastCGI template, same-origin API routing, TLS/security headers, sensitive-file rules, LAN/Internet guidance, environment variables, and backup requirements are documented in [Production Security and Deployment](Production-Security-and-Deployment.md).
+IIS `web.config` examples, an Nginx server-block example, PHP production/OPcache settings, route boundaries, permissions, logging, and deployment steps are documented in [Production web-server hosting](Production-Security-and-Deployment.md). HTTPS/TLS and web-server security-header deployment are deferred to Phase 4.3.
 
-Before production deployment, configure HTTPS at the web server or reverse proxy, review the exact origins in `config/admin.json` (or the explicit environment override), protect the ignored database JSON, encryption key, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates. Do not enable or publish the local Admin Console through a production reverse proxy.
+Before exposing a production deployment, complete the Phase 4.3 transport configuration, review the exact origins in `config/admin.json` (or the explicit environment override), protect the ignored database JSON, encryption key, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only application boundary.
 
 ## CI versus runtime
 
