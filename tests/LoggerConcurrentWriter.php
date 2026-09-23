@@ -22,5 +22,12 @@ $logger = new ConcurrentTestLogger($argv[1]);
 $count = (int)$argv[3];
 
 for ($index = 0; $index < $count; $index++) {
-    $logger->timing('concurrent_test', (float)$index, ['sequence' => $index]);
+    if (getenv('LOGGER_TEST_SECURITY_AUDIT') === '1') {
+        $logger->audit('concurrent.audit', 'success', 'INFO', [
+            'component' => 'test',
+            'action' => 'write-' . $index,
+        ]);
+    } else {
+        $logger->timing('concurrent_test', (float)$index, ['sequence' => $index]);
+    }
 }

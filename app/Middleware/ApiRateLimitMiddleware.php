@@ -4,17 +4,31 @@ require_once __DIR__ . '/Middleware.php';
 require_once __DIR__ . '/../Authorization/PrincipalContext.php';
 require_once __DIR__ . '/../Security/ApiRateLimiter.php';
 require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+require_once __DIR__ . '/../../core/Logger.php';
 
 final class ApiRateLimitMiddleware extends Middleware
 {
-    public function __construct(private ?ApiRateLimiter $limiter = null)
+    public function __construct(private ?ApiRateLimiter $limiter = null, private ?Logger $logger = null)
     {
         $this->limiter ??= new ApiRateLimiter();
+        $this->logger ??= new Logger();
     }
 
     public function handle(array $request): void
     {
-        $this->limiter->consume($this->identity());
+        $identity = $this->identity();
+        try {
+            $this->limiter->consume($identity);
+        } catch (ApiRequestException $exception) {
+            if ($exception->getErrorCode() === 'RATE_LIMIT_EXCEEDED') {
+                $this->logger->audit('rate_limit.api', 'rejected', 'WARNING', [
+                    'identityType' => strstr($identity, ':', true) ?: 'anonymous',
+                    'identityHash' => substr(hash('sha256', $identity), 0, 16),
+                    'component' => 'api_protection',
+                ]);
+            }
+            throw $exception;
+        }
     }
 
     private function identity(): string

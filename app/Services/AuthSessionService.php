@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+require_once __DIR__ . '/../../core/Logger.php';
 
 final class AuthSessionService
 {
@@ -9,11 +10,13 @@ final class AuthSessionService
 
     private string $sessionName;
     private array $options;
+    private Logger $logger;
 
-    public function __construct(string $sessionName = 'generic_reporting_session', ?array $options = null)
+    public function __construct(string $sessionName = 'generic_reporting_session', ?array $options = null, ?Logger $logger = null)
     {
         $this->sessionName = $sessionName;
         $this->options = $options ?? SecurityConfiguration::sessionOptions();
+        $this->logger = $logger ?? new Logger();
     }
 
     public function start(): void
@@ -156,6 +159,20 @@ final class AuthSessionService
             || !is_int($metadata['lastActivity'] ?? null)
             || $now - $metadata['lastActivity'] > $idleTimeout
             || $now - $metadata['createdAt'] > $absoluteTimeout) {
+            $identity = $this->identity();
+            $reason = !is_array($metadata)
+                || !is_int($metadata['createdAt'] ?? null)
+                || !is_int($metadata['lastActivity'] ?? null)
+                ? 'invalid_metadata'
+                : ($now - $metadata['createdAt'] > $absoluteTimeout ? 'absolute_timeout' : 'idle_timeout');
+            $this->logger->audit('auth.session', 'expired', 'INFO', [
+                'actorType' => 'user',
+                'actorId' => is_string($identity['userId'] ?? null) ? $identity['userId'] : null,
+                'actorUsername' => is_string($identity['username'] ?? null) ? $identity['username'] : null,
+                'authenticationMethod' => 'session',
+                'reason' => $reason,
+                'component' => 'authentication',
+            ]);
             $this->destroy();
             return true;
         }

@@ -53,7 +53,7 @@ final class UserManagementService
                 $configuration['users'][$index]['username'] = $newUsername;
                 $configuration['users'][$index]['authVersion']++;
             }
-        }, $frontendOnly);
+        }, $frontendOnly, 'user.username_changed');
     }
 
     public function setEnabled(string $username, bool $enabled, bool $frontendOnly = false): array
@@ -68,7 +68,7 @@ final class UserManagementService
                 $configuration['users'][$index]['enabled'] = $enabled;
                 $configuration['users'][$index]['authVersion']++;
             }
-        }, $frontendOnly);
+        }, $frontendOnly, $enabled ? 'user.enabled' : 'user.disabled');
     }
 
     public function deleteUser(string $username, string $currentUsername, bool $frontendOnly = false): array
@@ -84,7 +84,7 @@ final class UserManagementService
                 array_splice($configuration['users'], $index, 1);
                 return $frontendOnly ? $this->safeFrontendUser($user) : $this->safeUser($user);
             });
-            $this->audit('user_deleted', $username);
+            $this->audit('user.deleted', $username);
             return $result;
         } catch (ApiRequestException $exception) { throw $exception; }
         catch (Throwable $exception) { $this->fail($exception); }
@@ -97,7 +97,7 @@ final class UserManagementService
             if ($frontendOnly) $this->assertFrontendIdentityMutable($configuration['users'][$index]);
             $configuration['users'][$index]['passwordHash'] = $hash;
             $configuration['users'][$index]['authVersion']++;
-        }, $frontendOnly);
+        }, $frontendOnly, 'user.password_changed');
     }
 
     public function assignAuthorization(string $username, ?string $backendRole, bool $frontendAccess, ?string $frontendRole): array
@@ -115,7 +115,7 @@ final class UserManagementService
             $configuration['users'][$index]['frontendAccess'] = $frontendAccess;
             $configuration['users'][$index]['frontendRole'] = $frontendAccess ? $frontendRole : null;
             $configuration['users'][$index]['authVersion']++;
-        });
+        }, false, 'user.authorization_changed');
     }
 
     public function assignFrontendAuthorization(string $username, ?string $frontendRole): array
@@ -125,7 +125,7 @@ final class UserManagementService
             $configuration['users'][$index]['frontendAccess'] = true;
             $configuration['users'][$index]['frontendRole'] = $frontendRole;
             $configuration['users'][$index]['authVersion']++;
-        }, true);
+        }, true, 'user.frontend_authorization_changed');
     }
 
     private function create(string $username, string $password, ?string $backendRole, bool $frontendAccess, ?string $frontendRole, bool $enabled, bool $frontendOnly): array
@@ -142,13 +142,13 @@ final class UserManagementService
                 $configuration['users'][] = $user;
                 return $frontendOnly ? $this->safeFrontendUser($user) : $this->safeUser($user);
             });
-            $this->audit('user_created', $username);
+            $this->audit('user.created', $username);
             return $result;
         } catch (ApiRequestException $exception) { throw $exception; }
         catch (Throwable $exception) { $this->fail($exception); }
     }
 
-    private function mutate(string $username, callable $operation, bool $frontendOnly = false): array
+    private function mutate(string $username, callable $operation, bool $frontendOnly = false, string $event = 'user.updated'): array
     {
         try {
             $result = $this->authRepository->update(function (array &$configuration) use ($username, $operation, $frontendOnly): array {
@@ -156,7 +156,7 @@ final class UserManagementService
                 $operation($configuration, $index);
                 return $frontendOnly ? $this->safeFrontendUser($configuration['users'][$index]) : $this->safeUser($configuration['users'][$index]);
             });
-            $this->audit('user_updated', $username);
+            $this->audit($event, $username);
             return $result;
         } catch (ApiRequestException $exception) { throw $exception; }
         catch (Throwable $exception) { $this->fail($exception); }
@@ -224,12 +224,19 @@ final class UserManagementService
 
     private function audit(string $event, string $targetUsername): void
     {
-        $this->logger->security($event, ['targetUsername' => $targetUsername, 'result' => 'completed']);
+        $this->logger->audit($event, 'success', 'INFO', [
+            'targetType' => 'user',
+            'targetUsername' => $targetUsername,
+            'component' => 'user_management',
+        ]);
     }
 
     private function fail(Throwable $exception): never
     {
-        $this->logger->write((string)json_encode(['timestamp' => date(DATE_ATOM), 'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null, 'event' => 'user_management_error', 'errorType' => get_class($exception)], JSON_UNESCAPED_SLASHES));
+        $this->logger->audit('user.operation', 'failure', 'ERROR', [
+            'reason' => get_class($exception),
+            'component' => 'user_management',
+        ]);
         throw new ApiRequestException('Unable to complete user operation.', 'USER_OPERATION_FAILED', [], 500);
     }
 }

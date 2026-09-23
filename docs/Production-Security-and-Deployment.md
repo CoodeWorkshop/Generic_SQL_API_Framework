@@ -251,6 +251,12 @@ Keep separate logs with separate rotation policy:
 
 Grant the PHP identity write access to application/PHP log targets and deny browser access. Rotate and retain logs according to volume and organizational policy. Existing application logging records parameter counts/types rather than values; operators must also avoid adding passwords, encryption keys, API keys, cookies, authorization headers, session identifiers, or raw credentials to web-server log formats.
 
+Security events use structured JSON Lines with request correlation, categorical
+outcomes, severity, and allowlisted actor/target metadata. See
+[Audit and security logging](Audit-and-Security-Logging.md) for the implemented
+taxonomy, fail-open behavior, file modes, concurrency boundary, and OS-owned
+rotation/retention requirements. No centralized collector or SIEM is configured.
+
 ## Deployment verification
 
 1. Bootstrap runtime configuration offline and provision the encryption key through the service identity.

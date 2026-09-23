@@ -145,6 +145,14 @@ The five basic metadata actions already exist. This version is for capabilities 
 - production backup/temp-file web denials and cross-platform secret deployment guidance
 - database-password and encryption-key rotation procedures documented
 
+## New Phase 4.7 — Audit and security logging — Implemented
+
+- compact JSON Lines security audit schema with request correlation and severity
+- authentication, authorization, API-key, user, configuration, database, rate-limit, and runtime lifecycle events
+- principal-aware safe actor identifiers with secret-free allowlisted metadata
+- concurrent local append integrity, owner-restricted files, and fail-open diagnostics
+- Windows/Linux rotation, retention, monitoring, and privacy responsibilities documented
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

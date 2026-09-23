@@ -24,6 +24,11 @@ class QueryEngine
                 $this->connection = $this->db->getConnection();
                 $this->logger->timing('database_connection', $this->elapsed($started), ['success' => true]);
             } catch (Throwable $exception) {
+                $this->logger->audit('database.connection', 'failure', 'ERROR', [
+                    'component' => 'database',
+                    'errorCategory' => $this->errorCategory($exception),
+                    'reason' => 'connection_failed',
+                ]);
                 $this->logger->timing('database_connection', $this->elapsed($started), [
                     'success' => false,
                     'errorType' => get_class($exception),
@@ -135,6 +140,18 @@ class QueryEngine
                 'errorCategory' => $this->errorCategory($converted),
                 'driverMessage' => $this->sanitizedDriverMessage($converted->getMessage()),
             ]);
+            $this->logger->audit(
+                $converted instanceof QueryTimeoutException ? 'database.query_timeout' : 'database.query_failure',
+                'failure',
+                $converted instanceof QueryTimeoutException ? 'WARNING' : 'ERROR',
+                [
+                    'component' => 'database',
+                    'action' => is_string($context['queryPhase'] ?? null) ? $context['queryPhase'] : $phase,
+                    'resource' => is_string($context['resource'] ?? null) ? $context['resource'] : null,
+                    'errorCategory' => $this->errorCategory($converted),
+                    'durationMs' => round($this->elapsed($totalStarted), 2),
+                ]
+            );
             throw $converted;
         } finally {
             if ($statement) $this->freeStatement($statement);

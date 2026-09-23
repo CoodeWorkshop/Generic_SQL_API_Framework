@@ -15,6 +15,7 @@ require_once __DIR__ . '/../Runtime/RuntimeDetector.php';
 require_once __DIR__ . '/../Runtime/DatabaseAvailabilityManager.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
+require_once __DIR__ . '/../../core/Logger.php';
 
 final class AdminService
 {
@@ -26,6 +27,7 @@ final class AdminService
     private RuntimeDetector $runtimeDetector;
     private DatabaseAuthenticationSupport $databaseAuthentication;
     private DatabaseAvailabilityManager $databaseAvailability;
+    private Logger $logger;
 
     public function __construct(
         ?AdminConfigurationRepository $configuration = null,
@@ -35,7 +37,8 @@ final class AdminService
         ?RuntimeDetector $runtimeDetector = null,
         ?SqlParserProcessManager $parserProcessManager = null,
         ?DatabaseAuthenticationSupport $databaseAuthentication = null,
-        ?DatabaseAvailabilityManager $databaseAvailability = null
+        ?DatabaseAvailabilityManager $databaseAvailability = null,
+        ?Logger $logger = null
     ) {
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->databasePath = $databasePath
@@ -53,6 +56,7 @@ final class AdminService
         $this->parserProcessManager = $parserProcessManager ?? new SqlParserProcessManager($this->configuration);
         $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
         $this->databaseAvailability = $databaseAvailability ?? new DatabaseAvailabilityManager();
+        $this->logger = $logger ?? new Logger();
     }
 
     public function status(): array
@@ -136,6 +140,9 @@ final class AdminService
             $stored = DatabaseConfigurationResolver::readStored($this->databasePath);
             $database = DatabaseConfigurationResolver::resolve($stored);
         } catch (Throwable $exception) {
+            $this->logger->audit('database.connection_test', 'failure', 'WARNING', [
+                'reason' => 'connection_failed', 'component' => 'database',
+            ]);
             throw new ApiRequestException(
                 'Database configuration is unavailable.',
                 'DATABASE_CONFIGURATION_UNAVAILABLE',
@@ -175,6 +182,7 @@ final class AdminService
                 422
             );
         }
+        $this->logger->audit('database.connection_test', 'success', 'INFO', ['component' => 'database']);
         return ['connected' => true];
     }
 
@@ -194,8 +202,12 @@ final class AdminService
         try {
             ($this->connectionTester)($database);
         } catch (Throwable $exception) {
+            $this->logger->audit('database.connection_test', 'failure', 'WARNING', [
+                'reason' => 'connection_failed', 'component' => 'database',
+            ]);
             throw new ApiRequestException('Database connection failed.', 'DATABASE_CONNECTION_FAILED', [], 422);
         }
+        $this->logger->audit('database.connection_test', 'success', 'INFO', ['component' => 'database']);
         return ['connected' => true];
     }
 
@@ -217,6 +229,9 @@ final class AdminService
             }
             JsonFileStore::save($this->databasePath, $encrypted);
         } catch (DatabaseCredentialException $exception) {
+            $this->logger->audit('configuration.database', 'failure', 'ERROR', [
+                'configurationCategory' => 'database', 'reason' => 'encryption_unavailable', 'component' => 'admin',
+            ]);
             throw new ApiRequestException(
                 'Database encryption is unavailable.',
                 'DATABASE_ENCRYPTION_UNAVAILABLE',
@@ -224,6 +239,9 @@ final class AdminService
                 503
             );
         } catch (Throwable $exception) {
+            $this->logger->audit('configuration.database', 'failure', 'ERROR', [
+                'configurationCategory' => 'database', 'reason' => 'save_failed', 'component' => 'admin',
+            ]);
             throw new ApiRequestException(
                 'Unable to save database configuration.',
                 'DATABASE_CONFIGURATION_SAVE_FAILED',
@@ -231,6 +249,11 @@ final class AdminService
                 500
             );
         }
+        $this->logger->audit('configuration.database', 'success', 'NOTICE', [
+            'configurationCategory' => 'database',
+            'reason' => $resolved['password'] !== '' ? 'password_configured' : 'integrated_authentication',
+            'component' => 'admin',
+        ]);
         return ['configured' => true, 'encrypted' => true, 'passwordConfigured' => $resolved['password'] !== ''];
     }
 
@@ -280,7 +303,7 @@ final class AdminService
         $parserRestartRequired = $server['parserPortMinimum'] !== $currentServer['parserPortMinimum']
             || $server['parserPortMaximum'] !== $currentServer['parserPortMaximum'];
         $adminRestartRequired = $server['adminPort'] !== $currentServer['adminPort'];
-        return $this->configuration->update(function (array &$settings) use (
+        $result = $this->configuration->update(function (array &$settings) use (
             $server,
             $apiRestartRequired,
             $parserRestartRequired,
@@ -294,35 +317,46 @@ final class AdminService
                 'adminRestartRequired' => $adminRestartRequired,
             ];
         });
+        $this->configurationAudit('server');
+        return $result;
     }
 
     public function saveCors(array $cors): array
     {
-        return $this->configuration->update(function (array &$settings) use ($cors): array {
+        $result = $this->configuration->update(function (array &$settings) use ($cors): array {
             $settings['cors'] = $cors;
             return $cors;
         });
+        $this->configurationAudit('cors');
+        return $result;
     }
 
     public function saveAuthentication(string $mode): array
     {
-        return $this->configuration->update(function (array &$settings) use ($mode): array {
+        $result = $this->configuration->update(function (array &$settings) use ($mode): array {
             $settings['authentication']['mode'] = $mode;
             return [
                 'mode' => $mode,
                 'apiKeyConfigured' => (new ApiKeyAuthenticator())->configured() || (new ApiKeyService())->configured(),
             ];
         });
+        $this->configurationAudit('authentication');
+        return $result;
     }
 
     public function saveRuntime(array $runtime): array
     {
         try {
-            return $this->configuration->update(function (array &$settings) use ($runtime): array {
+            $result = $this->configuration->update(function (array &$settings) use ($runtime): array {
                 $settings['runtime'] = $runtime;
                 return $runtime;
             });
+            $this->configurationAudit('runtime_security');
+            return $result;
         } catch (Throwable $exception) {
+            $this->logger->audit('configuration.changed', 'failure', 'ERROR', [
+                'configurationCategory' => 'runtime_security', 'reason' => 'save_failed', 'component' => 'admin',
+            ]);
             throw new ApiRequestException(
                 'Unable to save runtime configuration.',
                 'RUNTIME_CONFIGURATION_SAVE_FAILED',
@@ -335,10 +369,12 @@ final class AdminService
     public function controlApi(string $operation): array
     {
         try {
-            if ($operation === 'start') return $this->processManager->start();
-            if ($operation === 'stop') return $this->processManager->stop();
-            return $this->processManager->restart();
+            $result = $operation === 'start' ? $this->processManager->start()
+                : ($operation === 'stop' ? $this->processManager->stop() : $this->processManager->restart());
+            $this->runtimeAudit('api', $operation, 'success', $result);
+            return $result;
         } catch (RuntimeException $exception) {
+            $this->runtimeAudit('api', $operation, 'failure', [], 'operation_failed');
             throw new ApiRequestException($exception->getMessage(), 'API_PROCESS_OPERATION_FAILED', [], 409);
         }
     }
@@ -346,20 +382,45 @@ final class AdminService
     public function controlSqlParser(string $operation): array
     {
         try {
-            if ($operation === 'start') return $this->parserProcessManager->start();
-            if ($operation === 'stop') return $this->parserProcessManager->stop();
-            return $this->parserProcessManager->restart();
+            $result = $operation === 'start' ? $this->parserProcessManager->start()
+                : ($operation === 'stop' ? $this->parserProcessManager->stop() : $this->parserProcessManager->restart());
+            $this->runtimeAudit('sql_parser', $operation, 'success', $result);
+            return $result;
         } catch (RuntimeException $exception) {
+            $this->runtimeAudit('sql_parser', $operation, 'failure', [], 'operation_failed');
             throw new ApiRequestException($exception->getMessage(), 'SQL_PARSER_PROCESS_OPERATION_FAILED', [], 409);
         }
     }
 
     public function controlDatabase(string $operation): array
     {
-        if ($operation === 'disconnect') return $this->databaseAvailability->setAvailable(false);
+        if ($operation === 'disconnect') {
+            $result = $this->databaseAvailability->setAvailable(false);
+            $this->runtimeAudit('database', $operation, 'success', $result);
+            return $result;
+        }
         if ($operation === 'restart') $this->databaseAvailability->setAvailable(false);
-        try { $this->testCurrentDatabase(); return $this->databaseAvailability->setAvailable(true); }
-        catch (Throwable $exception) { $this->databaseAvailability->setAvailable(false); throw $exception; }
+        try { $this->testCurrentDatabase(); $result = $this->databaseAvailability->setAvailable(true); $this->runtimeAudit('database', $operation, 'success', $result); return $result; }
+        catch (Throwable $exception) { $this->databaseAvailability->setAvailable(false); $this->runtimeAudit('database', $operation, 'failure', [], 'connection_failed'); throw $exception; }
+    }
+
+    private function configurationAudit(string $category): void
+    {
+        $this->logger->audit('configuration.changed', 'success', 'NOTICE', [
+            'configurationCategory' => $category,
+            'component' => 'admin',
+        ]);
+    }
+
+    private function runtimeAudit(string $component, string $action, string $outcome, array $result = [], ?string $reason = null): void
+    {
+        $this->logger->audit('runtime.lifecycle', $outcome, $outcome === 'success' ? 'INFO' : 'ERROR', [
+            'component' => $component,
+            'action' => $action,
+            'pid' => is_int($result['pid'] ?? null) ? $result['pid'] : null,
+            'port' => is_int($result['port'] ?? null) ? $result['port'] : null,
+            'reason' => $reason,
+        ]);
     }
 
     private function databaseStatus(): array

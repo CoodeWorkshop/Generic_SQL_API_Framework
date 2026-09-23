@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Security/SecurityConfiguration.php';
 require_once __DIR__ . '/../Authorization/PrincipalContext.php';
 require_once __DIR__ . '/../Services/AuthorizationService.php';
 require_once __DIR__ . '/../Services/ApiKeyService.php';
+require_once __DIR__ . '/../../core/Logger.php';
 
 final class AuthenticationMiddleware extends Middleware
 {
@@ -19,6 +20,7 @@ final class AuthenticationMiddleware extends Middleware
     private ApiKeyAuthenticator $apiKeys;
     private AuthorizationService $authorization;
     private ApiKeyService $managedApiKeys;
+    private Logger $logger;
 
     public function __construct(
         bool $enforce = false,
@@ -27,7 +29,8 @@ final class AuthenticationMiddleware extends Middleware
         ?AuthRepository $authRepository = null,
         ?ApiKeyAuthenticator $apiKeys = null,
         ?AuthorizationService $authorization = null,
-        ?ApiKeyService $managedApiKeys = null
+        ?ApiKeyService $managedApiKeys = null,
+        ?Logger $logger = null
     ) {
         $this->enforce = $enforce;
         $this->publicActions = $publicActions;
@@ -36,6 +39,7 @@ final class AuthenticationMiddleware extends Middleware
         $this->apiKeys = $apiKeys ?? new ApiKeyAuthenticator();
         $this->authorization = $authorization ?? new AuthorizationService();
         $this->managedApiKeys = $managedApiKeys ?? new ApiKeyService(null, $this->authRepository, $this->authorization);
+        $this->logger = $logger ?? new Logger();
     }
 
     public function handle(array $request): void
@@ -98,6 +102,16 @@ final class AuthenticationMiddleware extends Middleware
             || $user['enabled'] !== true
             || $user['username'] !== $this->session->authenticatedUsername()
             || $user['authVersion'] !== $this->session->authenticatedAuthVersion()) {
+            $this->logger->audit('auth.session', 'invalidated', 'NOTICE', [
+                'actorType' => 'user',
+                'actorId' => $this->session->authenticatedUserId(),
+                'actorUsername' => $this->session->authenticatedUsername(),
+                'authenticationMethod' => 'session',
+                'reason' => $user === null ? 'identity_missing'
+                    : ($user['enabled'] !== true ? 'account_disabled'
+                    : ($user['username'] !== $this->session->authenticatedUsername() ? 'identity_changed' : 'auth_version_changed')),
+                'component' => 'authentication',
+            ]);
             $this->session->destroy();
             $this->authenticationRequired();
         }
@@ -128,6 +142,12 @@ final class AuthenticationMiddleware extends Middleware
             PrincipalContext::set(new Principal(null, 'legacy-api-key', 'api_key', $role, false, null, true, $this->authorization->permissionsForRoles($roles)));
             return true;
         }
+        $this->logger->audit('auth.api_key', 'failure', 'NOTICE', [
+            'actorType' => 'api_key',
+            'fingerprint' => substr(hash('sha256', $provided), 0, 12),
+            'reason' => 'invalid_credential',
+            'component' => 'authentication',
+        ]);
         return false;
     }
 

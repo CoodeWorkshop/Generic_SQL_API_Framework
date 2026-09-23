@@ -16,17 +16,20 @@ final class AuthService
     private PasswordHasher $passwordHasher;
     private AuthSessionService $sessionService;
     private LoginRateLimiter $rateLimiter;
+    private Logger $logger;
 
     public function __construct(
         ?AuthRepository $authRepository = null,
         ?PasswordHasher $passwordHasher = null,
         ?AuthSessionService $sessionService = null,
-        ?LoginRateLimiter $rateLimiter = null
+        ?LoginRateLimiter $rateLimiter = null,
+        ?Logger $logger = null
     ) {
         $this->authRepository = $authRepository ?? new AuthRepository();
         $this->passwordHasher = $passwordHasher ?? new PasswordHasher();
         $this->sessionService = $sessionService ?? new AuthSessionService();
         $this->rateLimiter = $rateLimiter ?? new LoginRateLimiter();
+        $this->logger = $logger ?? new Logger();
     }
 
     public function login(string $username, string $password): array
@@ -36,10 +39,12 @@ final class AuthService
             try {
                 $this->rateLimiter->assertAllowed($sourceIp, $username);
             } catch (ApiRequestException $exception) {
-                (new Logger())->security('login_rate_limited', [
-                    'username' => $username,
+                $this->logger->audit('auth.login', 'rejected', 'WARNING', [
+                    'actorType' => 'anonymous',
+                    'targetUsername' => $username,
                     'sourceIp' => $sourceIp,
-                    'result' => 'rejected',
+                    'reason' => 'rate_limited',
+                    'component' => 'authentication',
                 ]);
                 throw $exception;
             }
@@ -51,17 +56,21 @@ final class AuthService
             );
             if ($user === null || !$verified || $user['enabled'] !== true) {
                 $blocked = $this->rateLimiter->recordFailure($sourceIp, $username);
-                (new Logger())->security(
-                    $user !== null && $verified && $user['enabled'] !== true
-                        ? 'disabled_account_login_attempt'
-                        : 'login_failed',
-                    ['username' => $username, 'sourceIp' => $sourceIp, 'result' => 'rejected']
-                );
+                $this->logger->audit('auth.login', 'failure', 'NOTICE', [
+                    'actorType' => 'anonymous',
+                    'targetUsername' => $username,
+                    'sourceIp' => $sourceIp,
+                    'reason' => $user !== null && $verified && $user['enabled'] !== true
+                        ? 'account_disabled' : 'invalid_credentials',
+                    'component' => 'authentication',
+                ]);
                 if ($blocked) {
-                    (new Logger())->security('login_rate_limited', [
-                        'username' => $username,
+                    $this->logger->audit('auth.login', 'rejected', 'WARNING', [
+                        'actorType' => 'anonymous',
+                        'targetUsername' => $username,
                         'sourceIp' => $sourceIp,
-                        'result' => 'blocked',
+                        'reason' => 'rate_limit_activated',
+                        'component' => 'authentication',
                     ]);
                     $this->rateLimiter->throwRateLimited();
                 }
@@ -82,10 +91,13 @@ final class AuthService
                         $this->passwordHasher->hash($password)
                     );
                 } catch (Throwable $exception) {
-                    (new Logger())->security('password_rehash_failed', [
-                        'username' => $user['username'],
+                    $this->logger->audit('auth.password_rehash', 'failure', 'WARNING', [
+                        'actorType' => 'user',
+                        'actorId' => $user['id'],
+                        'actorUsername' => $user['username'],
                         'sourceIp' => $sourceIp,
-                        'result' => 'login_continued',
+                        'reason' => 'storage_failure',
+                        'component' => 'authentication',
                     ]);
                 }
             }
@@ -94,10 +106,14 @@ final class AuthService
                 $user['id'],
                 $user['authVersion']
             );
-            (new Logger())->security('login_succeeded', [
-                'username' => $user['username'],
+            $this->logger->audit('auth.login', 'success', 'INFO', [
+                'actorType' => 'user',
+                'actorId' => $user['id'],
+                'actorUsername' => $user['username'],
+                'role' => $user['backendRole'] ?? $user['frontendRole'],
+                'authenticationMethod' => 'session',
                 'sourceIp' => $sourceIp,
-                'result' => 'authenticated',
+                'component' => 'authentication',
             ]);
             return $this->authenticatedSnapshot($user);
         } catch (ApiRequestException $exception) {
@@ -116,11 +132,25 @@ final class AuthService
             $username = (string)$this->sessionService->authenticatedUsername();
             $user = $this->authRepository->findUserById((string)$this->sessionService->authenticatedUserId());
             if ($user === null || $user['enabled'] !== true) {
+                $this->logger->audit('auth.session', 'invalidated', 'NOTICE', [
+                    'actorType' => 'user',
+                    'actorId' => $this->sessionService->authenticatedUserId(),
+                    'actorUsername' => $username,
+                    'reason' => $user === null ? 'identity_missing' : 'account_disabled',
+                    'component' => 'authentication',
+                ]);
                 $this->sessionService->destroy();
                 return $this->unauthenticatedSnapshot();
             }
             if ($user['username'] !== $username
                 || $user['authVersion'] !== $this->sessionService->authenticatedAuthVersion()) {
+                $this->logger->audit('auth.session', 'invalidated', 'NOTICE', [
+                    'actorType' => 'user',
+                    'actorId' => $user['id'],
+                    'actorUsername' => $username,
+                    'reason' => $user['username'] !== $username ? 'identity_changed' : 'auth_version_changed',
+                    'component' => 'authentication',
+                ]);
                 $this->sessionService->destroy();
                 return $this->unauthenticatedSnapshot();
             }
@@ -137,10 +167,11 @@ final class AuthService
                 ? $this->sessionService->authenticatedUsername()
                 : null;
             $this->sessionService->destroy();
-            (new Logger())->security('logout', [
-                'username' => $username,
+            $this->logger->audit('auth.logout', 'success', 'INFO', [
+                'actorType' => $username === null ? 'anonymous' : 'user',
+                'actorUsername' => $username,
                 'sourceIp' => SecurityConfiguration::clientIp(),
-                'result' => 'completed',
+                'component' => 'authentication',
             ]);
             return $this->unauthenticatedSnapshot();
         } catch (Throwable $exception) {
@@ -168,12 +199,11 @@ final class AuthService
 
     private function fail(Throwable $exception): never
     {
-        (new Logger())->write((string)json_encode([
-            'timestamp' => date(DATE_ATOM),
-            'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
-            'event' => 'authentication_error',
-            'errorType' => get_class($exception),
-        ], JSON_UNESCAPED_SLASHES));
+        $this->logger->audit('auth.request', 'failure', 'ERROR', [
+            'actorType' => 'anonymous',
+            'reason' => get_class($exception),
+            'component' => 'authentication',
+        ]);
         throw new ApiRequestException(
             'Unable to complete authentication request.',
             'AUTHENTICATION_FAILED',

@@ -4,10 +4,11 @@ require_once __DIR__ . '/../Authorization/Principal.php';
 require_once __DIR__ . '/../Authorization/RoleModel.php';
 require_once __DIR__ . '/../Repositories/AuthorizationRepository.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
+require_once __DIR__ . '/../../core/Logger.php';
 
 final class AuthorizationService
 {
-    public function __construct(private ?AuthorizationRepository $repository = null) { $this->repository ??= new AuthorizationRepository(); }
+    public function __construct(private ?AuthorizationRepository $repository = null, private ?Logger $logger = null) { $this->repository ??= new AuthorizationRepository(); $this->logger ??= new Logger(); }
 
     public function roles(): array { return $this->repository->load()['roles']; }
     public function publicRoles(): array { return $this->repository->load()['publicRoles']; }
@@ -24,7 +25,12 @@ final class AuthorizationService
 
     public function authorize(Principal $principal, string $permission, ?string $resource = null, ?string $scope = null): void
     {
-        if (!$principal->enabled) $this->deny(false);
+        $this->authorizeInternal($principal, $permission, $resource, $scope, true);
+    }
+
+    private function authorizeInternal(Principal $principal, string $permission, ?string $resource, ?string $scope, bool $audit): void
+    {
+        if (!$principal->enabled) $this->deny($principal, $permission, false, 'principal_disabled', $audit);
         // Frontend access is the base read entitlement in the frontend domain;
         // Application Administrator adds management, not a second read model.
         if ($permission === 'frontend.read' && $principal->frontendAccess) return;
@@ -39,25 +45,40 @@ final class AuthorizationService
             $resources = $scope === 'write' ? $role['writeResources'] : $role['sqlResources'];
             if (in_array('*', $resources, true) || in_array($resource, $resources, true)) $resourceAllowed = true;
         }
-        if (!$allowed || !$resourceAllowed) $this->deny($resource !== null);
+        if (!$allowed || !$resourceAllowed) {
+            $this->deny($principal, $permission, $resource !== null, $allowed ? 'resource_scope_denied' : 'permission_denied', $audit, $resource);
+        }
     }
 
     public function authorizeAny(Principal $principal, array $permissions, ?string $resource = null, ?string $scope = null): void
     {
         foreach ($permissions as $permission) {
-            try { $this->authorize($principal, $permission, $resource, $scope); return; }
+            try { $this->authorizeInternal($principal, $permission, $resource, $scope, false); return; }
             catch (ApiRequestException $exception) {
                 if (!in_array($exception->getErrorCode(), ['AUTHORIZATION_DENIED', 'RESOURCE_ACCESS_DENIED'], true)) throw $exception;
             }
         }
-        $this->deny($resource !== null);
+        $this->deny($principal, implode('|', $permissions), $resource !== null, 'permission_denied', true, $resource);
     }
 
-    private function deny(bool $resource): never
+    private function deny(Principal $principal, string $permission, bool $resourceDenied, string $reason, bool $audit, ?string $resource = null): never
     {
+        if ($audit) {
+            $this->logger->audit('authorization.denied', 'denied', 'NOTICE', [
+                'actorType' => $principal->authenticationType === 'api_key' ? 'api_key' : 'user',
+                'actorId' => $principal->userId,
+                'actorUsername' => $principal->username,
+                'role' => $principal->backendRole ?? $principal->frontendRole,
+                'authenticationMethod' => $principal->authenticationType,
+                'action' => $permission,
+                'resource' => $resource,
+                'reason' => $reason,
+                'component' => 'authorization',
+            ]);
+        }
         throw new ApiRequestException(
-            $resource ? 'Resource access is denied.' : 'Authorization denied.',
-            $resource ? 'RESOURCE_ACCESS_DENIED' : 'AUTHORIZATION_DENIED', [], 403
+            $resourceDenied ? 'Resource access is denied.' : 'Authorization denied.',
+            $resourceDenied ? 'RESOURCE_ACCESS_DENIED' : 'AUTHORIZATION_DENIED', [], 403
         );
     }
 }

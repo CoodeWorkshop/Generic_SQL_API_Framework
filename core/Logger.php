@@ -10,7 +10,12 @@ class Logger
         $this->logDirectory = $logDirectory ?? __DIR__ . "/../logs";
 
         if (!is_dir($this->logDirectory)) {
-            $this->attempt(fn () => mkdir($this->logDirectory, 0777, true));
+            $this->attempt(fn () => mkdir($this->logDirectory, 0700, true));
+        }
+        if (is_dir($this->logDirectory)) {
+            // POSIX permissions are enforced here; on Windows the equivalent
+            // protection remains the deployer's NTFS ACL.
+            $this->attempt(fn () => chmod($this->logDirectory, 0700));
         }
 
         $this->logFile =
@@ -29,6 +34,7 @@ class Logger
             if ($stream === false) {
                 throw new RuntimeException('Unable to open the application log.');
             }
+            @chmod($this->logFile, 0600);
 
             $locked = false;
             try {
@@ -78,9 +84,10 @@ class Logger
             '$1: [REDACTED]',
             $message
         );
-        $message = (string)preg_replace(
-            '/(?i)((?:["\']?)(?:password|pwd|uid|user(?:name)?|x-api-key|api[_-]?key|csrf[_-]?token|session[_-]?id|GENERIC_SQL_API_ENCRYPTION_KEY)(?:["\']?)\s*[=:]\s*)("(?:\\\\.|[^"\\\\])*"|[^;\s,}]+)/',
-            '$1[REDACTED]',
+        $message = (string)preg_replace_callback(
+            '/(?i)((?:["\']?)(?:password|pwd|uid|x-api-key|api[_-]?key|csrf[_-]?token|session[_-]?id|GENERIC_SQL_API_ENCRYPTION_KEY)(?:["\']?)\s*[=:]\s*)("(?:\\\\.|[^"\\\\])*"|[^;"\'\s,}]+)/',
+            static fn (array $match): string => $match[1]
+                . (str_starts_with($match[2], '"') ? '"[REDACTED]"' : '[REDACTED]'),
             $message
         );
         $environmentKey = getenv('GENERIC_SQL_API_ENCRYPTION_KEY');
@@ -140,13 +147,69 @@ class Logger
 
     public function security(string $event, array $context = []): void
     {
-        $allowed = ['username', 'targetUsername', 'sourceIp', 'result', 'action'];
-        $safeContext = array_intersect_key($context, array_flip($allowed));
-        $this->write((string)json_encode([
+        if (is_string($context['username'] ?? null)) {
+            $context['actorUsername'] = $context['username'];
+        }
+        $outcome = is_string($context['outcome'] ?? null)
+            ? $context['outcome']
+            : (is_string($context['result'] ?? null) ? $context['result'] : 'success');
+        unset($context['outcome'], $context['result'], $context['username']);
+        $context['component'] ??= 'security';
+        $this->audit($event, $outcome, 'INFO', $context);
+    }
+
+    public function audit(string $event, string $outcome, string $severity = 'INFO', array $context = []): void
+    {
+        $severity = strtoupper($severity);
+        if (!in_array($severity, ['INFO', 'NOTICE', 'WARNING', 'ERROR', 'CRITICAL'], true)) {
+            $severity = 'NOTICE';
+        }
+        $safeContext = $this->safeAuditContext($context);
+        if (!isset($safeContext['actorType']) && class_exists('PrincipalContext', false)) {
+            $principal = PrincipalContext::current();
+            if ($principal !== null) {
+                $safeContext += [
+                    'actorType' => $principal->authenticationType === 'api_key' ? 'api_key' : 'user',
+                    'actorId' => $principal->userId,
+                    'actorUsername' => $principal->username,
+                    'role' => $principal->backendRole ?? $principal->frontendRole,
+                    'authenticationMethod' => $principal->authenticationType,
+                ];
+            }
+        }
+        $record = [
             'timestamp' => date(DATE_ATOM),
             'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
+            'recordType' => 'security_audit',
             'event' => $event,
-        ] + $safeContext, JSON_UNESCAPED_SLASHES));
+            'outcome' => $outcome,
+            'severity' => $severity,
+            'component' => $safeContext['component'] ?? 'backend',
+        ] + $safeContext;
+        $encoded = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (is_string($encoded)) $this->write($encoded);
+    }
+
+    private function safeAuditContext(array $context): array
+    {
+        $allowed = [
+            'component', 'actorType', 'actorId', 'actorUsername', 'role',
+            'authenticationMethod', 'sourceIp', 'action', 'resource', 'targetType',
+            'targetId', 'targetUsername', 'keyId', 'fingerprint', 'ownerId',
+            'reason', 'errorCategory', 'configurationCategory', 'identityType',
+            'identityHash', 'pid', 'port', 'durationMs',
+        ];
+        $safe = [];
+        foreach ($allowed as $field) {
+            if (!array_key_exists($field, $context)) continue;
+            $value = $context[$field];
+            if ($value === null || is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
+                $safe[$field] = is_string($value) && strlen($value) > 256
+                    ? substr($value, 0, 256)
+                    : $value;
+            }
+        }
+        return $safe;
     }
 
     public function safeSql(string $sql): string

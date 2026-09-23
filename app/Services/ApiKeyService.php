@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../core/Logger.php';
 
 final class ApiKeyService
 {
-    public function __construct(private ?ApiKeyRepository $keys = null, private ?AuthRepository $users = null, private ?AuthorizationService $authorization = null) { $this->keys ??= new ApiKeyRepository(); $this->users ??= new AuthRepository(); $this->authorization ??= new AuthorizationService(); }
+    public function __construct(private ?ApiKeyRepository $keys = null, private ?AuthRepository $users = null, private ?AuthorizationService $authorization = null, private ?Logger $logger = null) { $this->keys ??= new ApiKeyRepository(); $this->users ??= new AuthRepository(); $this->authorization ??= new AuthorizationService(); $this->logger ??= new Logger(); }
     public function list(): array { return array_map(function ($key) { $owner=$this->users->findUserById($key['ownerUserId']); return [...$this->safe($key), 'ownerUsername'=>$owner['username'] ?? 'Unavailable']; }, $this->keys->load()['keys']); }
     public function configured(): bool { return $this->keys->load()['keys'] !== []; }
     public function create(string $name, string $ownerUsername, array $roles): array {
@@ -18,11 +18,11 @@ final class ApiKeyService
         $id = bin2hex(random_bytes(8)); $secret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '='); $raw = "gsk_{$id}_{$secret}";
         $record = ['id'=>$id,'name'=>$name,'ownerUserId'=>$owner['id'],'roles'=>array_values(array_unique($roles)),'secretHash'=>password_hash($secret, PASSWORD_DEFAULT),'fingerprint'=>substr(hash('sha256',$raw),0,12),'enabled'=>true,'revokedAt'=>null,'createdAt'=>gmdate(DATE_ATOM),'lastUsedAt'=>null];
         $safe = $this->keys->update(function (&$value) use ($record) { $value['keys'][]=$record; return $this->safe($record); });
-        (new Logger())->security('api_key_created', ['keyId'=>$id,'ownerUsername'=>$ownerUsername,'result'=>'completed']);
+        $this->logger->audit('api_key.created', 'success', 'INFO', ['keyId'=>$id,'fingerprint'=>$record['fingerprint'],'ownerId'=>$owner['id'],'targetUsername'=>$ownerUsername,'component'=>'api_keys']);
         return [...$safe, 'apiKey'=>$raw];
     }
-    public function setEnabled(string $id, bool $enabled): array { return $this->mutate($id, function (&$key) use ($enabled) { if ($key['revokedAt'] !== null && $enabled) throw new ApiRequestException('Revoked API keys cannot be enabled.', 'API_KEY_REVOKED', [], 409); $key['enabled']=$enabled; }); }
-    public function revoke(string $id): array { return $this->mutate($id, function (&$key) { if ($key['revokedAt'] === null) $key['revokedAt']=gmdate(DATE_ATOM); $key['enabled']=false; }); }
+    public function setEnabled(string $id, bool $enabled): array { $result=$this->mutate($id, function (&$key) use ($enabled) { if ($key['revokedAt'] !== null && $enabled) throw new ApiRequestException('Revoked API keys cannot be enabled.', 'API_KEY_REVOKED', [], 409); $key['enabled']=$enabled; }); $this->logger->audit($enabled?'api_key.enabled':'api_key.disabled','success','INFO',['keyId'=>$id,'fingerprint'=>$result['fingerprint'],'component'=>'api_keys']); return $result; }
+    public function revoke(string $id): array { $result=$this->mutate($id, function (&$key) { if ($key['revokedAt'] === null) $key['revokedAt']=gmdate(DATE_ATOM); $key['enabled']=false; }); $this->logger->audit('api_key.revoked','success','NOTICE',['keyId'=>$id,'fingerprint'=>$result['fingerprint'],'component'=>'api_keys']); return $result; }
     public function authenticate(string $raw): ?array {
         if (preg_match('/^gsk_([a-f0-9]{16})_([A-Za-z0-9_-]{43})$/', $raw, $match) !== 1) return null;
         $key=$this->keys->findById($match[1]); if ($key===null || !$key['enabled'] || $key['revokedAt']!==null || !password_verify($match[2],$key['secretHash'])) return null;
