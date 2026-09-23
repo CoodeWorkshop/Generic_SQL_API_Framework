@@ -122,6 +122,15 @@ REM
 set "KEY_FILE=%TEMP%\generic-sql-api-key-%RANDOM%-%RANDOM%.tmp"
 set "PREPARED_ENCRYPTION_KEY="
 
+type nul > "%KEY_FILE%"
+icacls "%KEY_FILE%" /inheritance:r /grant:r "%USERNAME%:(R,W,D)" >nul 2>&1
+if errorlevel 1 (
+    del /q "%KEY_FILE%" >nul 2>&1
+    echo [FAILED] Unable to protect the temporary database encryption key output.
+    pause
+    exit /b 1
+)
+
 "%PHP%" -c "%PHP_INI%" "%ROOT%\scripts\prepare-local-encryption-key.php" > "%KEY_FILE%"
 
 if errorlevel 1 (

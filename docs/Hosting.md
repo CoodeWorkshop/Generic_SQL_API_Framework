@@ -33,8 +33,11 @@ file cache, and writes PHP errors to `logs/php_errors.log`. It does not require 
 working database before startup: configure and test submitted settings through
 Configuration → Database, then connect runtime access from System Health. The launcher generates a local key only when neither an environment
 key nor key file exists and no already-encrypted database file depends on a
-missing key. It never rewrites database configuration itself. Each built-in
-server is single-process/single-threaded. API and SQL Parser remain stopped and
+missing key. It never rewrites database configuration itself. The Windows
+launcher restricts its short-lived key-output file to the invoking identity
+before capture and deletes it immediately after importing the value into the
+process environment. Each built-in server is single-process/single-threaded.
+API and SQL Parser remain stopped and
 database runtime access remains disconnected until manually controlled from
 System Health; all services retain independent lifecycles.
 
@@ -75,6 +78,12 @@ The built-in server handles each managed API/Parser process serially and must no
 IIS `web.config` examples, an Nginx HTTPS server-block example, PHP production/OPcache settings, route boundaries, TLS, security headers, permissions, logging, and deployment steps are documented in [Production web-server hosting](Production-Security-and-Deployment.md).
 
 Before exposing a production deployment, install a hostname-valid trusted certificate, validate the HTTP-to-HTTPS redirect and TLS policy, review the exact HTTPS origins in `config/admin.json` (or the explicit environment override), and configure a dedicated PHP session directory outside every web root with worker-only access and cleanup retention compatible with the absolute session timeout. Protect private keys, database JSON, encryption keys, session files, and logs; use a least-privilege SQL identity; and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only HTTPS application boundary.
+
+The launchers' automatic `runtime/secrets/database-encryption.key` behavior is a
+local-development convenience. Production must inject its independently backed
+up key through the IIS FastCGI or PHP-FPM service environment and apply native
+NTFS/POSIX permissions. See [Database Configuration](Database-Configuration.md)
+for password and encryption-key rotation procedures.
 
 ## CI versus runtime
 

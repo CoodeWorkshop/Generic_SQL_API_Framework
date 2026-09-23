@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/DatabaseCredentialEncryption.php';
 require_once __DIR__ . '/DatabaseCredentialResolver.php';
+require_once __DIR__ . '/../../core/JsonFileStore.php';
 
 class DatabaseConfigurationResolver
 {
@@ -12,26 +13,11 @@ class DatabaseConfigurationResolver
 
     public static function readStored(string $configPath): array
     {
-        if (!is_file($configPath)) {
-            throw new DatabaseCredentialException('Database configuration file was not found.');
-        }
-
-        $contents = @file_get_contents($configPath);
-        if ($contents === false) {
-            throw new DatabaseCredentialException('Unable to read database configuration.');
-        }
-
         try {
-            $configuration = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+            return JsonFileStore::load($configPath);
         } catch (Throwable $exception) {
             throw new DatabaseCredentialException('Invalid database configuration.');
         }
-
-        if (!is_array($configuration) || array_is_list($configuration)) {
-            throw new DatabaseCredentialException('Invalid database configuration.');
-        }
-
-        return $configuration;
     }
 
     public static function resolve(array $configuration): array

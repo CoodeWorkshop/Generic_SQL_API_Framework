@@ -61,6 +61,10 @@
           <add fileExtension=".json" allowed="false" />
           <add fileExtension=".log" allowed="false" />
           <add fileExtension=".bak" allowed="false" />
+          <add fileExtension=".backup" allowed="false" />
+          <add fileExtension=".old" allowed="false" />
+          <add fileExtension=".tmp" allowed="false" />
+          <add fileExtension=".lock" allowed="false" />
         </fileExtensions>
       </requestFiltering>
     </security>

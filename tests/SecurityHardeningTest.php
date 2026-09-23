@@ -230,7 +230,7 @@ try {
     );
     foreach (['Frontend/Generic-Reporting-Framework/dist', 'Backend/api/index.php', 'location ^~ /api/',
         '\\.env', '\\.git', 'config|app|core|tests|logs|storage|backups?',
-        '\\.(?:json|lock|sql|bak|backup|ini|log|php)', 'Strict-Transport-Security'] as $requiredRule) {
+        '\\.(?:json|lock|sql|bak|backup|old|tmp|ini|log|php)', 'Strict-Transport-Security'] as $requiredRule) {
         securityAssert(str_contains($nginxTemplate, $requiredRule), "Nginx template is missing {$requiredRule}.");
     }
     securityAssert(

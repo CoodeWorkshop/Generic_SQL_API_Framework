@@ -62,6 +62,10 @@ productionHostingAssert(
     !preg_match('/location\s+~[^\{]*\\\.php/', $nginx),
     'Linux hosting template exposes arbitrary PHP scripts.'
 );
+productionHostingAssert(
+    str_contains($nginx, 'bak|backup|old|tmp|log|lock|ini|sql'),
+    'Linux hosting template does not deny backup and temporary file extensions.'
+);
 foreach (['/Backend/config', '/Backend/logs', '/Backend/runtime', '/Backend/storage', '/Backend/database/config'] as $sensitiveRoot) {
     productionHostingAssert(!str_contains($nginx, 'root /srv/generic-reporting' . $sensitiveRoot), "Sensitive directory is configured as an Nginx root: {$sensitiveRoot}");
 }
@@ -71,6 +75,12 @@ foreach ($iisPaths as $iisPath) {
     productionHostingAssert(productionHostingXmlIsBalanced($xml), 'IIS template is not balanced XML: ' . basename($iisPath));
     productionHostingAssert(str_contains($xml, 'directoryBrowse enabled="false"'), 'IIS template permits directory browsing: ' . basename($iisPath));
     productionHostingAssert(!preg_match('/password|encryption.key|api.key/i', $xml), 'IIS template contains credential-like configuration: ' . basename($iisPath));
+    foreach (['.bak', '.backup', '.old', '.tmp', '.lock'] as $extension) {
+        productionHostingAssert(
+            str_contains($xml, 'fileExtension="' . $extension . '" allowed="false"'),
+            'IIS template does not deny ' . $extension . ': ' . basename($iisPath)
+        );
+    }
 }
 $iisApi = (string)file_get_contents($iisPaths[1]);
 $iisAdmin = (string)file_get_contents($iisPaths[2]);
@@ -92,6 +102,11 @@ $linuxLauncher = (string)file_get_contents($root . '/start-linux.sh');
 $windowsLauncher = (string)file_get_contents($root . '/start-windows.bat');
 productionHostingAssert(str_contains($linuxLauncher, '-S "127.0.0.1:$ADMIN_PORT"'), 'Linux development launcher no longer uses its local Admin server.');
 productionHostingAssert(str_contains($windowsLauncher, '-S "127.0.0.1:%ADMIN_PORT%"'), 'Windows development launcher no longer uses its local Admin server.');
+productionHostingAssert(
+    str_contains($windowsLauncher, 'icacls "%KEY_FILE%" /inheritance:r /grant:r "%USERNAME%:(R,W,D)"')
+        && strpos($windowsLauncher, 'icacls "%KEY_FILE%"') < strpos($windowsLauncher, 'prepare-local-encryption-key.php" > "%KEY_FILE%"'),
+    'Windows launcher does not restrict its temporary key-output file before writing it.'
+);
 foreach ([$linuxLauncher, $windowsLauncher] as $launcher) {
     productionHostingAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Phase 4.1 disconnected startup was changed.');
     productionHostingAssert(!str_contains($launcher, 'api-runtime-control.php start') && !str_contains($launcher, 'sqlparser-runtime-control.php start'), 'Development launcher auto-starts a managed service.');

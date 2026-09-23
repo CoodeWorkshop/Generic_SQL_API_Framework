@@ -55,6 +55,14 @@ The ciphertext is the serialized complete configuration. Provider, driver, serve
 
 The key is a random 32-byte value represented in Base64 and supplied separately through `GENERIC_SQL_API_ENCRYPTION_KEY`. It must never be stored in `database.json`, source control, logs, or command output retained as an ordinary file.
 
+On production hosts, inject the key into the IIS FastCGI application-pool or
+PHP-FPM pool/service environment. Do not add it to `web.config`, an Nginx server
+block, a launcher command line, a repository `.env`, or a file below a served
+document root. Environment access is not a complete secret boundary: an
+administrator or process with permission to inspect the PHP worker can recover
+the key, so restrict service-account, process-debugging, and configuration-file
+access at the operating-system layer.
+
 Runtime resolution is centralized:
 
 ```text
@@ -79,6 +87,14 @@ configuration, verifies the encrypted round trip, and atomically saves it. The
 removed manual key-generation and migration launchers are not part of normal
 setup. Production hosts may provide `GENERIC_SQL_API_ENCRYPTION_KEY` from their
 secret manager before starting the application.
+
+Database configuration reads participate in the same adjacent-file shared lock
+used by atomic configuration writes. New temporary and destination files are
+restricted before encrypted bytes are written (`0600` on POSIX; the deployment
+identity and NTFS ACL remain authoritative on Windows). Failed writes remove
+temporary files, and migration never creates a plaintext backup. Treat manual
+`*.bak`, `*.backup`, `*.old`, and `*.tmp` copies as credentials: keep them out of
+web roots and source control and delete them securely according to local policy.
 
 ## Windows authentication
 
@@ -113,6 +129,28 @@ remains a developer/deployment diagnostic, not a setup requirement.
 - OpenSSL must be enabled in CLI and hosted PHP runtimes.
 
 Encryption protects all stored connection settings when the configuration file alone is disclosed. A process or operator able to read both the key and ciphertext can decrypt it, because the application must recover the configuration in memory to connect.
+
+## Secret rotation
+
+To rotate the SQL login password, use Configuration → Database over the
+loopback-protected Admin Console, enter the new password, test it, and save. The
+save creates a fresh nonce and replaces the complete encrypted envelope. Then
+restart or reconnect database runtime access and revoke the prior SQL password
+after validation.
+
+There is no automatic encryption-key rotation. Preserve the current key while
+decrypting the current configuration, provision a new Base64-encoded 32-byte
+key to every worker, save the configuration under that new key, recycle the
+workers, and verify connection health before destroying the old key. Losing the
+old key before re-encryption makes the existing ciphertext unrecoverable. Keep
+an approved, access-controlled recovery copy of the matching key and encrypted
+configuration; never back up plaintext configuration.
+
+Legacy plaintext configuration and the former password-only encrypted format
+remain readable for compatibility. An Admin save or the one-time migrator seals
+the complete configuration, but read-only deployments are not migrated merely
+by loading them. Operators must explicitly save/migrate such files so plaintext
+does not persist indefinitely.
 
 The query timeout is separate application configuration.
 `DB_QUERY_TIMEOUT_SECONDS` defaults to 45 seconds and is requested when the ODBC

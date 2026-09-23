@@ -195,6 +195,32 @@ Optional validated overrides such as `GENERIC_API_ALLOWED_ORIGINS`, session/logi
 
 The encryption key must be available to the PHP worker identity but stored separately from `database/config/database.json`. Never place credentials, keys, session data, or real production hostnames in repository templates.
 
+On IIS, provision the key outside the site content and grant the application-pool
+identity only the access it needs. Apply NTFS ACLs to `database/config`,
+`runtime/secrets`, `config`, sessions, and logs; inherited broad read access is
+not an acceptable production default. Do not put the key in `web.config`, a
+batch file, an IIS-visible directory, or a process command line. Recycle the
+FastCGI application pool after changing its environment and verify the effective
+identity can decrypt configuration without returning any secret in diagnostics.
+
+On Linux, provide the key through the PHP-FPM service/pool environment using a
+root-controlled deployment mechanism outside the repository and document the
+distribution-specific `clear_env` behavior. Configuration, session, log, and
+runtime directories should be owned by the deployment account and PHP worker
+group with the narrowest usable modes; secret files should be owner-only where
+the service model permits. Never export the key in an interactive shell history
+or pass it as a CLI argument. Restart PHP-FPM after rotation and validate the
+effective pool environment without printing it.
+
+Database configuration is written as an authenticated encrypted envelope using
+owner-restricted files. Its adjacent lock file contains no secret. The complete
+configuration is decrypted only in request memory for validation and ODBC
+connection setup; Admin responses return safe metadata and a
+`passwordConfigured` flag, never a password, ciphertext, connection string, or
+encryption key. Application logs defensively redact common credential/header
+forms, while database and Admin error sources continue to emit fixed sanitized
+messages.
+
 ## Session storage and lifetime
 
 Configure PHP `session.save_path` as a dedicated directory outside every frontend or backend web root. It must be readable and writable only by the PHP FastCGI/FPM worker identity and the operating-system account responsible for session cleanup; it must never be served by IIS/Nginx or included in application logs or backups without equivalent secret-data controls. All workers serving the same application instance must use the same local session directory. A future multi-host deployment would require an explicitly designed shared session store and is not provided by this phase.

@@ -136,6 +136,15 @@ The five basic metadata actions already exist. This version is for capabilities 
 - deterministic multi-process regression harness and documented single-host/multi-host boundaries
 - explicit IIS/FastCGI and Nginx/PHP-FPM production load-testing responsibilities
 
+## New Phase 4.6 — Database and secrets hardening — Implemented
+
+- authenticated AES-256-GCM database configuration and external key handling audited
+- database configuration reads coordinated with atomic secret-bearing writes
+- owner-restricted temporary, migrated, and local-key file creation
+- sanitized Admin/ODBC failure boundaries and defense-in-depth log redaction verified
+- production backup/temp-file web denials and cross-platform secret deployment guidance
+- database-password and encryption-key rotation procedures documented
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

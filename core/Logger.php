@@ -22,7 +22,7 @@ class Logger
 
     public function write(string $message): void
     {
-        $entry = $message . PHP_EOL;
+        $entry = $this->redactSensitiveData($message) . PHP_EOL;
 
         $this->attempt(function () use ($entry): void {
             $stream = fopen($this->logFile, 'ab');
@@ -64,6 +64,30 @@ class Logger
                 fclose($stream);
             }
         });
+    }
+
+    private function redactSensitiveData(string $message): string
+    {
+        $message = (string)preg_replace(
+            '/(?i)\b(authorization)\s*:\s*(?:basic|bearer)\s+[^\s,}]+/',
+            '$1: [REDACTED]',
+            $message
+        );
+        $message = (string)preg_replace(
+            '/(?i)\b(cookie|set-cookie)\s*:\s*[^\r\n]+/',
+            '$1: [REDACTED]',
+            $message
+        );
+        $message = (string)preg_replace(
+            '/(?i)((?:["\']?)(?:password|pwd|uid|user(?:name)?|x-api-key|api[_-]?key|csrf[_-]?token|session[_-]?id|GENERIC_SQL_API_ENCRYPTION_KEY)(?:["\']?)\s*[=:]\s*)("(?:\\\\.|[^"\\\\])*"|[^;\s,}]+)/',
+            '$1[REDACTED]',
+            $message
+        );
+        $environmentKey = getenv('GENERIC_SQL_API_ENCRYPTION_KEY');
+        if (is_string($environmentKey) && $environmentKey !== '') {
+            $message = str_replace($environmentKey, '[REDACTED]', $message);
+        }
+        return $message;
     }
 
     protected function acquireLock($stream): bool

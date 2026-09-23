@@ -47,18 +47,13 @@ final class JsonFileStore
         self::withIoLock($path, LOCK_EX, function () use ($path, $contents): void {
             $temporaryPath = $path . '.tmp.' . bin2hex(random_bytes(8));
             try {
-                if (@file_put_contents($temporaryPath, $contents, LOCK_EX) === false) {
-                    throw new RuntimeException('Configuration file could not be written.');
-                }
-                @chmod($temporaryPath, 0600);
+                self::writeSecureFile($temporaryPath, $contents, true);
 
                 if (!@rename($temporaryPath, $path)) {
                     // Some Windows filesystems cannot rename over an existing
                     // file. Readers share the I/O lock, so the fallback cannot
                     // expose a truncated or partially written JSON document.
-                    if (@file_put_contents($path, $contents, LOCK_EX) === false) {
-                        throw new RuntimeException('Configuration file could not be replaced.');
-                    }
+                    self::writeSecureFile($path, $contents, false);
                     @unlink($temporaryPath);
                 }
                 @chmod($path, 0600);
@@ -68,6 +63,43 @@ final class JsonFileStore
                 }
             }
         });
+    }
+
+    private static function writeSecureFile(string $path, string $contents, bool $exclusiveCreate): void
+    {
+        $stream = @fopen($path, $exclusiveCreate ? 'x+b' : 'c+b');
+        if ($stream === false) {
+            throw new RuntimeException('Configuration file could not be written.');
+        }
+
+        try {
+            // Apply the restrictive mode before secret-bearing bytes are
+            // written. chmod is best-effort on Windows, where ACLs govern it.
+            $permissionsRestricted = @chmod($path, 0600);
+            if (PHP_OS_FAMILY !== 'Windows') {
+                clearstatcache(true, $path);
+                if (!$permissionsRestricted || (@fileperms($path) & 0777) !== 0600) {
+                    throw new RuntimeException('Configuration file permissions could not be restricted.');
+                }
+            }
+            if (!$exclusiveCreate && (!rewind($stream) || !ftruncate($stream, 0))) {
+                throw new RuntimeException('Configuration file could not be replaced.');
+            }
+            $length = strlen($contents);
+            $written = 0;
+            while ($written < $length) {
+                $bytes = fwrite($stream, substr($contents, $written));
+                if ($bytes === false || $bytes === 0) {
+                    throw new RuntimeException('Configuration file could not be written.');
+                }
+                $written += $bytes;
+            }
+            if (!fflush($stream)) {
+                throw new RuntimeException('Configuration file could not be flushed.');
+            }
+        } finally {
+            fclose($stream);
+        }
     }
 
     private static function withIoLock(string $path, int $operation, callable $callback)

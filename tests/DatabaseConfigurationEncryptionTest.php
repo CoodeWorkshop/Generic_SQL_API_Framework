@@ -4,6 +4,7 @@ require_once __DIR__ . '/../app/Security/DatabaseConfigurationMigrator.php';
 require_once __DIR__ . '/../database/drivers/SqlServerDriver.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Logger.php';
+require_once __DIR__ . '/../core/JsonFileStore.php';
 
 function configurationAssert(bool $condition, string $message): void
 {
@@ -162,6 +163,17 @@ try {
         DatabaseConfigurationResolver::load($configPath) === $configuration,
         'Migrated database configuration did not resolve transparently.'
     );
+    if (PHP_OS_FAMILY !== 'Windows') {
+        clearstatcache(true, $configPath);
+        configurationAssert(
+            (fileperms($configPath) & 0777) === 0600,
+            'Encrypted database configuration permissions are not owner-only.'
+        );
+    }
+    configurationAssert(
+        glob($configPath . '.tmp.*') === [],
+        'Migration left a secret-bearing temporary file behind.'
+    );
     configurationExpectFailure(
         fn () => (new DatabaseConfigurationMigrator())->migrate($configPath),
         'Migration accepted an already encrypted configuration.'
@@ -181,6 +193,18 @@ try {
         if (is_string($secret)) {
             configurationAssert(strpos($logContents, $secret) === false, 'Configuration secret was written to a log.');
         }
+    }
+
+    $logger->write(
+        'Authorization: Bearer bearer-secret' . PHP_EOL
+        . 'PWD=driver-secret UID=database-user' . PHP_EOL
+        . 'GENERIC_SQL_API_ENCRYPTION_KEY=' . $key . PHP_EOL
+        . '{"password":"json-secret","x-api-key":"api-secret"}' . PHP_EOL
+        . 'Cookie: session=browser-secret'
+    );
+    $logContents = (string)file_get_contents($logFiles[0]);
+    foreach (['bearer-secret', 'browser-secret', 'driver-secret', 'database-user', $key, 'json-secret', 'api-secret'] as $secret) {
+        configurationAssert(!str_contains($logContents, $secret), 'Sensitive diagnostic data was written to a log.');
     }
 
     $invalidRuntimeConfiguration = $configuration;
