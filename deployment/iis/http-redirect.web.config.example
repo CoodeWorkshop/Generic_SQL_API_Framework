@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Use on an HTTP-only redirect site. Replace the example hostname exactly. -->
+<configuration>
+  <system.webServer>
+    <directoryBrowse enabled="false" />
+    <rewrite>
+      <rules>
+        <clear />
+        <rule name="Redirect HTTP to HTTPS" stopProcessing="true">
+          <match url="(.*)" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{HTTPS}" pattern="^OFF$" ignoreCase="true" />
+          </conditions>
+          <action type="Redirect" url="https://reports.example.internal/{R:1}" appendQueryString="true" redirectType="Permanent" />
+        </rule>
+      </rules>
+    </rewrite>
+    <httpErrors errorMode="DetailedLocalOnly" />
+  </system.webServer>
+</configuration>

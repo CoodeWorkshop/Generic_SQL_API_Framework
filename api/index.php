@@ -30,11 +30,13 @@ header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token, X-API-Key');
 header('Content-Type: application/json');
 header_remove('X-Powered-By');
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: no-referrer');
-header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
-header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+if (!SecurityConfiguration::isProduction()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+}
 
 // Handle browser preflight request
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {

@@ -53,8 +53,10 @@ foreach ([
     productionHostingAssert(str_contains($nginx, $required), "Linux hosting template is missing {$required}.");
 }
 productionHostingAssert(
-    !preg_match('/\blisten\s+443\b|\bssl_certificate\b|Strict-Transport-Security/i', $nginx),
-    'Phase 4.2 Linux template contains Phase 4.3 TLS configuration.'
+    str_contains($nginx, 'listen 443 ssl;')
+        && str_contains($nginx, 'ssl_protocols TLSv1.2 TLSv1.3;')
+        && str_contains($nginx, 'return 308 https://reports.example.internal$request_uri;'),
+    'Phase 4.3 Linux TLS or redirect configuration is missing.'
 );
 productionHostingAssert(
     !preg_match('/location\s+~[^\{]*\\\.php/', $nginx),

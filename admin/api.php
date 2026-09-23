@@ -29,10 +29,12 @@ require_once __DIR__ . '/../app/Http/RequestBodyReader.php';
 header_remove('X-Powered-By');
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'production') {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+}
 
 ExceptionHandler::register();
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {

@@ -70,9 +70,9 @@ GENERIC_ADMIN_ENABLED=1 php -S 127.0.0.1:8090 -t admin admin/router.php
 
 Use IIS/FastCGI on Windows or Nginx/PHP-FPM on Linux for production concurrency. Windows uses `php-cgi.exe`; it does not provide PHP-FPM. Size workers, request queues, memory, and SQL Server capacity from target-host measurements. PHP's built-in server and both launchers are development conveniences, not production process managers.
 
-IIS `web.config` examples, an Nginx server-block example, PHP production/OPcache settings, route boundaries, permissions, logging, and deployment steps are documented in [Production web-server hosting](Production-Security-and-Deployment.md). HTTPS/TLS and web-server security-header deployment are deferred to Phase 4.3.
+IIS `web.config` examples, an Nginx HTTPS server-block example, PHP production/OPcache settings, route boundaries, TLS, security headers, permissions, logging, and deployment steps are documented in [Production web-server hosting](Production-Security-and-Deployment.md).
 
-Before exposing a production deployment, complete the Phase 4.3 transport configuration, review the exact origins in `config/admin.json` (or the explicit environment override), protect the ignored database JSON, encryption key, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only application boundary.
+Before exposing a production deployment, install a hostname-valid trusted certificate, validate the HTTP-to-HTTPS redirect and TLS policy, review the exact HTTPS origins in `config/admin.json` (or the explicit environment override), protect private keys, database JSON, encryption keys, and logs, use a least-privilege SQL identity, and manage PHP/OpenSSL/ODBC updates. Keep the Admin Console on its loopback-only HTTPS application boundary.
 
 ## CI versus runtime
 

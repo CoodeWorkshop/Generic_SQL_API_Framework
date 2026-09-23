@@ -191,6 +191,7 @@ Successful operations return `success`, `message`, `data`, and `meta`. Metadata 
 - Phase 3.2 — configurable runtime and performance controls: implemented
 - Phase 4.1 — runtime lifecycle and System Health cleanup: implemented
 - Phase 4.2 — production IIS/FastCGI and Nginx/PHP-FPM hosting: implemented
+- Phase 4.3 — HTTPS/TLS and production security headers: implemented
 - Transactions, richer metadata, and additional providers: planned
 
 The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).

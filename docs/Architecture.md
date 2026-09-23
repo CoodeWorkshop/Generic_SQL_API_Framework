@@ -141,6 +141,8 @@ Controllers, services, repositories, `QueryEngine`, and the ODBC connection are 
 
 The supported Phase 4.2 production process models are IIS with PHP FastCGI on Windows and Nginx with PHP-FPM on Linux. Web-server/FastCGI workers own production concurrency and service lifecycle; the Admin process managers continue to own only their fixed local child processes and never issue IIS, Nginx, PHP-FPM, systemd, or Windows service commands. API, loopback Admin, and SQL Parser remain separate routing boundaries with fixed public entry points.
 
+In production, IIS/Nginx terminates TLS, performs fixed-host HTTP-to-HTTPS redirects, and owns HSTS plus boundary-specific browser security headers for both static and FastCGI responses. PHP continues to own content types, cache controls, CORS, cookies, CSRF, and response bodies, and emits its existing browser headers only as a local-development fallback. The application does not trust forwarded protocol/host headers; direct templates pass authoritative HTTPS state to FastCGI, while any external TLS-terminating proxy must be explicitly trusted and own redirect behavior.
+
 A browser abort stops waiting for the HTTP response, but this synchronous PHP ODBC execution path exposes no safe statement-cancellation hook while `odbc_execute` is blocked. Client disconnect therefore must not be described as guaranteed SQL Server cancellation. The PHP request and ODBC resources finish or time out normally; the frontend must discard any obsolete result. No speculative cross-request SQL cancellation is implemented.
 
 ## Timing and timeout model

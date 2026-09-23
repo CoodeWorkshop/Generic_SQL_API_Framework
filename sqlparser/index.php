@@ -15,8 +15,10 @@ if ($method !== 'GET') {
     echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
-header("Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'");
-header('X-Content-Type-Options: nosniff');
+if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'production') {
+    header("Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'");
+    header('X-Content-Type-Options: nosniff');
+}
 ?>
 <!doctype html>
 <html lang="en">

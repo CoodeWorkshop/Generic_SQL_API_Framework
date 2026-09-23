@@ -27,7 +27,8 @@ $tests = [
     __DIR__ . '/UnifiedAdminConsoleTest.php',
     __DIR__ . '/AdminRuntimeManagementTest.php',
     __DIR__ . '/RuntimePerformanceControlsTest.php',
-    __DIR__ . '/ProductionHostingTest.php'
+    __DIR__ . '/ProductionHostingTest.php',
+    __DIR__ . '/HttpsSecurityTest.php'
 ];
 
 foreach ($tests as $test) {

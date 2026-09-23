@@ -1,19 +1,21 @@
 # Production web-server hosting
 
-Phase 4.2 replaces the PHP development server with a production web-server and FastCGI worker model. It does not configure HTTPS, certificates, HSTS, CSP, or additional web-server security headers; those are Phase 4.3 concerns. Do not expose an HTTP-only example to an untrusted network.
+Phase 4.2 replaces the PHP development server with a production web-server and FastCGI worker model. Phase 4.3 terminates HTTPS at IIS or Nginx, redirects production HTTP to HTTPS, and makes the production web server authoritative for HSTS and browser security headers. Certificates, private keys, hostnames, and trust policy remain deployment-owned values and are not stored in the repository.
 
 ## Development and production boundaries
 
 ```text
 Development                         Production
 
-start-windows.bat / start-linux.sh  Windows: IIS -> FastCGI -> PHP
-  -> php -S                         Linux:  Nginx -> PHP-FPM -> PHP
+start-windows.bat / start-linux.sh  Windows: HTTPS -> IIS -> FastCGI -> PHP
+  -> HTTP php -S                    Linux:  HTTPS -> Nginx -> PHP-FPM -> PHP
   -> local Admin Console
   -> Admin-managed local API/parser
 ```
 
 The launchers remain the supported local-development workflow and intentionally use PHP's built-in server. It is single-process and is not a production host.
+
+Local development remains HTTP on `localhost`/`127.0.0.1`. It has no HTTPS redirect and no HSTS. The PHP entry points keep their existing local defense-in-depth headers when `GENERIC_APP_ENV` is not `production`.
 
 Production web-server services are started, stopped, monitored, and restarted by IIS, Windows Service Control, systemd, Nginx, and PHP-FPM—not by `ApiProcessManager`, `SqlParserProcessManager`, or arbitrary Admin Console commands. Phase 4.1 remains intact for the locally managed child processes. When the applications are hosted by FastCGI, infrastructure monitoring is authoritative for the IIS/Nginx/FPM lifecycle; do not interpret the Admin Console's local child-process state as IIS or FPM worker state.
 
@@ -30,6 +32,34 @@ Keep the applications as separate web-server sites, applications, or listeners:
 The development-only `router.php` files express the same route boundaries for `php -S`, but IIS and Nginx use their own fixed routing rules. They must not send arbitrary `.php` paths to FastCGI. SQL Parser remains database-free and does not inherit Admin or API authentication.
 
 The Admin Console remains loopback-only. Both its application middleware and the provided web-server examples enforce that boundary. Remote production administration needs a separately designed, authenticated access path and is not introduced here.
+
+## HTTPS and security-header ownership
+
+Production IIS/Nginx configuration is the source of truth for these response headers on static files and PHP responses:
+
+- `Strict-Transport-Security: max-age=31536000`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `X-Frame-Options: DENY`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+- a boundary-specific `Content-Security-Policy`
+
+HSTS is sent only by HTTPS application sites, not HTTP redirect sites or local development. `includeSubDomains` is deliberately absent because the framework cannot assert that every deployment subdomain is HTTPS-only. `preload` is deliberately absent because browser preload enrollment is difficult to reverse and must be a separate organization-wide decision.
+
+`frame-ancestors 'none'` is the modern clickjacking control; `X-Frame-Options: DENY` is the compatible fallback and has the same intent. No current page requires framing. `no-referrer` prevents full paths and query data from crossing origins. The permissions policy disables only camera, microphone, and geolocation, which the inspected frontend, Admin Console, and SQL Parser do not use.
+
+### Content Security Policy
+
+| Boundary | Important directives | Reason |
+| --- | --- | --- |
+| React frontend | `script-src 'self'`; `style-src 'self' 'unsafe-inline'`; same-origin connections | Vite emits external scripts, but React style attributes and Emotion/MUI inject runtime styles. Inline/eval scripts and wildcards remain forbidden. |
+| Admin Console | same-origin scripts, styles, images, and API connections | All Admin resources are local external files; no inline allowance is needed. |
+| SQL Parser | same-origin scripts, styles, images, and connections | Parser resources are local and independently hosted. |
+| API | `default-src 'none'` | JSON responses require no browser resource loading. |
+
+All policies deny plugins/objects and framing. Browser console CSP violations must be reviewed during staging; do not solve violations by adding `script-src 'unsafe-inline'`, `'unsafe-eval'`, or `*`.
+
+The application continues to own content type, cache behavior, exact-origin CORS, credentials, CSRF, and JSON errors. Production PHP suppresses its duplicate browser security headers because IIS/Nginx supplies them. This division preserves local `php -S` behavior without conflicting production header values.
 
 ## Filesystem layout and permissions
 
@@ -92,14 +122,20 @@ Do not use the bundled development `php.ini` without reviewing it. The IIS handl
 
 ### IIS sites and applications
 
-1. Build the reporting frontend and create the main IIS site with its physical path set to `Frontend\Generic-Reporting-Framework\dist`.
-2. Copy `deployment/iis/frontend.web.config.example` to the deployed frontend as `web.config`.
-3. Add `/api` as an IIS application whose physical path is `Backend\api`, then copy `deployment/iis/api.web.config.example` there as `web.config`.
-4. Create a separate Admin site bound only to `127.0.0.1:8090` (and loopback IPv6 if required), rooted at `Backend\admin`. Copy `deployment/iis/admin.web.config.example` there as `web.config`.
-5. Create a separate SQL Parser site on an intentionally selected loopback/internal binding, rooted at `Backend\sqlparser`. Copy `deployment/iis/sqlparser.web.config.example` there as `web.config`.
-6. Set `VITE_API_URL=/api` when building the frontend. `VITE_*` values are public; never place secrets in them.
+1. Obtain a certificate whose subject alternative names exactly cover each deployed hostname. Install the certificate and protected private key in the appropriate machine certificate store, granting private-key read access only to the required IIS identity/system components.
+2. Build the reporting frontend and create the main IIS site with its physical path set to `Frontend\Generic-Reporting-Framework\dist`.
+3. Add an HTTPS binding with the exact hostname and selected certificate. Require an intentional host binding; do not use a catch-all production certificate binding.
+4. Copy `deployment/iis/frontend.web.config.example` to the deployed frontend as `web.config`.
+5. Add `/api` as an IIS application whose physical path is `Backend\api`, then copy `deployment/iis/api.web.config.example` there as `web.config`.
+6. Create separate HTTPS Admin and SQL Parser sites on intentionally selected loopback/internal bindings and certificate hostnames. Copy their respective `web.config.example` files to the deployed roots.
+7. Create separate HTTP-only redirect bindings/sites. Copy `deployment/iis/http-redirect.web.config.example`, replace its example hostname, and create equivalent fixed-host redirect configurations for the Admin and Parser ports. The `{HTTPS}=OFF` condition prevents redirect loops.
+8. Set `VITE_API_URL=/api` when building the frontend. `VITE_*` values are public; never place secrets in them.
 
-The templates require the IIS URL Rewrite module. They disable directory listing, allow only the intended entry points/assets, cap request size, and prevent access to parser source and common sensitive extensions. Keep detailed IIS errors local and let PHP application responses pass through unchanged.
+The templates require the IIS URL Rewrite module. They disable directory listing, allow only the intended entry points/assets, cap request size, prevent access to parser source/common sensitive extensions, and install boundary-specific security headers. Keep detailed IIS errors local and let PHP application responses pass through unchanged.
+
+IIS TLS protocol/cipher policy is controlled by Windows Schannel, not these application `web.config` files. Enable TLS 1.2 and TLS 1.3 where the installed Windows/IIS version supports them, disable SSL and obsolete TLS versions through the approved operating-system policy, then reboot/restart as required by that policy. Do not copy registry values without validating the target Windows release.
+
+Use any organization-approved public or private certificate issuer. Automate renewal using the issuer/tooling appropriate to the host, bind the renewed certificate, and verify the live binding before removing the old certificate. Monitor expiry and validate hostname/SAN, chain, key access, and client trust from a separate client.
 
 IIS FastCGI starts and maintains multiple `php-cgi.exe` workers through the application pool. Configure queue length, instance limits, idle timeouts, and recycling from measured request duration, memory usage, and database capacity. The project's query timeout and request limits are application controls, not worker-pool sizing recommendations.
 
@@ -119,10 +155,14 @@ Recycle the application pool after code or OPcache configuration changes. Review
 2. Deploy the application outside Nginx's public frontend root and assign it to a dedicated service account/group.
 3. Configure a PHP-FPM pool socket owned by the Nginx worker group. Replace `/run/php/php-fpm.sock` in `deployment/nginx/generic-sql-api.linux.example.conf` with the distribution's actual socket.
 4. Put secrets and environment values in the service manager or FPM pool environment, subject to the host's `clear_env` policy. Do not put secrets in the Nginx file.
-5. Replace example paths and hostnames, install the server block, and run `nginx -t` before reload.
-6. Merge the production PHP INI fragment, validate `php-fpm -t`, then reload/restart PHP-FPM so OPcache and environment changes apply.
+5. Obtain certificate chains and private keys covering the exact public/Admin/Parser hostnames. Store private keys outside web roots with narrowly restricted ownership and permissions.
+6. Copy the four `security-headers.*.example.conf` files to the `/etc/nginx/snippets/` names referenced by the server template.
+7. Replace every `REPLACE_WITH_*` certificate/key placeholder, example hostname, path, and socket. Install the server block and run `nginx -t` before reload.
+8. Merge the production PHP INI fragment, validate `php-fpm -t`, then reload/restart PHP-FPM so OPcache and environment changes apply.
 
-The Nginx example has three independent server blocks. The public block serves only built frontend files and fixed `/api` targets. Admin and SQL Parser default to loopback listeners. There is no generic `location ~ \.php$`; internal PHP files therefore cannot become executable merely because they exist.
+The Nginx example has fixed-host HTTP redirect blocks and three independent HTTPS application blocks. The public block serves only built frontend files and fixed `/api` targets. Admin and SQL Parser default to loopback listeners. There is no generic `location ~ \.php$`; internal PHP files therefore cannot become executable merely because they exist. TLS is restricted to TLS 1.2 and TLS 1.3, and session tickets are disabled in the example.
+
+Certificate paths are intentionally placeholders. Renewal may be performed by any approved ACME/client/PKI workflow, but it must atomically update the configured chain/key, pass `nginx -t`, reload Nginx, and confirm the served certificate. Never make the private key readable by the web content user unless the service design explicitly requires it.
 
 PHP-FPM pool mode and `pm.max_children` are infrastructure sizing choices. Determine them from per-worker memory, CPU, database connection capacity, request latency, and desired queueing. Monitor FPM saturation and Nginx upstream timing before changing them. Multiple FPM workers provide request concurrency; synchronous ODBC work still occupies one worker per active request.
 
@@ -141,6 +181,14 @@ Optional validated overrides such as `GENERIC_API_ALLOWED_ORIGINS`, session/logi
 
 The encryption key must be available to the PHP worker identity but stored separately from `database/config/database.json`. Never place credentials, keys, session data, or real production hostnames in repository templates.
 
+## Cookies, CORS, CSRF, and trusted proxies
+
+Production sessions remain `Secure`, `HttpOnly`, `SameSite=Lax`, strict-mode, session-only cookies. HTTPS does not weaken CSRF: session-authenticated mutations still require the session-bound token, while the existing API-key and unauthenticated-mode rules remain unchanged. Exact-origin CORS remains application-owned; configure the production HTTPS origin exactly and never replace it with `*`.
+
+The supplied templates terminate TLS directly at IIS/Nginx and pass the authoritative server HTTPS state to FastCGI (`HTTPS=on` in Nginx). The PHP application does not trust `X-Forwarded-Proto`, `X-Forwarded-Host`, or `Forwarded` from arbitrary clients. This prevents spoofed forwarded headers from changing cookie or redirect behavior.
+
+If an approved load balancer terminates TLS before IIS/Nginx, make that edge responsible for the HTTP-to-HTTPS redirect and overwrite—not append—forwarded metadata. Configure IIS ARR or Nginx real-IP/proxy handling to trust only explicit load-balancer addresses. Do not retain the origin redirect if it sees every trusted edge request as HTTP, or it will loop. The current application does not require forwarded-protocol trust because production cookies are Secure by environment and redirects occur at the trusted web layer.
+
 ## Error handling and logging
 
 `api/index.php` disables displayed errors in production, and `ExceptionHandler` preserves the safe JSON error envelope and request correlation ID. The web server must pass application error responses through rather than replace them with detailed remote pages.
@@ -157,14 +205,16 @@ Grant the PHP identity write access to application/PHP log targets and deny brow
 
 1. Bootstrap runtime configuration offline and provision the encryption key through the service identity.
 2. Verify PHP version and required extensions from the same FastCGI/FPM installation used by the web server.
-3. Validate IIS configuration on Windows or run `nginx -t` and `php-fpm -t` on Linux.
+3. Validate IIS bindings/Schannel policy on Windows or run `nginx -t` and `php-fpm -t` on Linux.
 4. Start/recycle the web-server and worker services through the operating system.
-5. Verify frontend history fallback, `POST /api`, Admin loopback `/admin` plus `/api.php`, and the independent SQL Parser listener.
-6. Verify non-entry-point PHP files, `config/`, `database/config/`, `logs/`, `runtime/`, `storage/`, `.git/`, `.env`, backups, and temporary files are unreachable.
-7. Exercise authentication, CSRF, authorization, API keys, database availability, SQL resource reads, and an allowed CRUD operation in a staging environment.
-8. Confirm production responses contain no PHP warnings, filesystem paths, stack traces, SQL credentials, or secrets.
-9. Review access, PHP, application, session, rate-limit, and writable-directory permissions.
-10. Recycle workers after deployment and confirm the new code is active before serving traffic.
+5. Verify every HTTP binding permanently redirects once to its fixed HTTPS hostname without a loop.
+6. Verify frontend history fallback, `POST /api`, Admin loopback `/admin` plus `/api.php`, and the independent SQL Parser listener over HTTPS.
+7. Verify non-entry-point PHP files, `config/`, `database/config/`, `logs/`, `runtime/`, `storage/`, `.git/`, `.env`, backups, and temporary files are unreachable.
+8. Inspect frontend, API, Admin, Parser, static-asset, error, and redirect responses for the intended headers; HSTS must occur only over HTTPS.
+9. Exercise authentication, Secure/HttpOnly/SameSite cookies, CSRF, exact-origin CORS, authorization, API keys, database availability, SQL resource reads, and an allowed CRUD operation in staging.
+10. Validate certificate hostname/SAN, chain, expiry, TLS 1.2/1.3, rejected obsolete protocols, and renewal/reload behavior from a separate client.
+11. Confirm production responses contain no PHP warnings, filesystem paths, stack traces, SQL credentials, private-key paths, or secrets.
+12. Review permissions and recycle workers after deployment before serving traffic.
 
 ## Troubleshooting
 
@@ -176,5 +226,9 @@ Grant the PHP identity write access to application/PHP log targets and deny brow
 - **Stale code after deployment:** recycle the IIS application pool or reload/restart PHP-FPM because production OPcache timestamp checks are disabled.
 - **Requests serialize or queue:** confirm traffic is not using `php -S`, then inspect IIS FastCGI/FPM worker saturation and downstream database capacity.
 - **Permission failures:** verify code is readable while only config/database-config, logs, runtime, storage, and session locations that actually require mutation are writable.
+- **Redirect loop:** confirm TLS terminates on the server applying the redirect. If a trusted edge terminates TLS, move the redirect there and restrict forwarded-header trust to that edge.
+- **Browser CSP violation:** identify the exact blocked resource. Do not add script wildcards, `'unsafe-eval'`, or inline-script allowances; update the narrow boundary policy only when the application genuinely requires it.
+- **Secure cookie not returned:** confirm the browser is using the intended HTTPS hostname and the certificate is trusted; production cookies are intentionally not usable over plain HTTP.
+- **Wrong/expired certificate:** verify the active IIS binding or Nginx chain/key placeholders, SANs, renewal job, service read permissions, and successful reload.
 
-Live IIS/FastCGI, Nginx/PHP-FPM, Windows service, Linux service, firewall, DNS, and Phase 4.3 transport verification must be performed on the target hosts. Repository tests can validate entry points, template structure, fixed routes, and sensitive-path intent but cannot prove installed server modules or operating-system policy.
+Live IIS/FastCGI, Schannel, Nginx/PHP-FPM, certificates, private-key permissions, renewal, client trust, DNS, firewall, and protocol negotiation must be verified on target hosts. Repository tests validate template structure, redirect guards, header policies, application fallbacks, and sensitive-path intent but cannot prove a live TLS deployment.

@@ -8,11 +8,13 @@ if (!in_array($remoteAddress, ['127.0.0.1', '::1'], true)) {
 header_remove('X-Powered-By');
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: no-referrer');
-header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'production') {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+}
 ?><!doctype html>
 <html lang="en">
 <head>

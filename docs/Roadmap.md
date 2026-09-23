@@ -106,7 +106,16 @@ The five basic metadata actions already exist. This version is for capabilities 
 - independent API, loopback Admin, and SQL Parser application boundaries
 - production PHP error, request, resource, and OPcache configuration guidance
 - filesystem, secret, logging, service-management, worker-sizing, and route-hardening coverage
-- HTTPS/TLS, HSTS, CSP, and certificate deployment explicitly deferred to Phase 4.3
+- HTTPS/TLS, HSTS, CSP, and certificate deployment provided by Phase 4.3
+
+## New Phase 4.3 — HTTPS/TLS and production security headers — Implemented
+
+- fixed-host HTTP-to-HTTPS redirects without local-development HTTPS requirements
+- IIS certificate bindings/Schannel guidance and Nginx TLS 1.2/1.3 templates
+- production HSTS without automatic preload or unreviewed subdomain scope
+- boundary-specific CSP and compatible frame, referrer, MIME, and permissions policies
+- Secure/HttpOnly/SameSite cookie, exact-origin CORS, and CSRF preservation
+- explicit distrust of arbitrary forwarded headers with documented trusted-edge deployment rules
 
 ## v1.5.0 — Advanced API Security — Planned
 

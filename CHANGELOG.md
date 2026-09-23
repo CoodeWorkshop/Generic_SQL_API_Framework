@@ -1,5 +1,14 @@
 # Changelog
 
+## Phase 4.3 — HTTPS/TLS and production security headers
+
+- Added fixed-host HTTP-to-HTTPS redirects and TLS 1.2/1.3 production examples for IIS and Nginx without changing local HTTP development.
+- Added boundary-specific HSTS, CSP, frame, referrer, content-type, and permissions policies for the React frontend, API, Admin Console, and SQL Parser.
+- Made IIS/Nginx authoritative for production browser security headers while retaining application header fallbacks for the local PHP development server.
+- Preserved Secure/HttpOnly/SameSite cookies, exact-origin CORS, CSRF enforcement, and distrust of arbitrary forwarded protocol headers.
+- Documented certificate/SAN validation, private-key protection, renewal, trusted-edge behavior, redirect-loop avoidance, and live TLS verification.
+- Added HTTPS, header, CSP, cookie, proxy, route, certificate-artifact, and local-development regression coverage.
+
 ## Phase 4.2 — Production web-server hosting
 
 - Added fixed-entry-point IIS/FastCGI templates for the frontend/API, loopback Admin Console, and independent SQL Parser boundaries.
