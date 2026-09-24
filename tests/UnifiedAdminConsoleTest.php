@@ -204,11 +204,19 @@ try {
         'NOT_FOUND'
     );
 
-    unifiedAdminFailure(
-        fn () => (new AuthenticationMiddleware(true, [], $session, new AuthRepository($authPath)))->handle(['action' => 'admin.status']),
-        'Unauthenticated admin request was accepted.',
-        'AUTHENTICATION_REQUIRED'
-    );
+    $_SERVER['HTTP_X_API_KEY'] = str_repeat('k', 32);
+    foreach (AdminConfigurationRepository::AUTHENTICATION_MODES as $mode) {
+        $service->saveAuthentication($mode);
+        unifiedAdminFailure(
+            fn () => $authentication->handle(['action' => 'admin.status']),
+            "Administrator endpoint accepted {$mode} normal-API authentication without an administrator session.",
+            'AUTHENTICATION_REQUIRED'
+        );
+    }
+    unset($_SERVER['HTTP_X_API_KEY']);
+
+    $publicSettings = $service->settings();
+    unifiedAdminAssert(!str_contains(json_encode($publicSettings, JSON_THROW_ON_ERROR), str_repeat('k', 32)), 'Configuration response exposed the API key secret.');
 
     $status = $service->status();
     $encodedStatus = json_encode($status, JSON_THROW_ON_ERROR);
@@ -227,6 +235,18 @@ try {
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
     unifiedAdminAssert(str_contains($adminJavaScript, 'availableAuthenticationModes.map'), 'Database authentication UI does not use backend-supported modes.');
+    foreach ([
+        'session' => 'Session',
+        'api_key' => 'API Key',
+        'session+api_key' => 'Session + API Key',
+        'none' => 'None for normal API actions',
+    ] as $mode => $label) {
+        unifiedAdminAssert(
+            str_contains($adminJavaScript, '<option value="' . $mode . '"') && str_contains($adminJavaScript, '>' . $label . '</option>'),
+            "Admin Security UI does not expose the {$mode} authentication mode."
+        );
+    }
+    unifiedAdminAssert(!str_contains($adminJavaScript, '(existing configuration)'), 'Supported authentication modes are still rendered as existing-only configuration.');
     unifiedAdminAssert(
         preg_match('/async function healthView\s*\(/', $adminJavaScript) === 1
             && preg_match('/(^|[;{}]\s*)healthView\s*=/', $adminJavaScript) !== 1,
