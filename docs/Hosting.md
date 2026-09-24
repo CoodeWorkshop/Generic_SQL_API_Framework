@@ -16,6 +16,17 @@ deployment result.
 
 The bundled launchers use PHP's built-in server only for local development. Production uses IIS with PHP FastCGI on Windows or Nginx with PHP-FPM on Linux; see [Production web-server hosting](Production-Security-and-Deployment.md).
 
+Both launchers enforce PHP 8.2 or newer, load the repository runtime INI, check
+ODBC/OpenSSL/JSON/session support, prepare OPcache and log directories, bootstrap
+runtime configuration, reset database availability, prepare the local encryption
+key, reject an occupied Admin port, bind Admin to loopback, and leave API/Parser
+stopped. Windows uses the bundled executable, ACL-protected temporary key capture,
+PowerShell for the UTC start time, and the default browser. Linux prefers a
+bundled executable, falls back to `PATH`, captures the key without a temporary
+file, uses POSIX process behavior, and opens through `xdg-open` or WSL when
+available. Managed API/Parser process termination remains OS-specific inside the
+runtime process manager (`taskkill` on Windows; signals/process groups on Linux).
+
 ### Windows bundled runtime
 
 The repository includes a PHP runtime at `runtime/windows/php/` and a launcher at `start-windows.bat`. A user of this path does not need to install PHP, XAMPP, or WAMP. The machine still needs a SQL Server ODBC driver because the bundled PHP ODBC extension is only the PHP side of the connection.

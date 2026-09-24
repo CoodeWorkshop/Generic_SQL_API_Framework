@@ -1,6 +1,6 @@
 # Backup and recovery
 
-Phase 4.8 provides a small offline utility for creating, verifying, and staging
+The repository provides a small offline utility for creating, verifying, and staging
 application-configuration backups. It is not a scheduler, SQL Server backup
 engine, remote storage client, or enterprise backup system.
 

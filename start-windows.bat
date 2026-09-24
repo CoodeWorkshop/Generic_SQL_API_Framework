@@ -42,6 +42,13 @@ if not exist "%ADMIN%\router.php" (
     exit /b 1
 )
 
+"%PHP%" -n -r "exit(PHP_VERSION_ID >= 80200 ? 0 : 1);"
+if errorlevel 1 (
+    echo [FAILED] PHP 8.2 or newer is required.
+    pause
+    exit /b 1
+)
+
 if not exist "%OPCACHE%" (
     mkdir "%OPCACHE%" >nul 2>&1
     if errorlevel 1 (
@@ -170,20 +177,12 @@ REM Find available Admin port
 REM ==================================================
 
 set "ADMIN_PORT="
+set "PORT_FILE=%TEMP%\generic-sql-api-port-%RANDOM%-%RANDOM%.tmp"
 
-"%PHP%" -c "%PHP_INI%" "%ROOT%\scripts\find-available-port.php" admin > "%TEMP%\generic-sql-api-port-%RANDOM%-%RANDOM%.tmp"
-
-set "PORT_FILE="
-
-for %%F in ("%TEMP%\generic-sql-api-port-*.tmp") do (
-    set "PORT_FILE=%%~fF"
-    goto :PORT_FILE_FOUND
-)
-
-:PORT_FILE_FOUND
-
-if not defined PORT_FILE (
-    echo [FAILED] Unable to determine Admin Console port.
+"%PHP%" -c "%PHP_INI%" "%ROOT%\scripts\find-available-port.php" admin > "%PORT_FILE%"
+if errorlevel 1 (
+    del /q "%PORT_FILE%" >nul 2>&1
+    echo [FAILED] The configured Admin port is unavailable.
     pause
     exit /b 1
 )
@@ -201,6 +200,8 @@ if not defined ADMIN_PORT (
     pause
     exit /b 1
 )
+
+set "PORT_FILE="
 
 echo [OK] Admin Console port %ADMIN_PORT%
 

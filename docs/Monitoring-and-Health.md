@@ -1,6 +1,6 @@
 # Monitoring and health
 
-Phase 4.9 extends the existing runtime lifecycle health model. It provides HTTP
+The monitoring implementation extends the runtime lifecycle health model with HTTP
 signals and authenticated diagnostics; it does not provide alerting, metrics
 storage, tracing, process supervision, or an external monitoring platform.
 
@@ -72,7 +72,7 @@ configuration, session, or database dependency can be unhealthy.
 
 `GENERIC_BACKUP_DIR` means only that an operator-designated backup destination
 is configured and writable. It does not prove that a recent or verified backup
-exists. Backup verification remains an explicit Phase 4.8 operation.
+exists. Backup verification remains an explicit operator operation.
 
 ## Hosting layers
 
@@ -94,7 +94,7 @@ the new semantics.
 
 An uptime monitor, reverse proxy, or load balancer may call liveness/readiness.
 Detailed diagnostics remain an Admin-only operator surface. A future adapter
-could translate these signals for another monitoring product, but Phase 4.9
+could translate these signals for another monitoring product, but the framework
 does not implement Prometheus, alerting, centralized collection, tracing, or a
 Windows/Linux monitoring agent.
 
@@ -104,7 +104,7 @@ database authentication failures, cache behavior across real workers, proxy
 timeouts, and monitoring cadence. Local regression tests do not validate a
 live SQL Server or multi-worker shared-filesystem deployment.
 
-The Phase 4.11 workspace result and exact target-host procedures are recorded
+The workspace result and exact target-host procedures are recorded
 in [Windows and Linux production validation](Production-Validation.md). In
 production, API and SQL Parser lifecycle cards are explicitly externally
 managed; health observation does not grant the application control of web-server

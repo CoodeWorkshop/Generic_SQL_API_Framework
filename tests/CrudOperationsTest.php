@@ -313,4 +313,4 @@ crudThrows(fn () => $execute([
     'action' => 'insert', 'resource' => 'customers', 'data' => ['CustomerCode' => 'C', 'Name' => 'N'],
 ]), 'CONSTRAINT_VIOLATION');
 
-echo "Phase 2 CRUD tests passed (database-independent; no live SQL Server execution).\n";
+echo "CRUD operation tests passed (database-independent; no live SQL Server execution).\n";

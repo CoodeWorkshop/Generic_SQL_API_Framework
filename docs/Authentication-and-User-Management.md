@@ -2,6 +2,13 @@
 
 Sessions and managed API keys resolve one internal principal. Local users have one identity and credential with separate `backendRole`, `frontendAccess`, and `frontendRole` fields. Authorization or enabled-state changes increment `authVersion`, so stale sessions fail closed on their next request.
 
+Normal API authentication is configured as `none`, `session`, `api_key`, or
+`session+api_key`. Managed and legacy API keys are accepted only through
+`X-API-Key`; they are not bearer tokens and do not create browser sessions.
+`session+api_key` accepts either a valid session or a valid key. The `none` mode
+maps normal API requests to the configured public roles. Admin and auth-management
+endpoints always require an administrator session independently of this setting.
+
 The runtime bootstrap creates auth schema version 4 with an empty user list. Migration preserves existing IDs where present, usernames, password hashes, enabled state, and creation dates. Legacy Admin maps to System Administrator plus Application Administrator; Data Editor maps to Data Operator; Viewer and Developer map to Read Only. See [Authorization and roles](Authorization-and-Roles.md).
 
 Initial setup creates one enabled identity with both System Administrator and Application Administrator. Login returns only username and the three public authorization fields; hashes, internal IDs, session identifiers, and authentication versions remain server-side. Sessions retain only stable identity/version data, not roles, so every request resolves current authorization from storage.

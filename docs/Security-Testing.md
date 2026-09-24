@@ -1,6 +1,6 @@
 # Security testing
 
-Phase 4.12 verifies security boundaries rather than only checking that security
+Security testing verifies boundaries rather than only checking that security
 components exist. Testing is non-destructive, uses isolated temporary runtime
 configuration, fake identities and credentials, and targets localhost only.
 No production credentials or external systems are used.
@@ -104,7 +104,7 @@ production fatal handling, and all query expression features.
 - **Fix:** before returning authentication-required, consume the existing
   anonymous IP identity. Authenticated traffic continues using its session/key
   identity later in the pipeline and is not double-counted.
-- **Production decision:** fix required before declaring Phase 4.12 complete; fixed and tested.
+- **Production decision:** release-blocking; fixed and tested.
 
 ### ST-002 — LOW — CORS origin userinfo/query validation — FIXED
 

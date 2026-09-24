@@ -14,7 +14,18 @@ The bundled/local command uses `-t api`, making that same file available as
 `POST /index.php`. The deployed URL therefore depends on web-server document-root
 mapping; it is one entry script, not two API routes.
 
-The script advertises `GET, POST, OPTIONS` for CORS and returns 200 immediately for `OPTIONS`. It does not otherwise enforce the HTTP method, but `POST` is the supported client convention because every operation requires a JSON request body. Allowed browser origins are currently hard-coded to `http://127.0.0.1:5173` and `http://localhost:5173`.
+The API accepts `POST` and CORS preflight `OPTIONS`; other methods return 405.
+Every operation requires a JSON object with `Content-Type: application/json`.
+Exact browser origins and credential behavior come from validated Admin runtime
+configuration (or its explicit deployment override); wildcard origins are not
+accepted with credentials.
+
+Normal data actions use the configured `none`, `session`, `api_key`, or
+`session+api_key` mode. API-key clients send `X-API-Key`; bearer transport is not
+part of the contract. Authentication produces a server-owned principal before
+authorization evaluates permissions and resource scopes. Administrator actions
+remain on the loopback Admin API and always require a System Administrator
+session regardless of the normal data-API mode.
 
 ## Request flow and actions
 
@@ -112,9 +123,11 @@ See [SQL Resource Mode](SQL-Resource-Mode.md),
 ### CRUD write requests
 
 Writes use an exact ID from `config/write-resources.php`; they never accept a
-table or schema name from the client. The shipped registry is empty so a new
-deployment denies every write until an administrator explicitly maps a resource
-to a table and its writable/filterable columns.
+table or schema name from the client. The tracked registry includes the explicit
+`crud-test` mapping for `dbo.ApiCrudTest`; deployments that do not provide that
+test table should remove or replace it. Every other resource remains denied until
+an administrator explicitly maps it to a table and its writable/filterable
+columns.
 
 ```json
 {

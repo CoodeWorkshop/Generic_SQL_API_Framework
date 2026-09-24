@@ -5,8 +5,8 @@ $tests = [
     __DIR__ . '/OrderByWindowRegressionTest.php',
     __DIR__ . '/BackendLogicTest.php',
     __DIR__ . '/ExtendedExpressionTest.php',
-    __DIR__ . '/Phase1CapabilityTest.php',
-    __DIR__ . '/Phase2CrudTest.php',
+    __DIR__ . '/QueryCapabilityTest.php',
+    __DIR__ . '/CrudOperationsTest.php',
     __DIR__ . '/SqlControllerTest.php',
     __DIR__ . '/SqlResourceCapabilityTest.php',
     __DIR__ . '/SqlResourceFilteringTest.php',
@@ -35,7 +35,8 @@ $tests = [
     __DIR__ . '/RuntimePerformanceControlsTest.php',
     __DIR__ . '/RuntimeConcurrencyTest.php',
     __DIR__ . '/ProductionHostingTest.php',
-    __DIR__ . '/HttpsSecurityTest.php'
+    __DIR__ . '/HttpsSecurityTest.php',
+    __DIR__ . '/RepositoryDocumentationTest.php'
 ];
 
 foreach ($tests as $test) {

@@ -5,18 +5,18 @@ require_once __DIR__ . '/../app/Requests/QueryRequestNormalizer.php';
 require_once __DIR__ . '/../app/Repositories/QueryRepository.php';
 require_once __DIR__ . '/../app/Repositories/MetadataRepository.php';
 
-function phase1Assert(bool $condition, string $message): void
+function queryCapabilityAssert(bool $condition, string $message): void
 {
     if (!$condition) throw new RuntimeException($message);
 }
 
-function phase1ExpectInvalid(QueryRequestValidator $validator, array $request, string $path): void
+function queryCapabilityExpectInvalid(QueryRequestValidator $validator, array $request, string $path): void
 {
     try {
         $validator->validate($request);
     } catch (ApiRequestException $exception) {
-        phase1Assert($exception->getErrorCode() === 'INVALID_REQUEST', 'Wrong validation error code.');
-        phase1Assert(
+        queryCapabilityAssert($exception->getErrorCode() === 'INVALID_REQUEST', 'Wrong validation error code.');
+        queryCapabilityAssert(
             array_filter($exception->getDetails(), fn (array $detail): bool => $detail['path'] === $path) !== [],
             "Expected validation error at {$path}."
         );
@@ -25,7 +25,7 @@ function phase1ExpectInvalid(QueryRequestValidator $validator, array $request, s
     throw new RuntimeException("Invalid request was accepted: {$path}");
 }
 
-class Phase1Engine extends QueryEngine
+class QueryCapabilityEngine extends QueryEngine
 {
     public array $executions = [];
     public function __construct() {}
@@ -42,7 +42,7 @@ class Phase1Engine extends QueryEngine
     }
 }
 
-class Phase1Metadata extends MetadataRepository
+class QueryCapabilityMetadata extends MetadataRepository
 {
     public function __construct() {}
     public function tableExists($table)
@@ -66,7 +66,7 @@ class Phase1Metadata extends MetadataRepository
     }
 }
 
-class Phase1MetadataEngine extends QueryEngine
+class QueryCapabilityMetadataEngine extends QueryEngine
 {
     public array $operations = [];
     public function __construct() {}
@@ -89,8 +89,8 @@ class Phase1MetadataEngine extends QueryEngine
 
 $validator = new QueryRequestValidator();
 $normalizer = new QueryRequestNormalizer();
-$engine = new Phase1Engine();
-$repository = new QueryRepository($engine, new Phase1Metadata());
+$engine = new QueryCapabilityEngine();
+$repository = new QueryRepository($engine, new QueryCapabilityMetadata());
 
 $build = function (array $request) use ($validator, $normalizer, $repository): array {
     $validator->validate($request);
@@ -156,43 +156,43 @@ foreach ($functionCases as $index => [$field, $fragment]) {
     } catch (Throwable $exception) {
         throw new RuntimeException("{$field['function']} failed: {$exception->getMessage()}", 0, $exception);
     }
-    phase1Assert(str_contains($query['sql'], $fragment), "Function SQL missing: {$fragment}");
+    queryCapabilityAssert(str_contains($query['sql'], $fragment), "Function SQL missing: {$fragment}");
 }
 
 // Unsafe or incomplete option shapes fail public validation rather than execution.
 $invalidBase = ['action' => 'select', 'source' => ['table' => 'Items']];
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'function' => 'DATEPART', 'field' => 'Id', 'part' => 'month); DROP TABLE X;--'
 ]]], 'fields.0.part');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'function' => 'DATEDIFF', 'datepart' => 'day',
     'start' => ['function' => 'DROP'], 'end' => ['function' => 'GETDATE']
 ]]], 'fields.0.start');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'function' => 'IIF',
     'condition' => ['left' => ['field' => 'Id;DROP'], 'operator' => '=', 'right' => 1],
     'true' => 1, 'false' => 0
 ]]], 'fields.0.condition');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'case' => ['when' => [[
         'condition' => ['field' => 'Id', 'operator' => '=', 'value' => ['field' => 'Name']],
         'then' => 'yes',
     ]]],
 ]]], 'fields.0.case.when.0');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'function' => 'NTILE', 'buckets' => 0, 'sort' => [['field' => 'Id']]
 ]]], 'fields.0.buckets');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => [[
     'function' => 'TIMEFROMPARTS', 'hour' => 1, 'minute' => 2, 'second' => 3,
     'fractions' => 0, 'precision' => 0
 ]]], 'fields.0.fractions');
 
 // Nested SELECTs support filter subqueries, but not ignored/broken nested clauses.
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => ['Id'], 'filters' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => ['Id'], 'filters' => [[
     'field' => 'Id', 'operator' => 'IN',
     'query' => ['source' => ['table' => 'Other'], 'fields' => ['Id', 'Name']]
 ]]], 'filters.0.query.fields');
-phase1ExpectInvalid($validator, $invalidBase + ['fields' => ['Id'], 'filters' => [[
+queryCapabilityExpectInvalid($validator, $invalidBase + ['fields' => ['Id'], 'filters' => [[
     'field' => 'Id', 'operator' => 'IN',
     'query' => ['source' => ['table' => 'Other'], 'fields' => ['Id'], 'sort' => [['field' => 'Id']]]
 ]]], 'filters.0.query.sort');
@@ -206,7 +206,7 @@ $isolated = $build([
     'groupBy' => ['I.Id'],
     'sort' => [['field' => 'I.Id', 'direction' => 'ASC']],
 ]);
-phase1Assert(str_contains($isolated['sql'], 'GROUP BY I.Id ORDER BY I.Id ASC'), 'Nested query corrupted outer aliases.');
+queryCapabilityAssert(str_contains($isolated['sql'], 'GROUP BY I.Id ORDER BY I.Id ASC'), 'Nested query corrupted outer aliases.');
 
 // JOIN columns are checked against their resolved base/join tables.
 try {
@@ -217,7 +217,7 @@ try {
     ]);
     throw new RuntimeException('Invalid JOIN column was accepted.');
 } catch (Exception $exception) {
-    phase1Assert(str_contains($exception->getMessage(), 'Invalid JOIN column'), 'Wrong JOIN-column failure.');
+    queryCapabilityAssert(str_contains($exception->getMessage(), 'Invalid JOIN column'), 'Wrong JOIN-column failure.');
 }
 
 try {
@@ -228,7 +228,7 @@ try {
     ]]]);
     throw new RuntimeException('Unknown nested expression column was accepted.');
 } catch (Exception $exception) {
-    phase1Assert(str_contains($exception->getMessage(), 'Invalid expression column'), 'Wrong nested-column failure.');
+    queryCapabilityAssert(str_contains($exception->getMessage(), 'Invalid expression column'), 'Wrong nested-column failure.');
 }
 
 // Standard CTE output fields use inferred CTE metadata, including count pagination.
@@ -242,19 +242,19 @@ $cteRequest = [
     'pagination' => ['page' => 1, 'pageSize' => 10],
 ];
 $cte = $build($cteRequest);
-phase1Assert(str_starts_with(trim($cte['sql']), 'WITH ActiveItems AS ('), 'CTE SQL prefix missing.');
+queryCapabilityAssert(str_starts_with(trim($cte['sql']), 'WITH ActiveItems AS ('), 'CTE SQL prefix missing.');
 $cteCount = array_values(array_filter(
     $engine->executions,
     fn (array $entry): bool => str_contains($entry['sql'], 'COUNT(*) AS TotalRows')
         && str_contains($entry['sql'], 'ActiveItems')
 ));
-phase1Assert($cteCount !== [] && str_starts_with(trim($cteCount[0]['sql']), 'WITH ActiveItems AS ('), 'CTE count lacks WITH scope.');
+queryCapabilityAssert($cteCount !== [] && str_starts_with(trim($cteCount[0]['sql']), 'WITH ActiveItems AS ('), 'CTE count lacks WITH scope.');
 
 try {
     $build(array_replace($cteRequest, ['fields' => ['NotProjected']]));
     throw new RuntimeException('Unknown CTE output field was accepted.');
 } catch (Exception $exception) {
-    phase1Assert(str_contains($exception->getMessage(), 'Invalid column'), 'Wrong CTE output-field failure.');
+    queryCapabilityAssert(str_contains($exception->getMessage(), 'Invalid column'), 'Wrong CTE output-field failure.');
 }
 
 // Recursive branches can reference the CTE's anchor projection.
@@ -266,9 +266,9 @@ $recursive = $build([
         'recursive' => ['source' => ['table' => 'NumberTree'], 'fields' => ['Id']],
     ],
 ]);
-phase1Assert(str_contains($recursive['sql'], 'UNION ALL'), 'Recursive CTE UNION ALL missing.');
-phase1Assert(preg_match('/FROM\s+NumberTree/', $recursive['sql']) === 1, 'Recursive CTE self-reference missing.');
-phase1ExpectInvalid($validator, [
+queryCapabilityAssert(str_contains($recursive['sql'], 'UNION ALL'), 'Recursive CTE UNION ALL missing.');
+queryCapabilityAssert(preg_match('/FROM\s+NumberTree/', $recursive['sql']) === 1, 'Recursive CTE self-reference missing.');
+queryCapabilityExpectInvalid($validator, [
     'action' => 'select', 'source' => ['table' => 'NumberTree'], 'fields' => ['Id'],
     'with' => [
         'name' => 'NumberTree',
@@ -287,17 +287,17 @@ foreach (['union' => 'UNION', 'unionAll' => 'UNION ALL'] as $action => $operator
         ],
     ]));
     $execution = end($engine->executions);
-    phase1Assert(str_contains($execution['sql'], " {$operator} "), "{$operator} execution SQL missing.");
-    phase1Assert($result['rowsReturned'] === 1, "{$operator} result was not returned.");
+    queryCapabilityAssert(str_contains($execution['sql'], " {$operator} "), "{$operator} execution SQL missing.");
+    queryCapabilityAssert($result['rowsReturned'] === 1, "{$operator} result was not returned.");
 }
-phase1ExpectInvalid($validator, [
+queryCapabilityExpectInvalid($validator, [
     'action' => 'union',
     'queries' => [
         ['source' => ['table' => 'Items'], 'fields' => ['Id']],
         ['source' => ['table' => 'Archive'], 'fields' => ['Id', 'Name']],
     ],
 ], 'queries');
-phase1ExpectInvalid($validator, [
+queryCapabilityExpectInvalid($validator, [
     'action' => 'union',
     'queries' => [[
         'source' => ['table' => 'Items'], 'fields' => ['Id'],
@@ -316,7 +316,7 @@ try {
     $repository->select($normalizer->normalize($wildcardUnion));
     throw new RuntimeException('Wildcard UNION with incompatible projections was accepted.');
 } catch (Exception $exception) {
-    phase1Assert(
+    queryCapabilityAssert(
         str_contains($exception->getMessage(), 'same number of columns'),
         'Wrong wildcard UNION compatibility failure.'
     );
@@ -332,22 +332,22 @@ foreach ([
     $internal = $normalizer->normalize($request);
     $result = $repository->{$request['action']}($internal);
     $execution = end($engine->executions);
-    phase1Assert($execution['params'] === [1] && $result['rowsReturned'] === 1, 'Routine execution path failed.');
+    queryCapabilityAssert($execution['params'] === [1] && $result['rowsReturned'] === 1, 'Routine execution path failed.');
 }
 
 // All five promised metadata reads reach their repository execution paths.
-$metadataEngine = new Phase1MetadataEngine();
+$metadataEngine = new QueryCapabilityMetadataEngine();
 $metadataRepository = new MetadataRepository($metadataEngine);
-phase1Assert($metadataRepository->getTables()['data'][0]['ok'] === 1, 'Tables metadata failed.');
-phase1Assert($metadataRepository->getViews()['data'][0]['ok'] === 1, 'Views metadata failed.');
-phase1Assert($metadataRepository->getProcedures()['data'][0]['ok'] === 1, 'Procedures metadata failed.');
-phase1Assert($metadataRepository->schema()['data'][0]['ok'] === 1, 'Schema metadata failed.');
-phase1Assert($metadataRepository->getColumns('Items')['data'][0]['ok'] === 1, 'Columns metadata failed.');
+queryCapabilityAssert($metadataRepository->getTables()['data'][0]['ok'] === 1, 'Tables metadata failed.');
+queryCapabilityAssert($metadataRepository->getViews()['data'][0]['ok'] === 1, 'Views metadata failed.');
+queryCapabilityAssert($metadataRepository->getProcedures()['data'][0]['ok'] === 1, 'Procedures metadata failed.');
+queryCapabilityAssert($metadataRepository->schema()['data'][0]['ok'] === 1, 'Schema metadata failed.');
+queryCapabilityAssert($metadataRepository->getColumns('Items')['data'][0]['ok'] === 1, 'Columns metadata failed.');
 $columnOperation = end($metadataEngine->operations);
-phase1Assert(
+queryCapabilityAssert(
     $columnOperation['params'] === ['Items']
         && $columnOperation['context']['queryPhase'] === 'metadata',
     'Columns metadata was not prepared with the table parameter.'
 );
 
-echo "Phase 1 capability tests passed.\n";
+echo "Query capability tests passed.\n";

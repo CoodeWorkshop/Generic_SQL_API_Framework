@@ -1,220 +1,71 @@
-# Backend Roadmap
+# Backend roadmap
 
-This roadmap covers only the Generic SQL API backend. Frontend dashboards, grids, charts, report widgets, parsers, and UI work are intentionally excluded. A planned item is not part of the public API until code, validation, tests, and documentation all expose it.
+The last released version is v1.0.0. The current v2.0.0 development line is
+unreleased; implemented post-v1 work is summarized in the
+[changelog](../CHANGELOG.md), not repeated here.
 
-## v1.0.0 — Core API & Advanced SQL — Released
+Final production documentation, versioning cleanup, test naming cleanup,
+cross-platform launcher review, and repository cleanup are complete for the
+current release-preparation milestone (Phase 4.13).
 
-- universal public JSON validation and normalization
-- SELECT, DISTINCT, TOP (`limit`), aliases, CASE, arithmetic, allow-listed SQL functions
-- prepared filters; INNER/LEFT/RIGHT joins; GROUP BY; aggregate HAVING; sorting
-- SQL Server compatibility-aware pagination and window functions
-- IN/EXISTS filter subqueries, standard/recursive CTE, UNION/UNION ALL
-- stored procedure, scalar function, table-valued function, and metadata actions
-- stable success/error envelope, execution timing, row count, query/error logging
+Planned items are not part of the public contract until their implementation,
+validation, tests, and documentation are merged.
 
-Current boundaries remain documented in the [capability matrix](Capability-Matrix.md)
-and [limitations](Limitations.md). In particular, FULL/CROSS joins, window
-partitioning, public INTERSECT/EXCEPT, and general subqueries are not released
-JSON Query features.
+## Phase 5 — Multi-Database Support
 
-## v1.1.0 — Windows Runtime & Deployment — Released
+- **Database Registry** — define and validate named database targets.
+- **Shared SQL Server Configuration** — avoid duplicated connection settings
+  while preserving independently controlled credentials and availability.
+- **Database Context** — select a permitted database through server-owned
+  configuration rather than arbitrary client identifiers.
+- **Same-Server Cross-Database Queries** — define safe, explicit boundaries for
+  supported SQL Server cross-database reads.
+- **Database Authorization** — scope principals and API keys to permitted
+  database contexts.
+- **Resource Mapping** — bind SQL and write resources to database contexts.
+- **Database-Aware Metadata** — return metadata only from authorized contexts.
+- **Admin Console** — manage registry entries and safe status information.
+- **Testing** — cover isolation, authorization, migration, error handling, and
+  deployment-specific SQL Server behavior.
 
-- bundled `runtime/windows/php/`
-- `start-windows.bat` checks PHP, configuration, ODBC, OpenSSL, encrypted-credential readiness, database connectivity, API path, and ports
-- automatic OPcache/log directory creation and validated configurable port selection
-- SQL Server/Windows authentication modes and automatic/specific ODBC driver configuration
-- cross-platform AES-256-GCM protection for the complete database configuration, environment-managed keys, and verified no-backup one-time setup
-- modular `QueryRepository` facade with specialized query builders
-- public validation/normalization plus API-contract and ORDER BY/window regression coverage
-- database-independent backend test runner and GitHub Actions syntax/logic workflow
-- Phase 1 completion coverage for every public function family, JOIN columns,
-  nested filter subqueries, CTE/recursive-CTE output scope and pagination,
-  UNION/UNION ALL compatibility, routines, metadata, and SQL Resource Mode
+## Phase 6 — Security Verification & Final Security Review
 
-## v1.2.0 — CRUD Operations — Current
+- **Dependency Security** — inventory and scan maintained runtime dependencies.
+- **Static Security Analysis** — run appropriate PHP, JavaScript, configuration,
+  and secret scanners and triage their output.
+- **Authorization Security Testing** — expand role, resource, and identity
+  escalation testing.
+- **API Security Testing** — verify transport, parsing, validation, throttling,
+  and error boundaries against a deployed target.
+- **DAST/Security Scanning** — scan representative production-like IIS and Nginx
+  deployments.
+- **Penetration-Test Preparation** — prepare scope, accounts, data, monitoring,
+  recovery, and rules of engagement.
+- **Security Architecture Review** — reassess trust boundaries, residual risks,
+  and operational controls.
+- **Optional Admin MFA** — evaluate without weakening the existing session and
+  administrator authorization boundary.
+- **Final Security Report** — record tools, versions, target environments,
+  findings, remediation, and accepted risks.
 
-- INSERT, UPDATE, DELETE, and single-row UPSERT public actions
-- deny-by-default write-resource registry with action, table, column, filter, key, and identity allowlists
-- live SQL Server metadata validation for types, nullability, defaults, identity, and computed columns
-- prepared DML, mandatory UPDATE/DELETE filters, affected-row and safe identity responses
-- classified duplicate/constraint errors and database-independent CRUD/security/regression coverage
-- SQL Resource Mode support for complex server-owned SQL Server SELECT/CTE queries without JSON Query function/expression limitations
+## Phase 7 — External Client API Integration & Developer Experience
 
-The shipped write registry is intentionally empty and must be configured per
-deployment. UPSERT uses one SQL Server MERGE/HOLDLOCK statement and verifies a
-matching unfiltered unique index. Bulk writes and application-managed
-transactions are not part of this release.
+- **Client Integration Manual** — document authentication, retries, pagination,
+  errors, and operational expectations for external clients.
+- **Resource Documentation** — publish deployment-specific SQL/write resource
+  catalogs without exposing SQL or secrets.
+- **Client Integration Examples** — provide maintained examples for supported
+  authentication and action families.
+- **Postman Collection** — cover representative public requests and environments.
+- **OpenAPI Specification** — describe supported HTTP actions and schemas without
+  flattening the recursive query model incorrectly.
+- **Interactive API Documentation** — derive from the reviewed specification and
+  preserve authentication/security warnings.
+- **SDKs** — evaluate only after the public contract and versioning policy are
+  stable.
+- **Webhooks/Callbacks** — document and expose only if implemented in a later
+  release; none exist today.
 
-## New Phase 2.1 — Admin Runtime and Configuration UX — Implemented
-
-- independent loopback Admin and API lifecycles with fixed start/stop/restart controls
-- configurable API port range, first-available selection, PID/runtime state, and safe health reporting
-- System Health, System Info, unified Configuration, and existing Users screens
-- backend-enforced Read Data, Write Data, Pagination, Sorting, and Metadata switches
-- independently hosted SQL Parser with no Admin, API runtime, session, or database dependency
-
-## New Phase 2.2 — Runtime integration and stabilization — Implemented
-
-- Admin-managed, independent API and SQL Parser lifecycles on Windows and Linux
-- separate validated port ranges, service-owned PID state, health, and safe recovery
-- automatic Admin-managed database encryption with obsolete setup scripts removed
-- platform-aware SQL Server authentication and safe structured query diagnostics
-- launcher extension checks through the selected PHP runtime and fixed config root
-
-## v1.3.0 — Transactions — Planned
-
-- begin, commit, rollback, failure handling, and transaction-aware service boundaries
-
-## v1.4.0 — Database Metadata — Planned
-
-The five basic metadata actions already exist. This version is for capabilities not yet implemented: primary/foreign keys, indexes, richer types/constraints, discovery improvements, and caching.
-
-## New Phase 3 — Authorization, roles, API keys, and service controls — Implemented
-
-- common principal and deny-by-default authorization for sessions and API keys
-- explicit permissions with SQL/write-resource scopes
-- role assignment, session invalidation, and last-admin protection
-- one-time-reveal hash-only managed keys with lifecycle controls
-- responsive service controls and truthful request-scoped database availability
-
-## New Phase 3.1 — User/auth architecture and role simplification — Implemented
-
-- fixed four-role model with separated backend and frontend access
-- System Administrator-only backend configuration and runtime controls
-- Application Administrator frontend-user management without backend authority
-- removed global feature toggles in favor of authorization
-
-## New Phase 3.2 — Runtime and performance controls — Implemented
-
-- validated `admin.json` runtime settings with atomic immediate reload
-- configurable ODBC query timeout, API/login rate limits, and session expiration
-- configurable API/Admin JSON body limit and pagination default/maximum
-- System Administrator Admin Console controls and database-independent coverage
-
-## New Phase 4.1 — Runtime lifecycle and System Health cleanup — Implemented
-
-- Admin-only startup with API and SQL Parser stopped and database runtime access disconnected
-- one System Health lifecycle surface for API, SQL Parser, and database availability
-- actual managed PID, dynamically selected port, and start-time reporting without stale stopped-state values
-- configuration-only Database page with submitted-value testing and encrypted saves
-- fixed lifecycle operations, safe database health fields, and cross-platform launcher coverage
-
-## New Phase 4.2 — Production web-server hosting — Implemented
-
-- IIS with PHP FastCGI templates and deployment instructions for Windows
-- Nginx with PHP-FPM fixed-entry-point routing for Linux
-- independent API, loopback Admin, and SQL Parser application boundaries
-- production PHP error, request, resource, and OPcache configuration guidance
-- filesystem, secret, logging, service-management, worker-sizing, and route-hardening coverage
-- HTTPS/TLS, HSTS, CSP, and certificate deployment provided by Phase 4.3
-
-## New Phase 4.3 — HTTPS/TLS and production security headers — Implemented
-
-- fixed-host HTTP-to-HTTPS redirects without local-development HTTPS requirements
-- IIS certificate bindings/Schannel guidance and Nginx TLS 1.2/1.3 templates
-- production HSTS without automatic preload or unreviewed subdomain scope
-- boundary-specific CSP and compatible frame, referrer, MIME, and permissions policies
-- Secure/HttpOnly/SameSite cookie, exact-origin CORS, and CSRF preservation
-- explicit distrust of arbitrary forwarded headers with documented trusted-edge deployment rules
-
-## New Phase 4.4 — Session and cookie hardening — Implemented
-
-- centralized host-only, session-lifetime, Secure, HttpOnly, and SameSite cookie policy
-- strict cookie-only session transport with transparent URL session IDs disabled
-- login regeneration, logout destruction, idle/absolute timeout, and auth-version invalidation verification
-- session-bound CSRF rotation and stale-response race-protection verification
-- production session-storage ownership, location, lifetime, and cleanup requirements
-- preserved API-key separation and hostname-consistent local HTTP development
-
-## New Phase 4.5 — Runtime and concurrency hardening — Implemented
-
-- shared/read and exclusive/write coordination for complete file-backed JSON snapshots
-- deterministic concurrent runtime-configuration and rate-limit updates with malformed-state recovery
-- login reset serialization with failed-attempt updates
-- atomic local process restart plus verified termination and extension-free Linux signal fallback
-- request-owned non-persistent ODBC lifecycle and timeout cleanup verification
-- deterministic multi-process regression harness and documented single-host/multi-host boundaries
-- explicit IIS/FastCGI and Nginx/PHP-FPM production load-testing responsibilities
-
-## New Phase 4.6 — Database and secrets hardening — Implemented
-
-- authenticated AES-256-GCM database configuration and external key handling audited
-- database configuration reads coordinated with atomic secret-bearing writes
-- owner-restricted temporary, migrated, and local-key file creation
-- sanitized Admin/ODBC failure boundaries and defense-in-depth log redaction verified
-- production backup/temp-file web denials and cross-platform secret deployment guidance
-- database-password and encryption-key rotation procedures documented
-
-## New Phase 4.7 — Audit and security logging — Implemented
-
-- compact JSON Lines security audit schema with request correlation and severity
-- authentication, authorization, API-key, user, configuration, database, rate-limit, and runtime lifecycle events
-- principal-aware safe actor identifiers with secret-free allowlisted metadata
-- concurrent local append integrity, owner-restricted files, and fail-open diagnostics
-- Windows/Linux rotation, retention, monitoring, and privacy responsibilities documented
-
-## New Phase 4.8 — Backup and recovery — Implemented
-
-- atomic owner-restricted configuration bundles with secret-free SHA-256 manifests
-- strict encrypted-database, checksum, schema, missing-file, and key-recovery verification
-- safe external staging restore that excludes sessions and disposable runtime state
-- authoritative state, SQL Server ownership, API-key/session recovery, and disaster scenarios documented
-- Windows/Linux permissions, retention, off-host/immutable-copy, and production restore-test responsibilities
-
-## New Phase 4.9 — Monitoring and health — Implemented
-
-- lightweight public API liveness and dependency-aware readiness signals
-- authenticated detailed configuration, database, process, filesystem, logging, session, encryption, and backup diagnostics
-- short-lived concurrency-safe database health caching without raw driver diagnostics or secret disclosure
-- production IIS and Nginx routes plus documented external-monitoring responsibility boundaries
-
-## New Phase 4.10 — Production error handling — Implemented
-
-- centralized client-safe JSON error envelope with correlated request IDs
-- deterministic expected, database, timeout, exception, PHP warning, and fatal-error handling
-- output-buffer protection, no-store errors, logging fail-open behavior, and recursive-handler guard
-- consistent API/Admin/SQL Parser boundaries without SQL fragments or internal diagnostic disclosure
-
-## New Phase 4.11 — Windows and Linux production validation — Implemented
-
-- non-mutating environment discovery and deterministic deployment-template validation CLI
-- IIS XML/routing, Nginx/FastCGI routing, PHP production INI, sensitive-path, header, limit, and secret checks
-- production web-server ownership enforced for API/SQL Parser lifecycle controls
-- dated validation matrix and exact Windows/IIS and Linux/Nginx/PHP-FPM operator checklists without false live-validation claims
-
-## New Phase 4.12 — Security testing — Implemented
-
-- attack-oriented authentication, session, role, resource, API-key, CSRF/CORS, SQL/CRUD, path, secret, backup, health, and audit regression coverage
-- unauthenticated protected-request throttling and strict CORS-origin component validation fixes
-- manual static review and dependency/runtime classification without fabricated scanner results
-- severity-classified findings, explicit column/rate-limit limitations, and target-host penetration/dependency validation checklist
-
-## v1.5.0 — Advanced API Security — Planned
-
-- editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure
-
-Session and managed-key authentication, base roles and resource scopes,
-administrator user management, CSRF, login throttling, and local API rate limiting are implemented. The
-planned work extends that foundation rather than replacing it.
-
-## v1.6.0 — API Improvements — Planned
-
-- versioning, broader production health/status integration, OpenAPI description, and more complete option-level validation
-- resolution of documented public/internal edge cases such as `TIMEFROMPARTS`
-
-## v1.7.0 — Performance — Planned
-
-- metadata/query caching evaluation, large-result handling, profiling, connection improvements, and log rotation
-
-## v1.8.0 — Additional Database Providers — Planned
-
-- provider-by-provider implementation and tests for selected databases
-
-Existing MySQL, PostgreSQL, Oracle, and SQLite driver files are not selectable production providers and do not make those databases supported.
-
-## v2.0.0 — Platform & Deployment — Future
-
-- containerization and environment-based configuration evaluation
-- optional live IIS/Nginx/SQL Server integration testing
-
-Version targets may change, but released/current/planned status must always follow the implementation.
+Additional database providers, distributed rate limiting, richer metadata,
+transaction APIs, caching, and large-result strategies remain possible future
+work but have no release commitment in this roadmap.

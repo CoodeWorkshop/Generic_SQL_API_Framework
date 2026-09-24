@@ -56,7 +56,7 @@ productionHostingAssert(
     str_contains($nginx, 'listen 443 ssl;')
         && str_contains($nginx, 'ssl_protocols TLSv1.2 TLSv1.3;')
         && str_contains($nginx, 'return 308 https://reports.example.internal$request_uri;'),
-    'Phase 4.3 Linux TLS or redirect configuration is missing.'
+    'Linux TLS or redirect configuration is missing.'
 );
 productionHostingAssert(
     !preg_match('/location\s+~[^\{]*\\\.php/', $nginx),
@@ -108,12 +108,13 @@ productionHostingAssert(
     'Windows launcher does not restrict its temporary key-output file before writing it.'
 );
 foreach ([$linuxLauncher, $windowsLauncher] as $launcher) {
-    productionHostingAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Phase 4.1 disconnected startup was changed.');
+    productionHostingAssert(str_contains($launcher, 'PHP_VERSION_ID >= 80200'), 'Development launcher does not enforce the supported PHP version.');
+    productionHostingAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Disconnected startup was changed.');
     productionHostingAssert(!str_contains($launcher, 'api-runtime-control.php start') && !str_contains($launcher, 'sqlparser-runtime-control.php start'), 'Development launcher auto-starts a managed service.');
 }
 
 $hostingDocumentation = (string)file_get_contents($root . '/docs/Production-Security-and-Deployment.md');
-foreach (['IIS', 'FastCGI', 'Nginx', 'PHP-FPM', 'OPcache', 'Phase 4.3'] as $topic) {
+foreach (['IIS', 'FastCGI', 'Nginx', 'PHP-FPM', 'OPcache'] as $topic) {
     productionHostingAssert(str_contains($hostingDocumentation, $topic), "Production hosting documentation is missing {$topic}.");
 }
 

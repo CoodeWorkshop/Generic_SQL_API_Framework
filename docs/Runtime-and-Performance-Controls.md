@@ -44,7 +44,7 @@ Local file-backed API and login counters use per-identity exclusive locks and at
 
 ## Audit decisions
 
-| Value | Previous location/default | Phase 3.2 decision |
+| Value | Previous location/default | Current behavior |
 |---|---|---|
 | SQL query timeout | `config/performance.php`, 45 seconds | Configurable and enforced per statement |
 | Login threshold/window/lockout | `SecurityConfiguration`, 5 / 900 / 300 | Configurable; existing limiter retained |

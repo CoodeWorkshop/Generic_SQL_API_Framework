@@ -1,28 +1,73 @@
 # Generic SQL API Framework
 
-Generic SQL API Framework is a backend-only PHP API that turns validated JSON
-query or CRUD descriptions into SQL Server SQL, executes them through ODBC, and
-returns a stable JSON envelope. It provides reusable read/query endpoints and
-explicitly configured write resources without a controller per table or report.
-Clients never submit raw SQL.
+Generic SQL API Framework is a PHP backend that converts validated JSON requests
+into SQL Server operations over ODBC. It provides a stable API for structured
+queries, reviewed SQL reports, CRUD, routines, and metadata without accepting raw
+SQL from clients or requiring a controller for every resource.
 
-The existing PHP implementation is the source of truth. Microsoft SQL Server through ODBC is the only working provider. Driver stubs for MySQL, PostgreSQL, Oracle, and SQLite are not selectable by `DriverFactory` and are not supported providers.
+The last released version is **v1.0.0**. The current repository contains the
+**v2.0.0 development line, which is unreleased**. See [CHANGELOG.md](CHANGELOG.md)
+for release history and [Roadmap.md](docs/Roadmap.md) for future work.
 
-## Public API
+## Capabilities
 
-Send JSON to the `api/index.php` entry script, normally with `POST` and
-`Content-Type: application/json`. It is `/api/index.php` when the repository root
-is served, or `/index.php` when `api/` is the document root used by the bundled
-launcher:
+- JSON Query Mode for validated SELECT, joins, grouping, HAVING, sorting,
+  pagination, CTEs, set operations, windows, CASE, arithmetic, and allow-listed
+  SQL Server functions.
+- SQL Resource Mode for recursively discovered, server-owned `.sql` files with
+  validated execution metadata, filters, sorting, and pagination.
+- Deny-by-default write resources for single-object INSERT, UPDATE, DELETE, and
+  SQL Server UPSERT operations.
+- Stored procedures, scalar functions, table-valued functions, and database
+  metadata actions.
+- Configurable `none`, `session`, `api_key`, and `session+api_key` authentication.
+- Fixed backend/frontend roles, resource scopes, managed API keys, administrator
+  user management, CSRF protection, and request/login rate limits.
+- Encrypted database configuration, audit/security logging, backup verification,
+  health/readiness reporting, runtime controls, and production-safe errors.
+- A non-executing SQL-to-Universal-JSON parser for supported SQL shapes.
+- IIS/FastCGI and Nginx/PHP-FPM production deployment templates.
+
+Microsoft SQL Server through ODBC is the only supported database provider.
+Driver stubs for other databases are not selectable production implementations.
+
+## HTTP surfaces
+
+| Surface | Entry point | Purpose | Boundary |
+| --- | --- | --- | --- |
+| Application API | `api/index.php` | Query, SQL resource, CRUD, routine, metadata, and application auth actions | Configured normal API authentication and authorization |
+| Public health | `api/health.php` | Lightweight liveness/readiness | Deliberately minimal public response |
+| Admin Console/API | `admin/index.php`, `admin/api.php` | Setup, configuration, users, keys, health, and local lifecycle | Loopback plus System Administrator session; mutations require CSRF |
+| SQL parser | `sqlparser/index.php` | Convert supported SQL to request JSON without execution | Separate local/deployment boundary; no database access |
+
+Send API requests as `POST` with `Content-Type: application/json`. When API Key
+authentication is selected, send the managed secret only in:
+
+```http
+X-API-Key: gsk_...
+```
+
+Do not send API keys as bearer tokens. Administrator endpoints always require an
+administrator session regardless of the normal API authentication mode.
+
+## Action model
+
+The public data actions are:
+
+- `select`, `union`, and `unionAll` for structured reads;
+- `sql` for reviewed SQL resources;
+- `insert`, `update`, `delete`, and `upsert` for registered write resources;
+- `procedure`, `function`, and `tableFunction` for routines;
+- `metadata.tables`, `metadata.columns`, `metadata.views`,
+  `metadata.procedures`, and `metadata.schema` for metadata.
+
+A minimal structured query is:
 
 ```json
 {
   "action": "select",
   "source": { "table": "Items", "alias": "I" },
-  "fields": [
-    "I.ItemCode",
-    { "field": "I.Description", "alias": "ItemName" }
-  ],
+  "fields": ["I.ItemCode", "I.Description"],
   "filters": [
     { "field": "I.Active", "operator": "=", "value": 1 }
   ],
@@ -31,213 +76,155 @@ launcher:
 }
 ```
 
-The public actions are `select`, `sql`, `insert`, `update`, `delete`, `upsert`, `union`, `unionAll`, `procedure`, `function`, `tableFunction`, and the five metadata actions documented in [API.md](docs/API.md). Public property names such as `source`, `fields`, `field`, `resource`, `data`, `filters`, and `pagination` are normalized to a private execution model. Internal names such as `table`, `columns`, `column`, `where`, `top`, `page`, and `pageSize` are not accepted as public JSON.
+Clients submit only the documented public contract. Validation and normalization
+produce a private execution model before controller, service, repository, and
+builder code runs. Runtime values remain prepared parameters.
 
-Application actions enforce the configured `none`, `session`, `api_key`, or
-`session+api_key` authentication mode. The loopback Admin Console always uses an
-administrator session and provides first-run setup plus complete user management.
-See [Authentication and user management](docs/Authentication-and-User-Management.md).
-Authorization and managed keys are documented in [Authorization and roles](docs/Authorization-and-Roles.md) and [Managed API keys](docs/API-Keys.md).
+`sql` is not a raw-SQL endpoint. It resolves an identifier to a reviewed file
+under `queries/`; `queries/system/` is excluded from public discovery and is used
+internally for metadata. Optional execution metadata in
+`config/sql-resources.php` defines approved frontend controls without accepting
+SQL fragments.
 
-`sql` is a controlled report-resource action, not a raw-SQL endpoint. The server
-recursively discovers reviewed `.sql` files under `queries/`; for example,
-`queries/reports/customer.sql` is `reports/customer`. A simple resource needs no
-per-file registry entry. Optional, strictly validated `execution` metadata
-declares output aliases, filter mappings, and default sorting when runtime UI
-controls need them. All runtime values remain prepared parameters.
+Writes are separately allowlisted in `config/write-resources.php`. Deployments
+must explicitly declare tables, actions, writable/filterable columns, UPSERT
+keys, and optional identity columns. The repository includes the explicit
+`crud-test` mapping for `dbo.ApiCrudTest`; replace or remove it for deployments
+that do not provide that test table. Every unregistered resource is denied.
 
-Because that SQL is backend-owned and reviewed, SQL Resource Mode supports
-complex SQL Server SELECT/CTE queries, including joins/APPLY, subqueries,
-windows, JSON/XML expressions, and set operations, without using JSON Query
-Mode's client-facing function and expression allowlists. Clients still cannot
-submit SQL text, tables, paths, credentials, or connection settings.
-
-Current query support includes SELECT, DISTINCT, SQL Server TOP through `limit`, aliases, CASE and arithmetic expressions, an allow-list of SQL functions, prepared WHERE values, INNER/LEFT/RIGHT equality joins, GROUP BY, aggregate HAVING, multi-field sorting, pagination, eight window functions, subqueries in selected filters, one CTE (including the recursive form), UNION/UNION ALL, routines, and database metadata reads. See the definitive [JSON request reference](docs/JSON-Request-Reference.md) and [capability matrix](docs/Capability-Matrix.md) for exact boundaries.
-
-CRUD uses a separate deny-by-default write-resource registry. It supports
-single-object INSERT, targeted UPDATE/DELETE, and SQL Server UPSERT with live
-metadata validation, prepared values, affected-row reporting, and optional safe
-identity output. A deployment must explicitly configure approved write targets.
+See [API.md](docs/API.md), [Action Reference](docs/Action-Reference.md), and the
+[Capability Matrix](docs/Capability-Matrix.md) for the exact contract.
 
 ## Architecture
 
-The actual HTTP flow is:
-
 ```text
-Client -> api/index.php -> QueryRequestValidator -> QueryRequestNormalizer
-       -> QueryController/QueryRepository, SQLController/SqlRepository,
-          or WriteController/WriteRepository
-       -> QueryEngine -> Database/ODBC -> SQL Server
+HTTP entry point
+  -> authentication, throttling, authorization, CSRF, logging, availability
+  -> request validator
+  -> request normalizer
+  -> controller -> service -> repository
+  -> query/write builders -> QueryEngine -> Database/ODBC -> SQL Server
+  -> Response / ExceptionHandler
 ```
 
-Results return through the same layers and `Response` creates the public envelope. `QueryRepository` is an execution/orchestration facade; SQL construction remains split across `SelectBuilder`, `WhereBuilder`, `JoinBuilder`, `GroupByBuilder`, `HavingBuilder`, `OrderByBuilder`, `PaginationBuilder`, `WindowFunctionBuilder`, `SqlExpressionBuilder`, `RoutineBuilder`, and `SetOperationBuilder`.
+Builders validate identifiers and assemble SQL; repositories orchestrate
+metadata and execution; `QueryEngine` owns prepared ODBC execution and cleanup.
+SQL Resource Mode follows its own reviewed-file path and does not expand the JSON
+Query expression allowlist. See [Architecture.md](docs/Architecture.md).
 
-See [Architecture.md](docs/Architecture.md) for responsibilities and request/response flow.
-Backend developers adding controlled SQL reports should also read
-[SQL resource configuration](docs/SQL-Resource-Configuration.md) and
-[SQL resource files](docs/SQL-Resource-Files.md). CRUD deployments should read
-[write resource configuration](docs/Write-Resource-Configuration.md).
+## Configuration and security
 
-## Configure SQL Server
+The local Admin Console is the normal setup path. It atomically bootstraps ignored
+runtime configuration, manages users and keys, validates database settings, and
+stores the complete database configuration in an AES-256-GCM envelope. The
+Base64-encoded 32-byte `GENERIC_SQL_API_ENCRYPTION_KEY` remains outside that
+envelope and outside version control.
 
-For local setup, start the backend and use the loopback-only Admin Console at
-`/admin`. Its Database page validates/tests submitted settings and saves the complete
-configuration as an AES-256-GCM envelope without a plaintext backup. CORS,
-authentication mode, runtime status, and the non-executing SQL parser are also
-available there. See [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md).
+Security boundaries include:
 
-The manual format below remains useful for production provisioning. Local users
-should configure the database only through Admin Console.
+- exact-origin CORS and bounded JSON request bodies;
+- host-only Secure/HttpOnly/SameSite session cookies in production;
+- session-bound CSRF tokens for browser mutations;
+- hash-only, one-time-reveal managed API keys with `gsk_` secrets;
+- fixed roles and deny-by-default resource authorization;
+- prepared runtime values and allowlisted identifiers/functions;
+- correlated, redacted errors and JSON Lines audit/security logs;
+- request-scoped ODBC connections and configurable statement timeouts.
 
-Create the ignored local file `database/config/database.json`:
+Plaintext database configuration remains readable only for compatibility.
+Production deployments should use the encrypted form and externally managed key.
+Never commit credentials, encryption keys, generated configuration, sessions,
+runtime state, backups, or logs.
 
-```json
-{
-  "provider": "sqlserver",
-  "driver": "auto",
-  "server": "localhost\\SQLEXPRESS",
-  "database": "ApplicationDb",
-  "authentication": "windows",
-  "options": {
-    "encrypt": false,
-    "trustServerCertificate": true
-  }
-}
-```
+## Local development
 
-The example's integrated authentication is Windows-only. On every platform, SQL
-authentication uses `"authentication": "sql"` plus `username` and `password`.
-Plaintext configuration remains supported for compatibility, but deployments can
-seal the complete configuration as one AES-256-GCM authenticated payload. The
-Base64-encoded 32-byte key comes from `GENERIC_SQL_API_ENCRYPTION_KEY` and must
-remain separate from `database.json`.
+Requirements are PHP 8.2 or newer, JSON, OpenSSL, sessions, ODBC, and a supported
+Microsoft SQL Server ODBC driver when connecting to a database.
 
-Admin Console encrypts the complete configuration without retaining a plaintext
-backup. Do not commit the key or configuration. See
-[Database Configuration](docs/Database-Configuration.md) for the encrypted
-format, platform-aware authentication, failure behavior, and security limits.
-
-## Start the backend
-
-No authentication configuration files need to be created first. The launcher
-atomically creates missing `config/auth.json`, `config/installation.json`, and
-`config/admin.json` with safe defaults; all three are ignored by Git. Existing
-files are preserved and legacy authentication data is migrated in place.
-
-On Windows, run:
+Windows includes a bundled PHP runtime:
 
 ```bat
 start-windows.bat
 ```
 
-The repository includes `runtime/windows/php/`, so XAMPP or a separate PHP
-installation is not required. The launcher validates PHP and required extensions,
-prepares the ignored local encryption key, resets database runtime access to
-disconnected, and starts only Admin Console on its configured loopback port.
-Start API and SQL Parser and connect the database manually from System Health;
-each may remain stopped or disconnected. A preconfigured or reachable database is not required.
-
-On Linux, run:
+Linux prefers `runtime/linux/php/php` when present and otherwise uses `php` from
+`PATH`:
 
 ```bash
 ./start-linux.sh
 ```
 
-It mirrors the loopback binding, validation, local key preparation, automatic
-port selection, and optional browser launch. It prefers
-`runtime/linux/php/php` and falls back to installed PHP when the bundled Linux
-binary is absent. The Admin Console remains available while its System Health
-screen starts, stops, or restarts the API or SQL Parser and connects,
-disconnects, or restarts database runtime access independently.
+Both launchers validate the runtime, bootstrap configuration, prepare an ignored
+local encryption key, set database runtime access to disconnected, select the
+configured loopback Admin port, and start only the Admin Console. API and SQL
+Parser lifecycle and database availability are controlled from System Health.
+The PHP built-in server is for local development only.
 
-With another PHP installation, after configuring the database:
+For manual production provisioning, copy
+`database/config/database.example.json` to the ignored `database.json`, complete
+it, and follow [Database Configuration](docs/Database-Configuration.md).
 
-```bash
-php -S 127.0.0.1:8000 -t api
-```
+## Testing
 
-The built-in server is suitable for local use, not production. Production targets are IIS with PHP FastCGI on Windows and Nginx with PHP-FPM on Linux. See [Hosting](docs/Hosting.md) and [Production web-server hosting](docs/Production-Security-and-Deployment.md).
-
-## Test without a database
-
-Normal backend tests use fakes for query execution and metadata, so they require no SQL Server, ODBC extension, credentials, running server, or `database/config/database.json`:
+The normal suite is database-independent:
 
 ```bash
 php tests/run.php
+php -n tests/run.php
 ```
 
-Syntax-check the maintained backend source with:
+Tests use fake executors and metadata repositories; they do not require SQL
+Server, ODBC, credentials, or a running service. Live SQL Server validation is
+still required for deployment-specific drivers, permissions, constraints,
+triggers, execution plans, and concurrency behavior.
+
+Useful static checks:
 
 ```bash
-find api app config core database scripts tests -type f -name '*.php' -exec php -l {} \;
+find api admin app config core database scripts sqlparser tests -type f -name '*.php' -exec php -l {} \;
+node --check admin/assets/admin.js
+node --check sqlparser/assets/js/app.js
+bash -n start-linux.sh
+git diff --check
 ```
 
-`.github/workflows/backend-tests.yml` runs both checks on every push and pull request using PHP 8.2. There is no mandatory live-database integration workflow.
+CI runs PHP 8.2 syntax checks and the database-independent suite.
 
-## Responses
+## Operations and deployment
 
-Successful operations return `success`, `message`, `data`, and `meta`. Metadata includes `page`, `pageSize`, `totalRows`, `rowsReturned`, and `executionTime`; writes additionally include `affectedRows`. There is no query-result column-description metadata. Errors return `success: false`, an `error` object, and an empty `data` array. See [API.md](docs/API.md).
+System Health exposes local API/parser lifecycle and database availability plus
+safe configuration, filesystem, logging, session, encryption, and backup checks.
+The public health route exposes only liveness/readiness fields. Backup tooling
+creates and verifies atomic configuration bundles but does not back up SQL Server;
+database backup remains an operator responsibility.
 
-## Project status
+Production hosting uses IIS with PHP FastCGI on Windows or Nginx with PHP-FPM on
+Linux. The production web server owns TLS, redirects, security headers, process
+lifecycle, worker concurrency, and sensitive-path denial. Do not expose the Admin
+Console or SQL parser publicly, and do not use either development launcher as a
+production process manager.
 
-- v1.0.0 — Core API and advanced SQL: released
-- v1.1.0 — Windows runtime and deployment: released
-- v1.2.0 — CRUD operations: current
-- New Phase 1 — unified local setup/configuration console: implemented
-- New Phase 2 — authentication and administrator user management: implemented
-- Phase 2.1 — independent Admin/API runtime and simplified configuration UX: implemented
-- Phase 2.2 — cross-platform API/parser lifecycle and setup stabilization: implemented
-- Phase 3.1 — fixed authorization roles and separated backend/frontend administration: implemented
-- Phase 3.2 — configurable runtime and performance controls: implemented
-- Phase 4.1 — runtime lifecycle and System Health cleanup: implemented
-- Phase 4.2 — production IIS/FastCGI and Nginx/PHP-FPM hosting: implemented
-- Phase 4.3 — HTTPS/TLS and production security headers: implemented
-- Transactions, richer metadata, and additional providers: planned
+Read [Hosting](docs/Hosting.md),
+[Production Security and Deployment](docs/Production-Security-and-Deployment.md),
+[Monitoring and Health](docs/Monitoring-and-Health.md), and
+[Backup and Recovery](docs/Backup-and-Recovery.md) before deployment.
 
-The roadmap is backend-only. See [Roadmap.md](docs/Roadmap.md) and [CHANGELOG.md](CHANGELOG.md).
+## Repository structure
 
-## Documentation
+| Path | Responsibility |
+| --- | --- |
+| `api/`, `admin/`, `sqlparser/` | HTTP boundaries and local UIs |
+| `app/Controllers`, `app/Services` | Application orchestration |
+| `app/Requests`, `app/Middleware` | Contract and security enforcement |
+| `app/Repositories`, `app/Resources` | SQL construction, persistence, and resource discovery |
+| `app/Security`, `app/Runtime`, `app/Health`, `app/Backup` | Operational and security services |
+| `core/`, `database/` | Execution, responses, logging, and SQL Server driver |
+| `config/` | Tracked examples/registries and ignored generated configuration |
+| `queries/` | Internal metadata SQL and discoverable reviewed SQL resources |
+| `deployment/` | IIS, Nginx, PHP-FPM, and production PHP examples |
+| `scripts/` | Runtime, backup, validation, and provisioning utilities |
+| `tests/` | Standalone database-independent regression suites |
+| `docs/` | Detailed API, security, deployment, and maintenance documentation |
 
-Start at the [backend documentation map](docs/README.md).
-
-The Admin-managed, application-independent `sqlparser/` service translates
-supported SQL into validated public request JSON. See the
-[SQL → API JSON Generator](docs/SQL-Parser-Generator.md).
-
-Getting started:
-
-- [Introduction](docs/Introduction.md)
-- [HTTP API and Universal JSON Contract](docs/API.md)
-- [All public actions](docs/Action-Reference.md)
-- [JSON request reference](docs/JSON-Request-Reference.md)
-- [Response reference](docs/Response-Reference.md)
-- [Frontend integration](docs/Frontend-Integration.md)
-
-Querying and resources:
-
-- [JSON Query Mode](docs/Query-Mode.md)
-- [Query functions](docs/Query-Functions.md)
-- [Filtering, sorting, and pagination](docs/Filtering-Sorting-Pagination.md)
-- [Set operations](docs/Set-Operations.md)
-- [SQL Resource Mode](docs/SQL-Resource-Mode.md)
-- [SQL Resource configuration](docs/SQL-Resource-Configuration.md)
-- [SQL Resource files](docs/SQL-Resource-Files.md)
-
-Writes, metadata, boundaries, and operations:
-
-- [CRUD / Write API](docs/CRUD.md)
-- [Write resource configuration](docs/Write-Resource-Configuration.md)
-- [Metadata and routines](docs/Metadata-and-Routines.md)
-- [Validation, errors, and security](docs/Validation-and-Errors.md)
-- [Capability matrix](docs/Capability-Matrix.md)
-- [Current limitations](docs/Limitations.md)
-- [Architecture](docs/Architecture.md)
-- [Local Admin Console and configuration](docs/Admin-Console-and-Configuration.md)
-- [Authentication and user management](docs/Authentication-and-User-Management.md)
-- [Authorization and roles](docs/Authorization-and-Roles.md)
-- [Managed API keys](docs/API-Keys.md)
-- [Database configuration](docs/Database-Configuration.md)
-- [Hosting](docs/Hosting.md)
-- [Roadmap](docs/Roadmap.md), [contributing](CONTRIBUTING.md), and [changelog](CHANGELOG.md)
-
-Do not commit database credentials, `GENERIC_SQL_API_ENCRYPTION_KEY`, or logs. The project scope is the backend API; dashboards, charts, report widgets, and other frontend features belong to consumers, not this repository's backend roadmap.
+Start with the [documentation map](docs/README.md). Maintainers and coding agents
+should also read the [AI Development Guide](docs/AI-Development-Guide.md).

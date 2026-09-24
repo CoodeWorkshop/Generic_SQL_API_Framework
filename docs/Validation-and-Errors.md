@@ -87,7 +87,8 @@ valid public request from reaching them. They are not normal public action error
 
 ### Write API
 
-- An empty shipped registry makes writes deny-by-default.
+- Only entries explicitly present in the write-resource registry are writable;
+  all other resource IDs are denied.
 - Public IDs map to private schema/table names and enabled actions.
 - Writable/filterable/key/identity columns are allowlisted and checked against
   live SQL Server metadata.
@@ -113,15 +114,17 @@ public error detail.
 
 ## Explicit security boundaries
 
-The API implements configurable session/API-key authentication, administrator
-authorization for setup/user/configuration actions, session-bound CSRF for
-cookie-authenticated mutations, and login brute-force protection. It does not
-yet implement generalized roles, resource permissions, tenant isolation,
-general API rate limiting, or production TLS termination. Routine actions remain
-identifier-validated and parameterized but are not backed by a routine allowlist.
-JSON Query Mode accepts client-selected metadata-valid tables. Least-privilege
-database credentials and production network/TLS controls remain essential.
+The API implements configurable session/API-key authentication, fixed backend
+and frontend roles, SQL/write-resource scopes, administrator authorization,
+session-bound CSRF for cookie-authenticated mutations, login throttling, and a
+general local API rate limit. It does not implement tenant isolation, per-column
+read authorization, editable roles, or distributed multi-host rate limiting.
+Routine actions remain identifier-validated and parameterized but are not backed
+by a routine allowlist. JSON Query Mode accepts client-selected metadata-valid
+tables. Least-privilege database credentials and production network/TLS controls
+remain essential.
 
 CORS is not access control. Exact origins are loaded from validated backend
 configuration, while non-browser clients must still satisfy the configured
-authentication mode. The API accepts POST and OPTIONS only.
+authentication mode. API keys use `X-API-Key`, not bearer transport. The API
+accepts POST and OPTIONS only.

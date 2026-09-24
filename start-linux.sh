@@ -30,6 +30,10 @@ if [ ! -f "$ADMIN_PATH/router.php" ]; then
     echo "[FAILED] Admin router not found: $ADMIN_PATH/router.php"
     exit 1
 fi
+if ! "$PHP_BIN" -n -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);'; then
+    echo "[FAILED] PHP 8.2 or newer is required."
+    exit 1
+fi
 
 mkdir -p "$OPCACHE_PATH" "$LOG_PATH"
 

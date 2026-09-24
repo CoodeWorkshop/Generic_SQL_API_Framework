@@ -57,6 +57,7 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)
 - [Production web-server hosting](Production-Security-and-Deployment.md)
+- [AI development guide](AI-Development-Guide.md)
 - [Roadmap](Roadmap.md)
 - [Changelog](../CHANGELOG.md)
 

@@ -1,6 +1,6 @@
 # Production web-server hosting
 
-Phase 4.2 replaces the PHP development server with a production web-server and FastCGI worker model. Phase 4.3 terminates HTTPS at IIS or Nginx, redirects production HTTP to HTTPS, and makes the production web server authoritative for HSTS and browser security headers. Certificates, private keys, hostnames, and trust policy remain deployment-owned values and are not stored in the repository.
+Production uses a web-server and FastCGI worker model. IIS or Nginx terminates HTTPS, redirects production HTTP to HTTPS, and is authoritative for HSTS and browser security headers. Certificates, private keys, hostnames, and trust policy remain deployment-owned values and are not stored in the repository.
 
 ## Development and production boundaries
 
@@ -17,7 +17,7 @@ The launchers remain the supported local-development workflow and intentionally 
 
 Local development remains HTTP on `localhost`/`127.0.0.1`. It has no HTTPS redirect and no HSTS. The PHP entry points keep their existing local defense-in-depth headers when `GENERIC_APP_ENV` is not `production`.
 
-Production web-server services are started, stopped, monitored, and restarted by IIS, Windows Service Control, systemd, Nginx, and PHP-FPM—not by `ApiProcessManager`, `SqlParserProcessManager`, or arbitrary Admin Console commands. Phase 4.1 remains intact for the locally managed child processes. When the applications are hosted by FastCGI, infrastructure monitoring is authoritative for the IIS/Nginx/FPM lifecycle; do not interpret the Admin Console's local child-process state as IIS or FPM worker state.
+Production web-server services are started, stopped, monitored, and restarted by IIS, Windows Service Control, systemd, Nginx, and PHP-FPM—not by `ApiProcessManager`, `SqlParserProcessManager`, or arbitrary Admin Console commands. The local child-process managers remain available only for development. When the applications are hosted by FastCGI, infrastructure monitoring is authoritative for the IIS/Nginx/FPM lifecycle; do not interpret the Admin Console's local child-process state as IIS or FPM worker state.
 
 ## Application boundaries and routes
 
@@ -223,7 +223,7 @@ messages.
 
 ## Session storage and lifetime
 
-Configure PHP `session.save_path` as a dedicated directory outside every frontend or backend web root. It must be readable and writable only by the PHP FastCGI/FPM worker identity and the operating-system account responsible for session cleanup; it must never be served by IIS/Nginx or included in application logs or backups without equivalent secret-data controls. All workers serving the same application instance must use the same local session directory. A future multi-host deployment would require an explicitly designed shared session store and is not provided by this phase.
+Configure PHP `session.save_path` as a dedicated directory outside every frontend or backend web root. It must be readable and writable only by the PHP FastCGI/FPM worker identity and the operating-system account responsible for session cleanup; it must never be served by IIS/Nginx or included in application logs or backups without equivalent secret-data controls. All workers serving the same application instance must use the same local session directory. A future multi-host deployment would require an explicitly designed shared session store, which is not currently provided.
 
 The application enforces cookie-only transport, strict mode, disabled transparent URL session IDs, and a garbage-collection lifetime equal to `runtime.session.absoluteTimeoutSeconds` before starting a session. The production INI contains the secure defaults as defense in depth. Verify the effective `session.save_path`, ownership, free space, and cleanup mechanism using an offline command under the actual worker identity. Some distributions use an operating-system cleanup job instead of request-probability garbage collection; its retention threshold must be at least the configured absolute timeout while still removing expired files.
 
@@ -308,14 +308,14 @@ display disabled and configure IIS/Nginx to pass through application JSON errors
 
 Live IIS/FastCGI, Schannel, Nginx/PHP-FPM, certificates, private-key permissions, renewal, client trust, DNS, firewall, and protocol negotiation must be verified on target hosts. Repository tests validate template structure, redirect guards, header policies, application fallbacks, and sensitive-path intent but cannot prove a live TLS deployment.
 
-Phase 4.11's dated environment discovery, static results, non-executed live
+The dated environment discovery, static results, non-executed live
 boundaries, and Windows/Linux operator commands are in
 [Windows and Linux production validation](Production-Validation.md). Run
 `php scripts/validate-production.php` for a non-mutating local report. A
 `VALIDATED` template result is never a substitute for target-host IIS/Nginx,
 FastCGI/FPM, certificate, identity, filesystem, SQL Server, or load validation.
 
-Phase 4.12's attack-oriented authentication, session, authorization, API-key,
+Attack-oriented authentication, session, authorization, API-key,
 CSRF/CORS, SQL/CRUD, filesystem, backup, disclosure, and static-analysis results
 are in [Security testing](Security-Testing.md). Production deployment must review
 its documented residual risks, especially resource-level rather than per-column

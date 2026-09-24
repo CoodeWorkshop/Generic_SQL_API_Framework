@@ -23,9 +23,9 @@ version supports it.
 | GROUP BY | Identifier list | May be authored | No |
 | HAVING | Aggregate comparisons, AND | May be authored; mapped runtime HAVING | No |
 | Aggregate/string/date/math/null/conversion functions | Documented allowlist | SQL Server syntax may be authored | No expression values |
-| CASE / one binary arithmetic expression | Yes | May be authored | No expression values |
+| CASE / recursive arithmetic expressions | Yes, within expression/function contracts | May be authored | No expression values |
 | Window functions | Eight public functions, ORDER BY required | May be authored | No |
-| Window PARTITION BY | No | May be authored | No |
+| Window PARTITION BY | Yes, validated expressions | May be authored | No |
 | Standard CTE | One | May be authored | No |
 | Recursive CTE | One anchor/recursive pair | May be authored | No |
 | General derived table / SELECT expression subquery | No | May be authored | No |
@@ -55,7 +55,7 @@ version supports it.
 | View metadata | `metadata.views` |
 | Procedure metadata | `metadata.procedures` |
 | Whole schema rows | `metadata.schema` |
-| API authentication/authorization | Session and/or environment API key; administrator-only management actions |
+| API authentication/authorization | `none`, session, managed/legacy API key, or session + API key; fixed roles/resource scopes; administrator-session-only management |
 | Database provider | SQL Server through ODBC only |
 
 For exact shapes use [Action reference](Action-Reference.md); for unsupported

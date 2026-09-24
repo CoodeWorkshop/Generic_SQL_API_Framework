@@ -93,9 +93,9 @@ try {
     bootstrapAssert(preg_match('/^[a-f0-9]{32}$/', $legacy['users'][0]['id']) === 1, 'Migration did not create a stable user ID.');
     bootstrapAssert($legacy['users'][0]['authVersion'] === 1, 'Migration did not initialize session versioning.');
 
-    $phaseThreeId = bin2hex(random_bytes(16));
+    $legacyIdentityId = bin2hex(random_bytes(16));
     JsonFileStore::save($legacyDirectory . '/auth.json', ['version' => 3, 'users' => [[
-        'id' => $phaseThreeId,
+        'id' => $legacyIdentityId,
         'username' => 'Existing.Editor',
         'passwordHash' => $legacyHash,
         'enabled' => false,
@@ -104,16 +104,16 @@ try {
         'createdAt' => '2025-01-01T00:00:00+00:00',
         'authVersion' => 7,
     ]]]);
-    $phaseThree = (new AuthRepository($legacyDirectory . '/auth.json'))->load()['users'][0];
+    $legacyIdentity = (new AuthRepository($legacyDirectory . '/auth.json'))->load()['users'][0];
     bootstrapAssert(
-        $phaseThree['id'] === $phaseThreeId
-            && $phaseThree['username'] === 'Existing.Editor'
-            && $phaseThree['passwordHash'] === $legacyHash
-            && $phaseThree['enabled'] === false
-            && $phaseThree['backendRole'] === RoleModel::DATA_OPERATOR
-            && $phaseThree['frontendAccess'] === true
-            && $phaseThree['authVersion'] === 8,
-        'Phase-3 identity was not migrated without losing credentials or access.'
+        $legacyIdentity['id'] === $legacyIdentityId
+            && $legacyIdentity['username'] === 'Existing.Editor'
+            && $legacyIdentity['passwordHash'] === $legacyHash
+            && $legacyIdentity['enabled'] === false
+            && $legacyIdentity['backendRole'] === RoleModel::DATA_OPERATOR
+            && $legacyIdentity['frontendAccess'] === true
+            && $legacyIdentity['authVersion'] === 8,
+        'legacy identity was not migrated without losing credentials or access.'
     );
 
     $gitignore = (string)file_get_contents(__DIR__ . '/../.gitignore');

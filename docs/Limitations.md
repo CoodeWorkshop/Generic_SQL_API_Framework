@@ -27,9 +27,11 @@ Planned work is tracked separately in [Roadmap](Roadmap.md).
 - HAVING entries use aggregate comparisons and are always joined with AND.
 - One standard or recursive CTE is supported. Multiple/nested CTE definitions
   and CTEs inside nested query/set branches are rejected.
-- Window functions require ORDER BY and do not expose PARTITION BY. Numeric
-  positional ORDER BY is rejected.
-- Arithmetic exposes one binary expression level, not an arbitrary expression tree.
+- Window functions require ORDER BY and support validated expression-based
+  `partitionBy`. Numeric positional ORDER BY is rejected.
+- Arithmetic, nested supported functions, CASE, unary operators, and literals use
+  one recursive expression model with a depth limit of 32. Function-specific
+  structural arguments remain restricted by the function registry.
 - `TIMEFROMPARTS` exists in the internal function/builder list but is unusable
   publicly because the required `fractions` property is rejected.
 - The documented function list is exhaustive; arbitrary SQL Server functions,
@@ -88,7 +90,7 @@ Use SQL Resource Mode for approved complex read-only SQL beyond these boundaries
 
 ## Operations
 
-- The PHP built-in server and Windows launcher are development conveniences and
+- The PHP built-in server and both launchers are development conveniences and
   single-process; they are not production multi-worker hosting.
 - No live SQL Server integration workflow ships with CI. The automated suite uses
   fakes and validates generated SQL/contracts without database credentials.

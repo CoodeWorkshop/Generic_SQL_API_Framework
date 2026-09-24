@@ -1,6 +1,6 @@
 # Windows and Linux production validation
 
-This Phase 4.11 report records what was actually available on 2026-09-24. The
+This report records what was actually available on 2026-09-24. The
 status terms are deliberately strict:
 
 - **VALIDATED** — executed or deterministically checked in this workspace.
@@ -19,7 +19,7 @@ connects to SQL Server, or prints secrets.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Repository baseline and automated backend suites | VALIDATED | Clean committed Phase 4.8–4.10 baseline; both normal PHP and `php -n` suites pass |
+| Repository baseline and automated backend suites | VALIDATED | Clean committed baseline; both normal PHP and `php -n` suites pass |
 | Current operating environment | VALIDATED | Kali GNU/Linux 2026.2 under WSL2, Linux kernel 6.18 |
 | PHP CLI | VALIDATED | PHP 8.4.22; JSON, OpenSSL, sessions, ODBC, PDO_ODBC, and OPcache loaded |
 | Microsoft ODBC driver | PARTIALLY VALIDATED | `ODBC Driver 18 for SQL Server` is registered; no authorized server/DSN was supplied |
@@ -30,7 +30,7 @@ connects to SQL Server, or prints secrets.
 | Bundled Windows PHP | PARTIALLY VALIDATED | PE64 `php.exe` and `php-cgi.exe` plus INI exist; binaries were not executable here |
 | Nginx template | VALIDATED | Static routing, fixed FastCGI targets, TLS policy, redirects, limits, health and denial rules checked |
 | Nginx/PHP-FPM live deployment | NOT EXECUTED | Neither Nginx nor PHP-FPM is installed/active |
-| Application HTTP behavior | VALIDATED | Local production-mode PHP HTTP checks and Phase 4.9/4.10 tests cover health and safe JSON errors |
+| Application HTTP behavior | VALIDATED | Local production-mode PHP HTTP checks cover health and safe JSON errors |
 | Real trusted TLS/certificate | NOT EXECUTED | OpenSSL 3.6.2 is available, but no deployed hostname/certificate/private key was supplied |
 | Live SQL Server | NOT EXECUTED | Driver exists; connection, invalid credential, outage and live timeout tests require an authorized target |
 | Production sessions/cookies | PARTIALLY VALIDATED | Application and template policy tested; no real HTTPS browser/IIS/FPM session was available |
@@ -185,4 +185,4 @@ Exercise a small number of simultaneous liveness/readiness and representative
 authenticated requests. Verify worker responsiveness, body limits, PHP/proxy
 timeouts, file locks and log writes. This is a smoke/concurrency check, not a
 load test or capacity result. SQL Server backup/restore validation remains the
-separate Phase 4.8 operator responsibility.
+separate operator responsibility.

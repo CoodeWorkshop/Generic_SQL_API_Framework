@@ -1,6 +1,6 @@
 # Production error handling
 
-Phase 4.10 centralizes JSON error construction in `Response` and uncaught
+JSON error construction is centralized in `Response` and uncaught
 failure handling in `ExceptionHandler`. It preserves intentionally
 user-correctable validation messages while keeping internal diagnostics in
 server logs. It does not add external monitoring or log aggregation.
@@ -85,7 +85,7 @@ Disallowed browser origins are rejected with a safe 403 before request-body or
 authentication processing. Existing successful CORS preflight behavior and
 security headers remain unchanged.
 
-Phase 4.9 health semantics remain independent: liveness stays deliberately
+Health semantics remain independent: liveness stays deliberately
 small, readiness still returns 503 for failed required dependencies, and
 detailed health remains System Administrator-only.
 

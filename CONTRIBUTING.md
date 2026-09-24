@@ -13,13 +13,14 @@ Database connection/execution belongs in `core/Database.php`, `core/QueryEngine.
 PHP 8.2 or later is the CI baseline. Check syntax:
 
 ```bash
-find api app config core database scripts tests -type f -name '*.php' -exec php -l {} \;
+find api admin app config core database scripts sqlparser tests -type f -name '*.php' -exec php -l {} \;
 ```
 
 Run all normal backend tests:
 
 ```bash
 php tests/run.php
+php -n tests/run.php
 ```
 
 The runner executes:
@@ -42,7 +43,7 @@ Real SQL Server testing is separate and currently manual. Create the ignored dat
 - Add regression coverage for every bug. Window `ORDER BY` must never emit a bare integer position such as `ROW_NUMBER() OVER (ORDER BY 1)`.
 - Test both SQL Server compatibility paths when changing pagination.
 - Distinguish public JSON (`fields[].field`, `filters`, `limit`, nested `pagination`) from normalized builder keys.
-- Update README, API/reference/examples, roadmap, and changelog together when their claims change.
+- Update README, API/reference/examples, roadmap, and changelog together when their claims change. Use the [AI development guide](docs/AI-Development-Guide.md) for repository-specific boundaries and checks.
 - Do not claim that placeholder drivers are supported providers.
 - Keep credentials, `database/config/database.json`, `GENERIC_SQL_API_ENCRYPTION_KEY`, logs, generated exports/uploads, and OPcache files out of commits. Encryption setup must not retain a plaintext configuration backup.
 

@@ -13,7 +13,7 @@ The Admin Console uses dedicated System Administrator actions on its loopback-on
 | `admin.database.get/test/save` | Read, test submitted values, or save SQL Server configuration | mutations/tests |
 | `admin.database.connect/disconnect/restart` | Control the request-availability gate | yes |
 | `admin.cors.save` | Save exact CORS origins | yes |
-| `admin.authentication.save` | Save an existing authentication mode | yes |
+| `admin.authentication.save` | Save `none`, `session`, `api_key`, or `session+api_key` | yes |
 
 The general API rejects `admin.*`. Process controls accept fixed operations only and cannot execute user-supplied commands. API and SQL Parser begin stopped and database access begins disconnected; the launchers never auto-start or auto-connect them. If a service cannot start, Admin remains available so a System Administrator can inspect status or change configuration.
 

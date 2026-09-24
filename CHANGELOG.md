@@ -1,174 +1,108 @@
 # Changelog
 
-## Phase 4.3 — HTTPS/TLS and production security headers
+All notable changes are recorded here. The project follows semantic versioning.
 
-- Added fixed-host HTTP-to-HTTPS redirects and TLS 1.2/1.3 production examples for IIS and Nginx without changing local HTTP development.
-- Added boundary-specific HSTS, CSP, frame, referrer, content-type, and permissions policies for the React frontend, API, Admin Console, and SQL Parser.
-- Made IIS/Nginx authoritative for production browser security headers while retaining application header fallbacks for the local PHP development server.
-- Preserved Secure/HttpOnly/SameSite cookies, exact-origin CORS, CSRF enforcement, and distrust of arbitrary forwarded protocol headers.
-- Documented certificate/SAN validation, private-key protection, renewal, trusted-edge behavior, redirect-loop avoidance, and live TLS verification.
-- Added HTTPS, header, CSP, cookie, proxy, route, certificate-artifact, and local-development regression coverage.
-
-## Phase 4.2 — Production web-server hosting
-
-- Added fixed-entry-point IIS/FastCGI templates for the frontend/API, loopback Admin Console, and independent SQL Parser boundaries.
-- Added a Linux Nginx/PHP-FPM example with a public `/api` route and separate loopback Admin and SQL Parser listeners.
-- Expanded the production PHP template with safe error handling, request/resource limits, UTC, and deployment-aware OPcache settings.
-- Documented filesystem permissions, secrets, worker/concurrency ownership, logging, route verification, and the separation between development process managers and operating-system production services.
-- Added database-independent template, sensitive-path, entry-point, launcher-preservation, and production configuration regression tests.
-
-## Phase 4.1 — Runtime lifecycle and System Health cleanup
-
-- Made System Health the single lifecycle surface for API, SQL Parser, and database runtime access while keeping database editing/testing/saving under Configuration.
-- Made local launchers start Admin alone, with API and SQL Parser stopped and database runtime access explicitly disconnected.
-- Added truthful managed PID, dynamically selected port, and start-time reporting, with stale operational fields removed after stop, crash, or stale-state recovery.
-- Removed the saved-database test Admin action and retained only Connect, Disconnect, and Restart against the request-scoped database availability gate.
-- Added dynamic-port, startup-state, safe-health-field, lifecycle-location, and launcher regression coverage.
-
-## Phase 3.2 — Configurable runtime and performance controls
-
-- Added validated runtime configuration for SQL query timeout, API/login rate limits, session expiration, JSON request body size, and pagination defaults/maximums.
-- Added a System Administrator-only Runtime & Performance Admin Console section with atomic saves and immediate application to new requests.
-- Added local file-backed rate limiting for sessions, managed/legacy API keys, and anonymous clients with a stable HTTP 429 `RATE_LIMIT_EXCEEDED` response.
-- Migrated `admin.json` schema versions 1–4 to version 5 without changing the fixed role or authentication architecture.
-- Added database-independent runtime, boundary, migration, error-contract, and preservation tests.
-
-## Phase 3 — Authorization, roles, API keys, and service controls
-
-- Added a common principal and deny-by-default authorization service for session, managed-key, legacy-key, and explicitly public access.
-- Added role permissions, SQL/write-resource scopes, user role assignment, session invalidation, and last-admin protection.
-- Added one-time-reveal, hash-only managed API keys with enable, disable, permanent revoke, and last-used metadata.
-- Added consistent responsive runtime controls and a real request-scoped database availability gate with connect, disconnect, restart, and temporary test semantics.
-
-## Phase 2.2 — Runtime integration and cross-platform stabilization
-
-- Added independent SQL Parser start/stop/restart/status controls to Admin,
-  including validated ports, process identity, health, and crash/stale recovery.
-- Made both launchers start API and SQL Parser while Admin remains independent;
-  extension checks now use `extension_loaded()` with the selected runtime.
-- Removed obsolete manual encryption and parser startup scripts. Admin Console is
-  the normal encrypted database configuration workflow.
-- Limited Windows integrated database authentication to Windows in the UI,
-  backend validator, and driver; SQL authentication remains cross-platform.
-- Added safe SQLSTATE/category/phase diagnostics without parameter or credential
-  values and confirmed authentication mode `none` reaches normal query execution.
-- Pinned launcher bootstrap to the repository config directory and added safe
-  reason codes for configuration initialization failures.
-
-## Phase 2.1 — Admin runtime and configuration UX
-
-- Split the loopback Admin Console and API into independently managed processes.
-- Added System Health, System Info, unified Configuration, process controls,
-  configurable API port selection, runtime detection, and backend-enforced
-  high-level feature switches.
-- Removed SQL Parser conversion from Admin; the standalone parser remains
-  independently hostable and database-free.
-
-All notable backend changes are recorded here. The project follows semantic versioning.
-
-## [Unreleased]
+## [2.0.0] - Unreleased
 
 ### Added
 
-- New Phase 2 automatic, atomic bootstrap for ignored authentication,
-  installation, and admin runtime configuration, with secret-free tracked
-  examples and non-destructive version-1 user migration.
-- Complete `/admin/users` management for listing, creating, renaming,
-  password-changing, enabling, disabling, and deleting accounts.
-- Stable internal user identities, creation timestamps, authentication-version
-  session invalidation, password confirmation, initial account status, and
-  expanded authentication/security regression coverage.
-
-- New Phase 1 unified, backend-hosted `/admin` console for local setup, redacted
-  runtime status, encrypted database configuration/testing, exact-origin CORS,
-  API authentication-mode selection, and the existing non-executing SQL parser.
-- Matching Windows and Linux loopback launchers with runtime checks, local key
-  preparation, safe port selection, browser launch where available, and
-  independently managed API/Admin processes.
-- Local/admin API authorization, CSRF, strict configuration validation, API-key
-  authentication-mode enforcement, and database-independent regression tests.
-
-- An independently hosted, non-executing SQL → Universal API JSON developer tool
-  with lexical parsing, AST/capability analysis, production request validation,
-  browser UI, structured errors, and database-independent tests.
-- Recursive SQL Resource auto-discovery with safe path-derived IDs, excluded
-  internal directories, collision checks, and unique-basename compatibility.
-- Strict frontend execution metadata for output columns, output/source/HAVING
-  filter mappings, integer-date conversion, and deterministic default sorting.
-- Database-independent discovery, traversal, expression-injection, runtime
-  transformation, pagination, compatibility, and collision regression tests.
-- Public single-object INSERT, UPDATE, DELETE, and UPSERT actions routed through
-  dedicated controller/service/repository and write-builder layers.
-- Deny-by-default write-resource registry with per-resource action, schema/table,
-  writable/filterable column, UPSERT key, and identity allowlists.
-- Live SQL Server write metadata validation, mandatory UPDATE/DELETE targeting,
-  prepared DML values, affected-row/identity responses, unique-key verification,
-  safe constraint error classification, and database-independent CRUD/security tests.
-
-- Cross-platform AES-256-GCM encryption of the complete database configuration as one versioned authenticated payload, with a Base64-encoded 32-byte key supplied through `GENERIC_SQL_API_ENCRYPTION_KEY`.
-- Centralized database configuration resolution that preserves plaintext and legacy password-only compatibility while passing the same decrypted structure into the existing SQL Server ODBC connection path.
-- A verified, cross-platform migration utility for converting plaintext `database.json` without retaining a plaintext backup or exposing configuration/key material.
-- Windows one-time encryption setup using the bundled PHP/OpenSSL runtime, Windows User environment storage, complete-configuration migration, and connection validation.
-- Database-independent encryption coverage for complete-configuration round trips, field confidentiality, random nonces, malformed data, wrong keys, tampering, no-backup migration, backward-compatible resolution, and secret-safe logging.
-- Complex server-owned SQL Resource queries, including standard/recursive CTEs, subqueries, complex joins/APPLY, windows, SQL Server functions, JSON/XML expressions, and set operations, without expanding JSON Query Mode allowlists.
-- CTE-aware SQL Resource filtering/count/pagination generation and explicit protection against combining request controls with authored OFFSET/FETCH.
-- Database-independent SQL Resource capability and security regression coverage.
-- Database-independent `tests/run.php` entry point and broader logic coverage for every public filter operator, public joins, representative function families, all window functions, pagination counts, set-operation assembly, and response formatting.
-- Ubuntu/PHP 8.2 GitHub Actions workflow for backend syntax checks and all standalone tests without SQL Server, ODBC, credentials, or database configuration.
-- Definitive backend capability matrix and detailed public JSON field reference.
-- Modularized query construction through `SelectBuilder`, `WhereBuilder`, `JoinBuilder`, `GroupByBuilder`, `HavingBuilder`, `OrderByBuilder`, `PaginationBuilder`, `WindowFunctionBuilder`, `SqlExpressionBuilder`, `RoutineBuilder`, and `SetOperationBuilder`, with `QueryRepository` retained as the facade.
-- Public validation/normalization and universal API contract regression coverage.
+- A unified loopback Admin Console for first-run setup, encrypted database
+  configuration, users, fixed roles, managed API keys, CORS, runtime settings,
+  health, and local service/database lifecycle controls.
+- Session and managed API-key authentication with four normal API modes:
+  `none`, `session`, `api_key`, and `session+api_key`.
+- Separate backend and frontend authorization domains, deny-by-default resource
+  scopes, last-administrator protection, and authorization-change session
+  invalidation.
+- One-time-reveal `gsk_` API keys with hash-only storage, owner/role assignment,
+  enable/disable/revoke lifecycle, fingerprints, and last-used metadata.
+- Single-object INSERT, UPDATE, DELETE, and SQL Server UPSERT actions backed by a
+  deny-by-default write-resource registry and live metadata validation.
+- Recursive SQL Resource discovery with safe path-derived IDs, collision and
+  traversal protection, execution metadata, runtime filters, deterministic
+  sorting, and pagination.
+- Recursive query expressions, expanded function coverage, CTEs, windows,
+  set operations, and SQL Server-safe structural numeric literals while runtime
+  values remain prepared parameters.
+- A standalone, non-executing SQL-to-Universal-JSON parser with lexical parsing,
+  capability analysis, validation, browser UI, and structured errors.
+- Configurable query timeout, pagination limits, request body limit, API/login
+  rate limits, and idle/absolute session expiration.
+- Request-correlated JSON Lines audit/security logging with redaction and
+  concurrency-safe append behavior.
+- Application configuration backup creation, checksum/encryption verification,
+  and safe external restore staging.
+- Public liveness/readiness plus authenticated detailed health checks for
+  configuration, database, processes, filesystem, logging, sessions,
+  encryption, and backups.
+- IIS/FastCGI and Nginx/PHP-FPM deployment templates, TLS/security-header
+  examples, production PHP settings, validation tooling, and Windows/Linux
+  operator checklists.
+- Database-independent regression coverage for API contracts, query/write SQL,
+  authentication, authorization, sessions, API keys, security boundaries,
+  concurrency, backup/recovery, monitoring, errors, and production templates.
 
 ### Changed
 
-- Reduced SQL Resource configuration to global discovery settings, removed the
-  obsolete per-resource registry and runtime-filter marker path, and moved all
-  runtime execution metadata to the validated SQL request contract.
-- Database configuration migration now verifies encrypted temporary/final files
-  without automatically retaining a plaintext backup.
-- Restructured backend documentation into a self-contained frontend/API reference
-  covering every public action, exact request/response contracts, JSON Query and
-  SQL Resource modes, CRUD, metadata/routines, security, capabilities, and
-  explicit limitations.
-- Reconciled README, architecture, API, examples, database configuration, hosting, roadmap, and contribution guidance with the current implementation.
-- Replaced the prior Windows/ODBC environment-validation workflow with logic-focused normal CI. Windows runtime and live database validation remain runtime/manual concerns.
+- Runtime configuration is bootstrapped atomically from tracked secret-free
+  examples; supported older schemas migrate without discarding identities or
+  authorization assignments.
+- Database configuration can be stored as a complete AES-256-GCM authenticated
+  envelope whose key is supplied outside the repository.
+- Local launchers start only the loopback Admin Console. API, SQL Parser, and
+  database availability are controlled independently from System Health.
+- Query construction is split into focused builders while `QueryRepository`
+  remains the execution facade.
+- Production process ownership belongs to IIS/FastCGI or Nginx/PHP-FPM; local
+  process managers remain development-only.
+- Production errors use a stable client-safe envelope and correlation ID while
+  internal diagnostics remain in redacted logs.
+- Documentation is organized by current product behavior, release history,
+  future roadmap, and repository-specific maintenance guidance.
 
 ### Fixed
 
-- Added resource-owned logical filter mappings with explicit output, WHERE, and
-  HAVING placement, while preserving automatic outer filtering and the legacy
-  source marker. Mixed-stage OR and ambiguous set-operation insertion are
-  rejected, and runtime values remain prepared parameters.
-- Credential configuration, decryption, and key failures now use safe messages and avoid logging credential exception traces or secret values.
-- Resolved internal positional ordering to validated logical fields for window functions and legacy pagination, preventing SQL Server from receiving `ROW_NUMBER() OVER (ORDER BY 1)`.
-- Added regression coverage that preserves top-level ordering while protecting window contexts.
+- SQL Resource CTE filtering/count/pagination, logical output/source/HAVING
+  mappings, integer-backed date conversion, and authored OFFSET/FETCH conflicts.
+- SQL Server ordering in window and legacy pagination contexts.
+- SQL Server/ODBC type inference for validated structural numeric expression
+  arguments without making runtime values raw SQL.
+- UPSERT key propagation from server-owned write-resource configuration.
+- Cross-platform lifecycle state, stale/duplicate process recovery, restart
+  cleanup, dynamic ports, and configuration bootstrap behavior.
+- Admin Console view initialization and explicit selection of all supported
+  authentication modes.
+- Strict exact-origin CORS validation and throttling before authentication to
+  prevent unauthenticated protected-request rate-limit bypass.
 
-## [1.1.0] - 2026-08-21
+### Security
 
-### Added
-
-- Bundled Windows PHP runtime in `runtime/windows/php/`.
-- `start-windows.bat` with PHP/php.ini checks, runtime-directory creation, PHP ODBC validation, database validation, API-path checks, and automatic port selection from 8000 through 8100.
-- `scripts/check-database.php` startup connection check.
-- SQL and Windows authentication configuration, explicit or automatic SQL Server ODBC driver selection, and encryption/trust options.
-
-### Changed
-
-- Windows users can run the backend without installing PHP/XAMPP when using the bundled runtime; a compatible SQL Server ODBC driver and reachable database remain required.
+- Hardened session cookies, strict cookie-only transport, login regeneration,
+  logout destruction, CSRF rotation, expiration, and concurrent-session writes.
+- Hardened database/configuration file locking, temporary-file permissions,
+  migration, key handling, log redaction, and secret rotation guidance.
+- Added fixed-host HTTPS redirects, HSTS and boundary-specific CSP/security
+  headers, sensitive-file web denials, and explicit trusted-proxy boundaries.
+- Added attack-oriented tests for authentication, authorization, API keys,
+  CSRF/CORS, SQL/CRUD injection, traversal, secrets, backups, health, logging,
+  and error disclosure.
 
 ## [1.0.0] - Initial release
 
 ### Added
 
-- JSON API routing, controller/service layers, public request validation/normalization, CORS, and standard responses.
-- SQL Server SELECT generation with fields/aliases, DISTINCT/TOP, CASE/arithmetic, allow-listed functions, prepared filters, joins, grouping/HAVING, sorting, and compatibility-aware pagination.
-- Window functions, filter subqueries, CTE/recursive CTE, UNION/UNION ALL, stored procedures, scalar functions, table-valued functions, and metadata actions.
-- SQL execution timing, returned-row counts, and success/error logging.
+- JSON API routing, controller/service layers, public request validation and
+  normalization, CORS, and standard response envelopes.
+- SQL Server SELECT generation with fields/aliases, DISTINCT/TOP, CASE,
+  arithmetic, allow-listed functions, prepared filters, joins, grouping/HAVING,
+  sorting, and compatibility-aware pagination.
+- Window functions, filter subqueries, CTEs, UNION/UNION ALL, stored procedures,
+  scalar functions, table-valued functions, and metadata actions.
+- SQL execution timing, returned-row counts, and request/error logging.
 
 ### Fixed
 
-- BETWEEN date strings can be converted to `YYYYMMDD` integers for integer-family date columns discovered through metadata.
+- BETWEEN date strings can be converted to `YYYYMMDD` integers for
+  integer-family date columns discovered through metadata.
 
-## Planned
-
-Planned work is maintained in [docs/Roadmap.md](docs/Roadmap.md) and is not part of the current API until implemented and tested.
+Future work is maintained in [docs/Roadmap.md](docs/Roadmap.md).

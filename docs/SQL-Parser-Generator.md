@@ -116,7 +116,7 @@ function/signature/context allowlist. Thus nested aggregates, illegal window
 contexts, invalid datatypes, and excessive expression depth remain rejected.
 The generator additionally validates and normalizes the complete mapped request,
 including aliases and CTE/set-operation envelopes. Rejected requests never
-expose a partial candidate. The parser AST itself is unchanged in Phase 4.
+expose a partial candidate. The parser AST remains internal to the parser.
 
 Parser syntax errors include the byte position plus one-based line and column
 and a nearby SQL fragment. Capability failures explain the backend/public
@@ -160,11 +160,10 @@ homogeneous UNION/UNION ALL branches also reuse projection mapping.
 
 ### Current implementation boundaries
 
-Phase 2 is a historical design, not the runtime authority. Phase 3 retains old
-private normalized shapes for simple fields/functions while new recursive nodes
-normalize to a type-tagged AST with function `input` and named `options` (not the
-design's ideal positional internal arguments). Phase 4 emits only public JSON
-and leaves this compatibility adapter untouched.
+Historical parser designs are not runtime authorities. Simple fields/functions
+retain their established private normalized shapes while recursive nodes
+normalize to a type-tagged AST with function `input` and named `options`. The
+generator emits only public JSON and leaves this compatibility adapter intact.
 
 Not every allowlisted function has a safe SQL reverse mapping or recursive
 renderer. For example, direct CONCAT/COALESCE conversion is retained but nesting
@@ -173,9 +172,9 @@ non-primary structural arguments are not expanded to arbitrary expressions.
 Direct `COUNT(*)` remains supported, but a wildcard input inside a recursive
 function tree is rejected: the current canonical backend field renderer cannot
 render `*`. This pre-existing validator/renderer discrepancy is deliberately not
-fixed by changing backend expression behavior in this parser phase.
+fixed by changing backend expression behavior in the parser.
 
-### Phase 4 regression matrix
+### Regression matrix
 
 | Query | Result |
 |---|---|
@@ -197,12 +196,8 @@ or window contexts. These tests never load database execution infrastructure.
 
 Run `php tests/run.php` and `php -n tests/run.php`; the parser suite is also
 independently runnable with `php tests/SqlParserGeneratorTest.php`.
-The existing suite runner launches child PHP processes without forwarding `-n`;
-therefore the second command checks the no-INI runner, not extension-free child
-execution. The parser's pre-existing lexer requires `ctype`: directly running
-`php -n tests/SqlParserGeneratorTest.php` without that extension fails at
-`ctype_space()`. Neither the runner nor this runtime dependency is changed in
-Phase 4.
+The suite runner propagates no-INI execution to its child processes when invoked
+with `php -n`, so the second command verifies the extension-minimal path as well.
 
 ## Relationship to the API
 
