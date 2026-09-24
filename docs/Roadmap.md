@@ -182,6 +182,13 @@ The five basic metadata actions already exist. This version is for capabilities 
 - production web-server ownership enforced for API/SQL Parser lifecycle controls
 - dated validation matrix and exact Windows/IIS and Linux/Nginx/PHP-FPM operator checklists without false live-validation claims
 
+## New Phase 4.12 — Security testing — Implemented
+
+- attack-oriented authentication, session, role, resource, API-key, CSRF/CORS, SQL/CRUD, path, secret, backup, health, and audit regression coverage
+- unauthenticated protected-request throttling and strict CORS-origin component validation fixes
+- manual static review and dependency/runtime classification without fabricated scanner results
+- severity-classified findings, explicit column/rate-limit limitations, and target-host penetration/dependency validation checklist
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

@@ -20,6 +20,7 @@ runtime/linux/php/opcache
 runtime/secrets/
 runtime/api/
 runtime/sqlparser/
+runtime/health/
 
 # Environment
 .env

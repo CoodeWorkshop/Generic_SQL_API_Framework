@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../Repositories/AuthRepository.php';
 require_once __DIR__ . '/../Security/ApiKeyAuthenticator.php';
 require_once __DIR__ . '/../Security/SecurityConfiguration.php';
+require_once __DIR__ . '/../Security/ApiRateLimiter.php';
 require_once __DIR__ . '/../Authorization/PrincipalContext.php';
 require_once __DIR__ . '/../Services/AuthorizationService.php';
 require_once __DIR__ . '/../Services/ApiKeyService.php';
@@ -21,6 +22,7 @@ final class AuthenticationMiddleware extends Middleware
     private AuthorizationService $authorization;
     private ApiKeyService $managedApiKeys;
     private Logger $logger;
+    private ApiRateLimiter $unauthenticatedRateLimiter;
 
     public function __construct(
         bool $enforce = false,
@@ -30,7 +32,8 @@ final class AuthenticationMiddleware extends Middleware
         ?ApiKeyAuthenticator $apiKeys = null,
         ?AuthorizationService $authorization = null,
         ?ApiKeyService $managedApiKeys = null,
-        ?Logger $logger = null
+        ?Logger $logger = null,
+        ?ApiRateLimiter $unauthenticatedRateLimiter = null
     ) {
         $this->enforce = $enforce;
         $this->publicActions = $publicActions;
@@ -40,6 +43,7 @@ final class AuthenticationMiddleware extends Middleware
         $this->authorization = $authorization ?? new AuthorizationService();
         $this->managedApiKeys = $managedApiKeys ?? new ApiKeyService(null, $this->authRepository, $this->authorization);
         $this->logger = $logger ?? new Logger();
+        $this->unauthenticatedRateLimiter = $unauthenticatedRateLimiter ?? new ApiRateLimiter();
     }
 
     public function handle(array $request): void
@@ -153,6 +157,19 @@ final class AuthenticationMiddleware extends Middleware
 
     private function authenticationRequired(): never
     {
+        $identity = 'anonymous:' . SecurityConfiguration::clientIp();
+        try {
+            $this->unauthenticatedRateLimiter->consume($identity);
+        } catch (ApiRequestException $exception) {
+            if ($exception->getErrorCode() === 'RATE_LIMIT_EXCEEDED') {
+                $this->logger->audit('rate_limit.api', 'rejected', 'WARNING', [
+                    'identityType' => 'anonymous',
+                    'identityHash' => substr(hash('sha256', $identity), 0, 16),
+                    'component' => 'api_protection',
+                ]);
+            }
+            throw $exception;
+        }
         throw new ApiRequestException(
             'Authentication required.',
             'AUTHENTICATION_REQUIRED',

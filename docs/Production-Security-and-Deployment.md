@@ -314,3 +314,10 @@ boundaries, and Windows/Linux operator commands are in
 `php scripts/validate-production.php` for a non-mutating local report. A
 `VALIDATED` template result is never a substitute for target-host IIS/Nginx,
 FastCGI/FPM, certificate, identity, filesystem, SQL Server, or load validation.
+
+Phase 4.12's attack-oriented authentication, session, authorization, API-key,
+CSRF/CORS, SQL/CRUD, filesystem, backup, disclosure, and static-analysis results
+are in [Security testing](Security-Testing.md). Production deployment must review
+its documented residual risks, especially resource-level rather than per-column
+read authorization and single-host file-backed rate limits. Repository security
+tests do not replace an authorized staging penetration test or host dependency scan.

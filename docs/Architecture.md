@@ -163,6 +163,15 @@ This timeout controls duration and failure behavior; it does not make an ineffic
 
 ## Test boundary
 
+Security authorization is resource-level. Stored users/API keys produce the
+server-side principal; request fields named `backendRole`, `frontendRole`, or
+`frontendAccess` never contribute permissions. Read-column authorization is not
+a separate policy layer: sensitive reads must be exposed through least-privilege
+views or SQL resources and restricted with resource scopes. CRUD has a distinct
+server-owned write-column allowlist. The ten audited trust boundaries, attack
+tests, findings, and residual risks are recorded in
+[Security testing](Security-Testing.md).
+
 Database-independent tests instantiate builders with fake `QueryEngine` and `MetadataRepository` subclasses whose constructors do not connect. They test public validation -> normalization -> SQL/parameter generation and response formatting, CRUD type/resource/filter/key safety, affected-row and identity mapping, count/data sequencing, independent executor state, parameter isolation, timeout conversion, cleanup, and recovery after failure. A live SQL Server remains necessary for real DML, constraints, triggers, MERGE concurrency, execution plans, and ODBC timeout integration, but not for normal CI.
 
 See [API](API.md), [JSON request reference](JSON-Request-Reference.md),

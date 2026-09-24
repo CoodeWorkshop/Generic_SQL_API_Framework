@@ -77,7 +77,8 @@ final class AdminConfigurationRepository
         if (!is_array($parts)
             || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https'], true)
             || !isset($parts['host'])
-            || isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])
             || (($parts['path'] ?? '') !== '' && ($parts['path'] ?? '') !== '/')) {
             throw new InvalidArgumentException('Allowed origins must not contain paths, credentials, queries, or fragments.');
         }
