@@ -161,6 +161,20 @@ The five basic metadata actions already exist. This version is for capabilities 
 - authoritative state, SQL Server ownership, API-key/session recovery, and disaster scenarios documented
 - Windows/Linux permissions, retention, off-host/immutable-copy, and production restore-test responsibilities
 
+## New Phase 4.9 — Monitoring and health — Implemented
+
+- lightweight public API liveness and dependency-aware readiness signals
+- authenticated detailed configuration, database, process, filesystem, logging, session, encryption, and backup diagnostics
+- short-lived concurrency-safe database health caching without raw driver diagnostics or secret disclosure
+- production IIS and Nginx routes plus documented external-monitoring responsibility boundaries
+
+## New Phase 4.10 — Production error handling — Implemented
+
+- centralized client-safe JSON error envelope with correlated request IDs
+- deterministic expected, database, timeout, exception, PHP warning, and fatal-error handling
+- output-buffer protection, no-store errors, logging fail-open behavior, and recursive-handler guard
+- consistent API/Admin/SQL Parser boundaries without SQL fragments or internal diagnostic disclosure
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

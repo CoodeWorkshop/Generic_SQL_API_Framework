@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/RequestId.php';
+
 class Logger
 {
     private string $logDirectory;
@@ -136,7 +138,7 @@ class Logger
     {
         $record = [
             'timestamp' => date(DATE_ATOM),
-            'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
+            'requestId' => RequestId::get(),
             'event' => 'timing',
             'phase' => $phase,
             'elapsedMs' => round($elapsedMilliseconds, 2),
@@ -179,7 +181,7 @@ class Logger
         }
         $record = [
             'timestamp' => date(DATE_ATOM),
-            'requestId' => defined('API_REQUEST_ID') ? API_REQUEST_ID : null,
+            'requestId' => RequestId::get(),
             'recordType' => 'security_audit',
             'event' => $event,
             'outcome' => $outcome,

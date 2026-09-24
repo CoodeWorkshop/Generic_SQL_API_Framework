@@ -5,8 +5,8 @@ define('API_REQUEST_ID', bin2hex(random_bytes(8)));
 ob_start();
 
 require_once __DIR__ . '/../config/constants.php';
-require_once __DIR__ . '/../core/Response.php';
 require_once __DIR__ . '/../core/ExceptionHandler.php';
+ExceptionHandler::register();
 require_once __DIR__ . '/../app/Middleware/AuthenticationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AdminAuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/LocalAdminMiddleware.php';
@@ -36,7 +36,6 @@ if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'produc
     header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
 }
 
-ExceptionHandler::register();
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     Response::error('Method not allowed.', 405, 'METHOD_NOT_ALLOWED');
 }

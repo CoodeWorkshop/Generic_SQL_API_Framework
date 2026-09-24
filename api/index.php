@@ -5,7 +5,8 @@ define('API_REQUEST_ID', bin2hex(random_bytes(8)));
 ob_start();
 
 require_once __DIR__ . '/../config/constants.php';
-require_once __DIR__ . '/../core/Response.php';
+require_once __DIR__ . '/../core/ExceptionHandler.php';
+ExceptionHandler::register();
 require_once __DIR__ . '/../app/Security/SecurityConfiguration.php';
 require_once __DIR__ . '/../app/Http/RequestBodyReader.php';
 
@@ -16,7 +17,10 @@ if (SecurityConfiguration::isProduction()) {
 
 $allowed_origins = SecurityConfiguration::allowedOrigins();
 
-if (isset($_SERVER['HTTP_ORIGIN']) && in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins, true)) {
+if (isset($_SERVER['HTTP_ORIGIN']) && !in_array($_SERVER['HTTP_ORIGIN'], $allowed_origins, true)) {
+    Response::error('Origin is not allowed.', 403, 'CORS_ORIGIN_DENIED');
+}
+if (isset($_SERVER['HTTP_ORIGIN'])) {
     header("Access-Control-Allow-Origin: " . $_SERVER['HTTP_ORIGIN']);
     if (SecurityConfiguration::corsCredentialsEnabled()) {
         header('Access-Control-Allow-Credentials: true');
@@ -61,7 +65,6 @@ require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/DatabaseAvailabilityMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/ApiRateLimitMiddleware.php';
-require_once __DIR__ . '/../core/ExceptionHandler.php';
 require_once __DIR__ . '/../core/Validator.php';
 require_once __DIR__ . '/../app/Controllers/MetadataController.php';
 require_once __DIR__ . '/../app/Controllers/QueryController.php';
@@ -78,9 +81,6 @@ require_once __DIR__ . '/../app/Controllers/FrontendUserController.php';
 require_once __DIR__ . '/../app/Requests/ApiKeyRequestValidator.php';
 require_once __DIR__ . '/../app/Controllers/ApiKeyController.php';
 require_once __DIR__ . '/../app/Controllers/RoleController.php';
-
-// Register Global Exception Handler
-ExceptionHandler::register();
 
 // Read Request Body
 $publicRequest = json_decode(RequestBodyReader::read(), true);

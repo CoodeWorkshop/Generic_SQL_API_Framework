@@ -264,6 +264,16 @@ and tested restore sequencing are documented in
 all document roots and the repository; matching encryption keys are protected
 and recovered through a separate operational channel.
 
+Public liveness/readiness semantics, authenticated detailed diagnostics,
+database-health caching, safe dependency categories, and IIS/Nginx monitoring
+boundaries are documented in [Monitoring and health](Monitoring-and-Health.md).
+External availability monitoring and alerting remain deployment responsibilities.
+
+Canonical client-safe errors, request IDs, status mappings, output-buffer
+safety, server-side diagnostics, and fatal-handler limitations are documented
+in [Production error handling](Production-Error-Handling.md). Keep PHP diagnostic
+display disabled and configure IIS/Nginx to pass through application JSON errors.
+
 ## Deployment verification
 
 1. Bootstrap runtime configuration offline and provision the encryption key through the service identity.

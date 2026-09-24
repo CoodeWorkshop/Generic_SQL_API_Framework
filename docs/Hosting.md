@@ -1,5 +1,11 @@
 # Hosting
 
+Production error responses require web-server passthrough rather than branded
+HTML replacement pages. IIS/FastCGI and Nginx/PHP-FPM must keep PHP diagnostic
+display disabled, retain `application/json` responses and their status codes,
+and protect server logs containing internal diagnostics. See
+[Production error handling](Production-Error-Handling.md).
+
 ## Local development
 
 The bundled launchers use PHP's built-in server only for local development. Production uses IIS with PHP FastCGI on Windows or Nginx with PHP-FPM on Linux; see [Production web-server hosting](Production-Security-and-Deployment.md).

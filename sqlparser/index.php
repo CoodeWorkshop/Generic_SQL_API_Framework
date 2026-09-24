@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+define('API_REQUEST_STARTED', microtime(true));
+define('API_REQUEST_ID', bin2hex(random_bytes(8)));
+ob_start();
+require_once __DIR__ . '/../core/ExceptionHandler.php';
+ExceptionHandler::register();
+
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
 if ($method !== 'GET') {
@@ -12,7 +18,8 @@ if ($method !== 'GET') {
     $raw=(string)file_get_contents('php://input',false,null,0,200001);
     [$status,$payload]=(new SqlParserRequestHandler())->handle($method,$raw,(int)($_SERVER['CONTENT_LENGTH']??strlen($raw)));
     http_response_code($status);
-    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    while (ob_get_level() > 0) ob_end_clean();
+    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'production') {

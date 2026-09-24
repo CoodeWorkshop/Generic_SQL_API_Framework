@@ -26,6 +26,8 @@ if ($path === '/' || $path === '/index.php') {
 }
 
 http_response_code(404);
-header('Content-Type: text/plain; charset=utf-8');
-echo 'Not found.';
+require_once __DIR__ . '/../core/Response.php';
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+echo json_encode(Response::errorPayload('Not found.', 'NOT_FOUND'), JSON_UNESCAPED_SLASHES);
 return true;

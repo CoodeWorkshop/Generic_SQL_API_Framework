@@ -13,6 +13,7 @@ require_once __DIR__ . '/../Runtime/SqlParserProcessManager.php';
 require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
 require_once __DIR__ . '/../Runtime/RuntimeDetector.php';
 require_once __DIR__ . '/../Runtime/DatabaseAvailabilityManager.php';
+require_once __DIR__ . '/../Health/ApplicationHealthMonitor.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
 require_once __DIR__ . '/../../core/Logger.php';
@@ -28,6 +29,7 @@ final class AdminService
     private DatabaseAuthenticationSupport $databaseAuthentication;
     private DatabaseAvailabilityManager $databaseAvailability;
     private Logger $logger;
+    private ApplicationHealthMonitor $healthMonitor;
 
     public function __construct(
         ?AdminConfigurationRepository $configuration = null,
@@ -38,7 +40,8 @@ final class AdminService
         ?SqlParserProcessManager $parserProcessManager = null,
         ?DatabaseAuthenticationSupport $databaseAuthentication = null,
         ?DatabaseAvailabilityManager $databaseAvailability = null,
-        ?Logger $logger = null
+        ?Logger $logger = null,
+        ?ApplicationHealthMonitor $healthMonitor = null
     ) {
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->databasePath = $databasePath
@@ -57,19 +60,19 @@ final class AdminService
         $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
         $this->databaseAvailability = $databaseAvailability ?? new DatabaseAvailabilityManager();
         $this->logger = $logger ?? new Logger();
+        $this->healthMonitor = $healthMonitor ?? new ApplicationHealthMonitor([
+            'databasePath' => $this->databasePath,
+            'databaseAvailable' => fn (): bool => $this->databaseAvailability->available(),
+            'databaseTester' => $this->connectionTester,
+        ]);
     }
 
     public function status(): array
     {
         $databaseAvailable = $this->databaseAvailability->available();
-        $database = $databaseAvailable
-            ? $this->databaseHealth()
-            : [...$this->databaseStatus(), 'connected' => false, 'healthy' => false, 'status' => 'disconnected'];
-        $database['available'] = $databaseAvailable;
         $api = $this->processManager->status();
         $parser = $this->parserProcessManager->status();
-        return [
-            'adminConsole' => [
+        $admin = [
                 'running' => true,
                 'healthy' => true,
                 'status' => 'running',
@@ -78,7 +81,23 @@ final class AdminService
                     ? (int)$_SERVER['SERVER_PORT']
                     : null,
                 'startedAt' => getenv('GENERIC_ADMIN_STARTED_AT') ?: null,
-            ],
+            ];
+        $monitoring = $this->healthMonitor->detailed([
+            'adminConsole' => $admin,
+            'api' => $api,
+            'sqlParser' => $parser,
+        ]);
+        $databaseCheck = $monitoring['checks']['database'];
+        $databaseConnected = $databaseAvailable && $databaseCheck['status'] === 'healthy';
+        $database = [...$this->databaseStatus(),
+            'connected' => $databaseConnected,
+            'healthy' => $databaseConnected,
+            'status' => $databaseConnected ? 'connected'
+                : ($databaseAvailable ? $databaseCheck['category'] : 'disconnected'),
+            'available' => $databaseAvailable,
+        ];
+        return [
+            'adminConsole' => $admin,
             'api' => $api,
             'sqlParser' => $parser,
             'database' => $database,
@@ -90,6 +109,7 @@ final class AdminService
                 'odbcAvailable' => extension_loaded('odbc'),
                 'opensslAvailable' => extension_loaded('openssl'),
             ],
+            'monitoring' => $monitoring,
         ];
     }
 

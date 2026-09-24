@@ -19,7 +19,7 @@ Client
   -> PHP ODBC -> SQL Server
 ```
 
-Validation and normalization occur in `api/index.php` before controller dispatch. The controller performs a final internal required-field check and delegates to the service. On return, `BaseController` calls `Response`, which converts engine results into the public JSON envelope. Exceptions reach the global `ExceptionHandler`: request exceptions become 400 responses, database statement timeouts become a safe 504 `QUERY_ERROR`, and other failures become a generic 500 `QUERY_ERROR` while details are logged.
+Validation and normalization occur in `api/index.php` before controller dispatch. The controller performs a final internal required-field check and delegates to the service. On return, `BaseController` calls `Response`, which converts engine results into the public JSON envelope. Expected request exceptions preserve their explicit status and safe code, database statement timeouts become a safe 504 `QUERY_ERROR`, dependency/configuration failures use safe categories, and unexpected failures become generic 500 `INTERNAL_ERROR` responses. Every error carries the request ID used by server logs; buffered diagnostic output is discarded before JSON emission.
 
 ## Layer responsibilities
 

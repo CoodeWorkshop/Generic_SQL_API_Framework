@@ -41,6 +41,10 @@
           <match url="^$" />
           <action type="Rewrite" url="index.php" />
         </rule>
+        <rule name="Route API health" stopProcessing="true">
+          <match url="^health/(live|ready)$" />
+          <action type="Rewrite" url="health.php" />
+        </rule>
         <rule name="Reject non-entry-point paths" stopProcessing="true">
           <match url=".*" />
           <action type="CustomResponse" statusCode="404" statusReason="Not Found" statusDescription="Not Found" />

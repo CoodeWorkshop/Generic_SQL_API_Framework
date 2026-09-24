@@ -49,6 +49,8 @@ web root or `/index.php` when `api/` itself is the document root.
 - [Authorization and roles](Authorization-and-Roles.md)
 - [Audit and security logging](Audit-and-Security-Logging.md)
 - [Backup and recovery](Backup-and-Recovery.md)
+- [Monitoring and health](Monitoring-and-Health.md)
+- [Production error handling](Production-Error-Handling.md)
 - [Managed API keys](API-Keys.md)
 - [Database configuration](Database-Configuration.md)
 - [Hosting](Hosting.md)

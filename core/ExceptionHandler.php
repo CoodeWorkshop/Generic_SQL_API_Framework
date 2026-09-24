@@ -6,65 +6,128 @@ require_once __DIR__ . '/../app/Requests/ApiRequestException.php';
 require_once __DIR__ . '/../app/Security/DatabaseCredentialException.php';
 require_once __DIR__ . '/QueryTimeoutException.php';
 
-class ExceptionHandler
+final class ExceptionHandler
 {
+    private static bool $registered = false;
+    private static bool $handling = false;
+
     public static function register(): void
     {
-        register_shutdown_function(function (): void {
-            $error = error_get_last();
-            if ($error === null
-                || $error['type'] !== E_ERROR
-                || stripos($error['message'], 'Maximum execution time') === false) {
-                return;
-            }
-            while (ob_get_level() > 0) ob_end_clean();
-            (new Logger())->timing('request_error', defined('API_REQUEST_STARTED')
-                ? (microtime(true) - API_REQUEST_STARTED) * 1000
-                : 0, ['errorType' => 'PHPExecutionTimeout']);
-            if (!headers_sent()) {
-                http_response_code(504);
-                header('Content-Type: application/json');
-            }
-            echo json_encode(
-                Response::errorPayload('Query execution timed out.', 'QUERY_ERROR'),
-                JSON_PRETTY_PRINT
-            );
-        });
+        if (self::$registered) return;
+        self::$registered = true;
+        if (self::isProduction()) {
+            ini_set('display_errors', '0');
+            ini_set('display_startup_errors', '0');
+            ini_set('log_errors', '1');
+            set_error_handler([self::class, 'handlePhpError'], E_WARNING | E_NOTICE | E_USER_WARNING
+                | E_USER_NOTICE | E_DEPRECATED | E_USER_DEPRECATED);
+        }
+        set_exception_handler([self::class, 'handleException']);
+        register_shutdown_function([self::class, 'handleShutdown']);
+    }
 
-        set_exception_handler(function (Throwable $exception) {
+    public static function handlePhpError(int $severity, string $message, string $file, int $line): bool
+    {
+        if (!(error_reporting() & $severity)) return false;
+        self::safeLog('php.runtime_error', 'PHPError', $message . " at {$file}:{$line}");
+        return true;
+    }
 
+    public static function handleException(Throwable $exception): never
+    {
+        if (self::$handling) {
+            Response::emitErrorPayload(Response::errorPayload(
+                'An unexpected application error occurred.', 'INTERNAL_ERROR'
+            ), 500);
+            exit;
+        }
+        self::$handling = true;
+        self::safeLog('application.exception', get_class($exception), self::formatExceptionForLog($exception));
+        [$status, $payload] = self::responseFor($exception);
+        Response::emitErrorPayload($payload, $status);
+        exit;
+    }
+
+    public static function handleShutdown(): void
+    {
+        $error = error_get_last();
+        if (!is_array($error) || !in_array($error['type'] ?? null,
+            [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) return;
+        if (self::$handling) return;
+        self::$handling = true;
+        $timeout = stripos((string)($error['message'] ?? ''), 'Maximum execution time') !== false;
+        self::safeLog($timeout ? 'application.timeout' : 'application.fatal',
+            $timeout ? 'PHPExecutionTimeout' : 'PHPFatalError',
+            (string)($error['message'] ?? 'Fatal PHP error.') . ' at '
+                . (string)($error['file'] ?? 'unknown') . ':' . (int)($error['line'] ?? 0));
+        [$status, $payload] = self::fatalResponse($timeout);
+        Response::emitErrorPayload($payload, $status);
+    }
+
+    public static function responseFor(Throwable $exception): array
+    {
+        if ($exception instanceof ApiRequestException) {
+            return [$exception->getStatusCode(), Response::errorPayload(
+                $exception->getMessage(), $exception->getErrorCode(), $exception->getDetails()
+            )];
+        }
+        if ($exception instanceof QueryTimeoutException) {
+            return [504, Response::errorPayload('Query execution timed out.', 'QUERY_ERROR')];
+        }
+        if ($exception instanceof DatabaseCredentialException) {
+            return [503, Response::errorPayload(
+                'Database configuration is unavailable.', 'DATABASE_CONFIGURATION_ERROR'
+            )];
+        }
+        $message = strtoupper($exception->getMessage());
+        if (str_contains($message, '28000') || str_contains($message, 'LOGIN FAILED')) {
+            return [503, Response::errorPayload(
+                'Database authentication failed.', 'DATABASE_AUTHENTICATION_FAILED'
+            )];
+        }
+        if (str_contains($message, 'ODBC') || str_contains($message, 'SQLSTATE')) {
+            return [503, Response::errorPayload('Database is unavailable.', 'DATABASE_UNAVAILABLE')];
+        }
+        return [500, Response::errorPayload(
+            'An unexpected application error occurred.', 'INTERNAL_ERROR'
+        )];
+    }
+
+    public static function fatalResponse(bool $timeout = false): array
+    {
+        return $timeout
+            ? [504, Response::errorPayload('Query execution timed out.', 'QUERY_ERROR')]
+            : [500, Response::errorPayload('An unexpected application error occurred.', 'INTERNAL_ERROR')];
+    }
+
+    public static function report(Throwable $exception, string $event = 'application.exception'): void
+    {
+        self::safeLog($event, get_class($exception), self::formatExceptionForLog($exception));
+    }
+
+    private static function safeLog(string $event, string $category, string $details): void
+    {
+        try {
             $logger = new Logger();
-
-            $logger->error(
-                "Unhandled Exception",
-                [],
-                self::formatExceptionForLog($exception)
-            );
-
-            if ($exception instanceof ApiRequestException) {
-                Response::error(
-                    $exception->getMessage(),
-                    $exception->getStatusCode(),
-                    $exception->getErrorCode(),
-                    $exception->getDetails()
-                );
-            }
-
-            if ($exception instanceof QueryTimeoutException) {
-                Response::error('Query execution timed out.', 504, 'QUERY_ERROR');
-            }
-
-            Response::error('Query execution failed.', 500, 'QUERY_ERROR');
-
-        });
+            $logger->audit($event, 'failure', 'ERROR', [
+                'component' => 'error_handler',
+                'errorCategory' => $category,
+                'reason' => 'request_failed',
+            ]);
+            $logger->error('Application failure', [], $details);
+        } catch (Throwable $loggingFailure) {
+            // Error reporting must never replace the primary safe response.
+        }
     }
 
     private static function formatExceptionForLog(Throwable $exception): string
     {
-        if ($exception instanceof DatabaseCredentialException) {
-            return $exception->getMessage();
-        }
+        return get_class($exception) . ': ' . $exception->getMessage() . PHP_EOL
+            . $exception->getTraceAsString();
+    }
 
-        return $exception->getMessage() . PHP_EOL . $exception->getTraceAsString();
+    private static function isProduction(): bool
+    {
+        return strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) === 'production';
     }
 }

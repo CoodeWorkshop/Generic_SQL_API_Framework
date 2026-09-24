@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/Logger.php';
+require_once __DIR__ . '/RequestId.php';
 
 class Response
 {
@@ -55,7 +56,8 @@ class Response
             'success' => false,
             'message' => $message,
             'error' => ['code' => $errorCode, 'details' => $details],
-            'data' => []
+            'data' => [],
+            'meta' => ['requestId' => RequestId::get()],
         ];
     }
 
@@ -65,8 +67,9 @@ class Response
         $payload = self::successPayload($data, (string)$message);
         $json = self::encodePayload($payload);
         self::logResponseTiming($started, true);
+        self::discardBufferedOutput();
         http_response_code($code);
-        header('Content-Type: application/json');
+        header('Content-Type: application/json; charset=utf-8');
         echo $json;
         exit;
     }
@@ -79,12 +82,25 @@ class Response
     ) {
         $started = microtime(true);
         $payload = self::errorPayload((string)$message, $errorCode, $details);
-        $json = self::encodePayload($payload);
         self::logResponseTiming($started, false, $errorCode);
-        http_response_code($code);
-        header('Content-Type: application/json');
-        echo $json;
+        self::emitErrorPayload($payload, $code);
         exit;
+    }
+
+    public static function emitErrorPayload(array $payload, int $code): void
+    {
+        try { $json = self::encodePayload($payload); }
+        catch (Throwable $exception) {
+            $json = '{"success":false,"message":"An unexpected application error occurred.","error":{"code":"INTERNAL_ERROR","details":[]},"data":[],"meta":{"requestId":"'
+                . RequestId::get() . '"}}';
+        }
+        self::discardBufferedOutput();
+        if (!headers_sent()) {
+            http_response_code($code);
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store');
+        }
+        echo $json;
     }
 
     private static function encodePayload(array $payload): string
@@ -107,5 +123,12 @@ class Response
             'success' => $success,
             'errorCode' => $errorCode,
         ]);
+    }
+
+    private static function discardBufferedOutput(): void
+    {
+        while (ob_get_level() > 0) {
+            if (!@ob_end_clean()) break;
+        }
     }
 }

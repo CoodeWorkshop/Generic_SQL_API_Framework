@@ -896,7 +896,8 @@ parserAssert(
     && isset($parseError['analysis']['pipeline']['parser'])
     && $parseError['error']['details'][0]['line'] === 1
     && $parseError['error']['details'][0]['column'] >= 1
-    && isset($parseError['error']['details'][0]['fragment']),
+    && !isset($parseError['error']['details'][0]['fragment'])
+    && isset($parseError['meta']['requestId']),
     'Parser errors were not categorized.'
 );
 [$lineStatus, $lineError] = (new SqlParserRequestHandler())->handle(
