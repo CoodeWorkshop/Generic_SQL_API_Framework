@@ -257,6 +257,13 @@ outcomes, severity, and allowlisted actor/target metadata. See
 taxonomy, fail-open behavior, file modes, concurrency boundary, and OS-owned
 rotation/retention requirements. No centralized collector or SIEM is configured.
 
+Application configuration backup scope, manifest verification, encryption-key
+custody, disposable sessions/runtime state, SQL Server-native backup ownership,
+and tested restore sequencing are documented in
+[Backup and recovery](Backup-and-Recovery.md). Backup bundles must remain outside
+all document roots and the repository; matching encryption keys are protected
+and recovered through a separate operational channel.
+
 ## Deployment verification
 
 1. Bootstrap runtime configuration offline and provision the encryption key through the service identity.

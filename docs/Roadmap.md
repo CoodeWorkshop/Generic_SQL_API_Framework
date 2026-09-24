@@ -153,6 +153,14 @@ The five basic metadata actions already exist. This version is for capabilities 
 - concurrent local append integrity, owner-restricted files, and fail-open diagnostics
 - Windows/Linux rotation, retention, monitoring, and privacy responsibilities documented
 
+## New Phase 4.8 — Backup and recovery — Implemented
+
+- atomic owner-restricted configuration bundles with secret-free SHA-256 manifests
+- strict encrypted-database, checksum, schema, missing-file, and key-recovery verification
+- safe external staging restore that excludes sessions and disposable runtime state
+- authoritative state, SQL Server ownership, API-key/session recovery, and disaster scenarios documented
+- Windows/Linux permissions, retention, off-host/immutable-copy, and production restore-test responsibilities
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure
