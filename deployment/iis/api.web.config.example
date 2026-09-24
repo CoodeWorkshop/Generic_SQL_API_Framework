@@ -33,8 +33,8 @@
     <rewrite>
       <rules>
         <clear />
-        <rule name="Allow API front controller" stopProcessing="true">
-          <match url="^index\.php$" />
+        <rule name="Allow API entry points" stopProcessing="true">
+          <match url="^(?:index|health)\.php$" />
           <action type="None" />
         </rule>
         <rule name="Route API root" stopProcessing="true">

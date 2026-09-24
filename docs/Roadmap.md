@@ -175,6 +175,13 @@ The five basic metadata actions already exist. This version is for capabilities 
 - output-buffer protection, no-store errors, logging fail-open behavior, and recursive-handler guard
 - consistent API/Admin/SQL Parser boundaries without SQL fragments or internal diagnostic disclosure
 
+## New Phase 4.11 — Windows and Linux production validation — Implemented
+
+- non-mutating environment discovery and deterministic deployment-template validation CLI
+- IIS XML/routing, Nginx/FastCGI routing, PHP production INI, sensitive-path, header, limit, and secret checks
+- production web-server ownership enforced for API/SQL Parser lifecycle controls
+- dated validation matrix and exact Windows/IIS and Linux/Nginx/PHP-FPM operator checklists without false live-validation claims
+
 ## v1.5.0 — Advanced API Security — Planned
 
 - editable/custom role administration, advanced audit policy, and distributed rate-limit infrastructure

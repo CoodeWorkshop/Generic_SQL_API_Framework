@@ -70,8 +70,10 @@ final class AdminService
     public function status(): array
     {
         $databaseAvailable = $this->databaseAvailability->available();
-        $api = $this->processManager->status();
-        $parser = $this->parserProcessManager->status();
+        $api = SecurityConfiguration::isProduction()
+            ? $this->externallyManagedProcess('api') : $this->processManager->status();
+        $parser = SecurityConfiguration::isProduction()
+            ? $this->externallyManagedProcess('sqlparser') : $this->parserProcessManager->status();
         $admin = [
                 'running' => true,
                 'healthy' => true,
@@ -117,8 +119,10 @@ final class AdminService
     {
         $runtime = $this->runtimeDetector->information();
         $installation = (new InstallationRepository())->load();
-        $api = $this->processManager->status();
-        $parser = $this->parserProcessManager->status();
+        $api = SecurityConfiguration::isProduction()
+            ? $this->externallyManagedProcess('api') : $this->processManager->status();
+        $parser = SecurityConfiguration::isProduction()
+            ? $this->externallyManagedProcess('sqlparser') : $this->parserProcessManager->status();
         $databaseAvailable = $this->databaseAvailability->available();
         $database = $databaseAvailable ? $this->databaseHealth() : ['status' => 'disconnected'];
         return [
@@ -388,6 +392,14 @@ final class AdminService
 
     public function controlApi(string $operation): array
     {
+        if (SecurityConfiguration::isProduction()) {
+            throw new ApiRequestException(
+                'API workers are managed by the production web server.',
+                'PROCESS_EXTERNALLY_MANAGED',
+                [],
+                409
+            );
+        }
         try {
             $result = $operation === 'start' ? $this->processManager->start()
                 : ($operation === 'stop' ? $this->processManager->stop() : $this->processManager->restart());
@@ -401,6 +413,14 @@ final class AdminService
 
     public function controlSqlParser(string $operation): array
     {
+        if (SecurityConfiguration::isProduction()) {
+            throw new ApiRequestException(
+                'SQL Parser workers are managed by the production web server.',
+                'PROCESS_EXTERNALLY_MANAGED',
+                [],
+                409
+            );
+        }
         try {
             $result = $operation === 'start' ? $this->parserProcessManager->start()
                 : ($operation === 'stop' ? $this->parserProcessManager->stop() : $this->parserProcessManager->restart());
@@ -467,6 +487,22 @@ final class AdminService
                 'readable' => false,
             ];
         }
+    }
+
+    private function externallyManagedProcess(string $service): array
+    {
+        return [
+            'running' => false,
+            'service' => $service,
+            'healthy' => false,
+            'status' => 'externally managed',
+            'lifecycleManaged' => false,
+            'port' => null,
+            'pid' => null,
+            'startedAt' => null,
+            'uptimeSeconds' => null,
+            'version' => null,
+        ];
     }
 
     private function databaseHealth(): array

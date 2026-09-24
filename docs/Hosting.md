@@ -6,6 +6,12 @@ display disabled, retain `application/json` responses and their status codes,
 and protect server logs containing internal diagnostics. See
 [Production error handling](Production-Error-Handling.md).
 
+The current executable/static validation record, explicit untested boundaries,
+and target-host checklists are in
+[Windows and Linux production validation](Production-Validation.md). Repository
+template tests do not constitute a live IIS, Nginx/PHP-FPM, TLS, or SQL Server
+deployment result.
+
 ## Local development
 
 The bundled launchers use PHP's built-in server only for local development. Production uses IIS with PHP FastCGI on Windows or Nginx with PHP-FPM on Linux; see [Production web-server hosting](Production-Security-and-Deployment.md).

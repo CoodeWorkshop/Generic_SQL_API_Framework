@@ -28,6 +28,10 @@
     <rewrite>
       <rules>
         <clear />
+        <rule name="Route health to API application" stopProcessing="true">
+          <match url="^health/(live|ready)$" />
+          <action type="Rewrite" url="/api/health/{R:1}" />
+        </rule>
         <rule name="Do not rewrite API application" stopProcessing="true">
           <match url="^api(?:/.*)?$" />
           <action type="None" />

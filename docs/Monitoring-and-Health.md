@@ -103,3 +103,9 @@ identity permissions, session and log paths, configured disk thresholds,
 database authentication failures, cache behavior across real workers, proxy
 timeouts, and monitoring cadence. Local regression tests do not validate a
 live SQL Server or multi-worker shared-filesystem deployment.
+
+The Phase 4.11 workspace result and exact target-host procedures are recorded
+in [Windows and Linux production validation](Production-Validation.md). In
+production, API and SQL Parser lifecycle cards are explicitly externally
+managed; health observation does not grant the application control of web-server
+workers.

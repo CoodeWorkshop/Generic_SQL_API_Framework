@@ -307,3 +307,10 @@ display disabled and configure IIS/Nginx to pass through application JSON errors
 - **Wrong/expired certificate:** verify the active IIS binding or Nginx chain/key placeholders, SANs, renewal job, service read permissions, and successful reload.
 
 Live IIS/FastCGI, Schannel, Nginx/PHP-FPM, certificates, private-key permissions, renewal, client trust, DNS, firewall, and protocol negotiation must be verified on target hosts. Repository tests validate template structure, redirect guards, header policies, application fallbacks, and sensitive-path intent but cannot prove a live TLS deployment.
+
+Phase 4.11's dated environment discovery, static results, non-executed live
+boundaries, and Windows/Linux operator commands are in
+[Windows and Linux production validation](Production-Validation.md). Run
+`php scripts/validate-production.php` for a non-mutating local report. A
+`VALIDATED` template result is never a substitute for target-host IIS/Nginx,
+FastCGI/FPM, certificate, identity, filesystem, SQL Server, or load validation.

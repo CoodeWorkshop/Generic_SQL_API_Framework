@@ -104,3 +104,6 @@ passthrough, body limits, request IDs in deployed logs, unwritable-log behavior,
 PHP worker termination, real ODBC categories, proxy-generated errors, TLS
 headers on error responses, and malformed requests at the actual web-server
 boundary.
+
+The current executed/static result and remaining operator checks are tracked in
+[Windows and Linux production validation](Production-Validation.md).
