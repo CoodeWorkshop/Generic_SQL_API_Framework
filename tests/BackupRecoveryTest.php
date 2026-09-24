@@ -99,6 +99,16 @@ try {
     $bundlePath = $backupParent . '/backup-one';
     $manifest = $manager->create($bundlePath);
     backupAssert(count($manifest['files']) === 6, 'Backup manifest omitted required application state.');
+    foreach ($manifest['files'] as $file) {
+        $backedUpPath = $bundlePath . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, $file['path']);
+        clearstatcache(true, $backedUpPath);
+        backupAssert(
+            $file['size'] === filesize($backedUpPath)
+                && hash_equals($file['sha256'], hash_file('sha256', $backedUpPath)),
+            "Backup manifest integrity metadata does not match {$file['path']}."
+        );
+    }
     backupAssert($manager->verify($bundlePath)['formatVersion'] === 1, 'Backup verification failed.');
 
     $manifestContents = (string)file_get_contents($bundlePath . '/manifest.json');

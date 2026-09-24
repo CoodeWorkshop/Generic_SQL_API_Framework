@@ -48,12 +48,7 @@ final class ApplicationBackupManager
                 $targetPath = $temporaryPath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $logicalPath);
                 $this->ensureDirectory(dirname($targetPath));
                 $this->writeJson($targetPath, $value);
-                $size = filesize($targetPath);
-                $checksum = hash_file('sha256', $targetPath);
-                if (!is_int($size) || $size < 3 || !is_string($checksum)) {
-                    throw new RuntimeException('Backup file integrity metadata could not be generated.');
-                }
-                $files[] = ['path' => $logicalPath, 'size' => $size, 'sha256' => $checksum];
+                $files[] = ['path' => $logicalPath, ...$this->integrityMetadata($targetPath)];
             }
 
             $manifest = [
@@ -92,9 +87,8 @@ final class ApplicationBackupManager
             $manifestPaths[] = $logicalPath;
             $path = $bundlePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $logicalPath);
             if (!is_file($path)) throw new RuntimeException("Backup file is missing: {$logicalPath}.");
-            $size = filesize($path);
-            $checksum = hash_file('sha256', $path);
-            if ($size !== $file['size'] || !is_string($checksum) || !hash_equals($file['sha256'], $checksum)) {
+            $metadata = $this->integrityMetadata($path);
+            if ($metadata['size'] !== $file['size'] || !hash_equals($file['sha256'], $metadata['sha256'])) {
                 throw new RuntimeException("Backup checksum verification failed: {$logicalPath}.");
             }
             $value = $this->loadJsonFile($path, "Backup JSON is invalid: {$logicalPath}.");
@@ -238,6 +232,17 @@ final class ApplicationBackupManager
             fclose($stream);
             if (!$complete) @unlink($path);
         }
+    }
+
+    private function integrityMetadata(string $path): array
+    {
+        clearstatcache(true, $path);
+        $size = @filesize($path);
+        $checksum = @hash_file('sha256', $path);
+        if (!is_int($size) || $size < 3 || !is_string($checksum)) {
+            throw new RuntimeException('Backup file integrity metadata could not be generated.');
+        }
+        return ['size' => $size, 'sha256' => $checksum];
     }
 
     private function loadJsonFile(string $path, string $message): array
