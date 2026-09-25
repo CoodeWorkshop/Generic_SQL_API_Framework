@@ -69,12 +69,13 @@ final class RuntimeConfiguration
     public static function authorizationDefaults(): array
     {
         return [
-            'version' => 2,
+            'version' => 3,
             'publicRoles' => ['read-only'],
             'legacyApiKeyRoles' => ['read-only'],
             'roles' => [
                 'read-only' => ['name' => 'Read Only', 'domain' => 'backend', 'permissions' => ['data.read', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => []],
                 'data-operator' => ['name' => 'Data Operator', 'domain' => 'backend', 'permissions' => ['data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
+                'api-administrator' => ['name' => 'Admin', 'domain' => 'backend', 'permissions' => ['data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
                 'system-administrator' => ['name' => 'System Administrator', 'domain' => 'backend', 'permissions' => ['admin.manage', 'frontend.users.manage', 'data.read', 'data.write', 'metadata.read', 'sql.execute', 'routine.execute'], 'sqlResources' => ['*'], 'writeResources' => ['*']],
                 'application-administrator' => ['name' => 'Application Administrator', 'domain' => 'frontend', 'permissions' => ['frontend.read', 'frontend.users.manage'], 'sqlResources' => ['*'], 'writeResources' => []],
             ],
@@ -126,7 +127,7 @@ final class RuntimeConfiguration
             self::INSTALLATION_FILE => self::installationDefaults(),
             self::ADMIN_FILE => self::adminDefaults(),
             self::AUTHORIZATION_FILE => self::authorizationDefaults(),
-            self::API_KEYS_FILE => ['version' => 2, 'keys' => []],
+            self::API_KEYS_FILE => ['version' => 3, 'keys' => []],
             self::DATABASE_STATE_FILE => ['version' => 1, 'available' => false, 'updatedAt' => null],
         ];
     }

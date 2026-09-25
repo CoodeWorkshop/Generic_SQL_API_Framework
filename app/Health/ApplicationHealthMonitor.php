@@ -101,7 +101,7 @@ final class ApplicationHealthMonitor
     private function configurationHealth(): array
     {
         $versions = ['auth.json' => 4, 'installation.json' => 1, 'admin.json' => 5,
-            'authorization.json' => 2, 'api-keys.json' => 2, 'database-state.json' => 1];
+            'authorization.json' => 3, 'api-keys.json' => 3, 'database-state.json' => 1];
         foreach ($versions as $file => $version) {
             $path = $this->configurationDirectory . DIRECTORY_SEPARATOR . $file;
             if (!is_file($path)) return ['status' => 'unhealthy', 'category' => 'configuration_missing'];

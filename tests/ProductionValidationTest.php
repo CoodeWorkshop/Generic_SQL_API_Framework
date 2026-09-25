@@ -72,7 +72,7 @@ productionValidationAssert(str_contains($csrf, 'CSRF_VALIDATION_FAILED') || str_
     'CSRF protection is not connected to the API pipeline.');
 productionValidationAssert(str_contains($errors, 'INTERNAL_ERROR') && str_contains($errors, 'DATABASE_UNAVAILABLE'),
     'Production error categorization is incomplete.');
-productionValidationAssert(str_contains($adminJavaScript, "item.lifecycleManaged===false"),
+productionValidationAssert(preg_match('/item\.lifecycleManaged\s*===\s*false/', $adminJavaScript) === 1,
     'Admin Console does not hide production-owned lifecycle controls.');
 
 $oldEnvironment = getenv('GENERIC_APP_ENV');

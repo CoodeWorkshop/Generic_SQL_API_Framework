@@ -12,8 +12,8 @@ final class FrontendUserController extends BaseController
         $action=$request['action'];$actor=PrincipalContext::current();
         if($actor===null)throw new ApiRequestException('Authentication required.','AUTHENTICATION_REQUIRED',[],401);
         if($action==='auth.frontendUsers.list'){$this->success($this->users->listFrontendUsers(),'Frontend users loaded.');}
-        if($action==='auth.frontendUsers.create'){$result=$this->users->createFrontendUser($actor,$request['username'],$request['password'],$request['role'],$request['enabled']);$this->success([$result],'Frontend user created.',201);}
-        if($action==='auth.frontendUsers.update')$result=$this->users->updateFrontendUsername($actor,$request['username'],$request['newUsername']);
+        if($action==='auth.frontendUsers.create'){$result=$this->users->createFrontendUser($actor,$request['name'],$request['username'],$request['mobile'],$request['email'],$request['password'],$request['role'],$request['enabled']);$this->success([$result],'Frontend user created.',201);}
+        if($action==='auth.frontendUsers.update')$result=$this->users->updateFrontendProfile($actor,$request['username'],$request['name'],$request['newUsername'],$request['mobile'],$request['email']);
         elseif($action==='auth.frontendUsers.enable')$result=$this->users->setFrontendUserEnabled($actor,$request['username'],true);
         elseif($action==='auth.frontendUsers.disable')$result=$this->users->setFrontendUserEnabled($actor,$request['username'],false);
         elseif($action==='auth.frontendUsers.delete')$result=$this->users->deleteFrontendUser($actor,$request['username']);

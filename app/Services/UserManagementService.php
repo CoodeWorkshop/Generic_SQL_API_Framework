@@ -2,8 +2,10 @@
 
 require_once __DIR__ . '/../Authorization/RoleModel.php';
 require_once __DIR__ . '/../Authorization/Principal.php';
+require_once __DIR__ . '/../Authorization/FrontendCapabilityPolicy.php';
 require_once __DIR__ . '/../Repositories/AuthRepository.php';
 require_once __DIR__ . '/../Security/PasswordHasher.php';
+require_once __DIR__ . '/../Security/UserProfilePolicy.php';
 require_once __DIR__ . '/../Requests/ApiRequestException.php';
 require_once __DIR__ . '/../../core/Logger.php';
 
@@ -35,20 +37,31 @@ final class UserManagementService
         return $this->sorted(array_map(fn (array $user): array => $this->safeFrontendUser($user), $users));
     }
 
-    public function createUser(string $username, string $password, ?string $backendRole, bool $frontendAccess, ?string $frontendRole, bool $enabled = true): array
+    public function createUser(string $username, string $password, ?string $backendRole, bool $frontendAccess, ?string $frontendRole, bool $enabled = true, ?string $name = null, ?string $mobile = null, ?string $email = null): array
     {
         $this->validateAuthorization($backendRole, $frontendAccess, $frontendRole, $enabled);
-        return $this->create($username, $password, $backendRole, $frontendAccess, $frontendRole, $enabled, false);
+        if ($name !== null || $mobile !== null || $email !== null) [$name, $mobile, $email] = $this->validatedProfile($name ?? '', $mobile ?? '', $email, false);
+        return $this->create($username, $password, $backendRole, $frontendAccess, $frontendRole, $enabled, false, null, null, $name, $mobile, $email);
     }
 
-    public function createFrontendUser(Principal $actor, string $username, string $password, ?string $role, bool $enabled = true): array
+    public function createFrontendUser(
+        Principal $actor,
+        string $name,
+        string $username,
+        string $mobile,
+        ?string $email,
+        string $password,
+        ?string $role,
+        bool $enabled = true
+    ): array
     {
-        if (!in_array($role, [null, RoleModel::READ_ONLY, RoleModel::DATA_OPERATOR, RoleModel::APPLICATION_ADMINISTRATOR, RoleModel::SYSTEM_ADMINISTRATOR], true)) {
+        if (!in_array($role, FrontendCapabilityPolicy::assignableRoles(), true)) {
             throw new ApiRequestException('Invalid frontend user request.', 'INVALID_FRONTEND_USER_REQUEST');
         }
         $backendRole = in_array($role, [RoleModel::READ_ONLY, RoleModel::DATA_OPERATOR], true) ? $role : null;
         $frontendRole = $role === RoleModel::APPLICATION_ADMINISTRATOR ? $role : null;
-        return $this->create($username, $password, $backendRole, true, $frontendRole, $enabled, true, $actor, $role);
+        [$name, $mobile, $email] = $this->validatedProfile($name, $mobile, $email);
+        return $this->create($username, $password, $backendRole, true, $frontendRole, $enabled, true, $actor, $role, $name, $mobile, $email);
     }
 
     public function updateUsername(string $username, string $newUsername): array
@@ -61,6 +74,19 @@ final class UserManagementService
                 $configuration['users'][$index]['authVersion']++;
             }
         }, 'user.username_changed');
+    }
+
+    public function updateUserProfile(string $username, string $name, string $newUsername, string $mobile, ?string $email): array
+    {
+        [$name, $mobile, $email] = $this->validatedProfile($name, $mobile, $email, false);
+        return $this->mutate($username, function (array &$configuration, int $index) use ($name, $newUsername, $mobile, $email): void {
+            $existing = $this->findIndex($configuration['users'], $newUsername);
+            if ($existing !== null && $existing !== $index) throw new ApiRequestException('User already exists.', 'USER_ALREADY_EXISTS', [], 409);
+            $user = &$configuration['users'][$index];
+            if ($user['username'] !== $newUsername || ($user['name'] ?? null) !== $name || ($user['mobile'] ?? null) !== $mobile || ($user['email'] ?? null) !== $email) {
+                $user['name'] = $name; $user['username'] = $newUsername; $user['mobile'] = $mobile; $user['email'] = $email; $user['authVersion']++;
+            }
+        }, 'user.profile_changed');
     }
 
     public function setEnabled(string $username, bool $enabled): array
@@ -83,7 +109,10 @@ final class UserManagementService
             $result = $this->authRepository->update(function (array &$configuration) use ($username, $currentUsername): array {
                 $index = $this->requireUserIndex($configuration['users'], $username);
                 $user = $configuration['users'][$index];
-                if (strcasecmp($user['username'], $currentUsername) === 0) throw new ApiRequestException('The current user cannot be deleted.', 'CANNOT_DELETE_CURRENT_USER', [], 409);
+                if (strcasecmp($user['username'], $currentUsername) === 0
+                    && $user['backendRole'] !== RoleModel::SYSTEM_ADMINISTRATOR) {
+                    throw new ApiRequestException('The current user cannot be deleted.', 'CANNOT_DELETE_CURRENT_USER', [], 409);
+                }
                 if ($user['enabled'] && $user['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR
                     && $this->enabledSystemAdministratorCount($configuration['users']) <= 1) $this->lastEnabledAdministrator();
                 array_splice($configuration['users'], $index, 1);
@@ -104,11 +133,25 @@ final class UserManagementService
         }, 'user.password_changed');
     }
 
-    public function assignAuthorization(string $username, ?string $backendRole, bool $frontendAccess, ?string $frontendRole): array
+    public function assignAuthorization(
+        string $username,
+        ?string $backendRole,
+        bool $frontendAccess,
+        ?string $frontendRole,
+        string $actorUserId
+    ): array
     {
         $this->validateAuthorization($backendRole, $frontendAccess, $frontendRole, false);
-        return $this->mutate($username, function (array &$configuration, int $index) use ($backendRole, $frontendAccess, $frontendRole): void {
+        return $this->mutate($username, function (array &$configuration, int $index) use ($backendRole, $frontendAccess, $frontendRole, $actorUserId): void {
             $user = $configuration['users'][$index];
+            if (hash_equals($user['id'], $actorUserId)) {
+                throw new ApiRequestException(
+                    'Users cannot change their own authorization.',
+                    'AUTHORIZATION_DENIED',
+                    [],
+                    403
+                );
+            }
             if ($user['enabled'] && $backendRole === null && !$frontendAccess) {
                 throw new ApiRequestException('An enabled user requires backend or frontend access.', 'USER_ACCESS_REQUIRED', [], 409);
             }
@@ -122,16 +165,29 @@ final class UserManagementService
         }, 'user.authorization_changed');
     }
 
-    public function updateFrontendUsername(Principal $actor, string $username, string $newUsername): array
+    public function updateFrontendProfile(
+        Principal $actor,
+        string $username,
+        string $name,
+        string $newUsername,
+        string $mobile,
+        ?string $email
+    ): array
     {
-        return $this->frontendMutate($actor, $username, function (array &$configuration, int $index) use ($newUsername): void {
+        [$name, $mobile, $email] = $this->validatedProfile($name, $mobile, $email);
+        return $this->frontendMutate($actor, $username, function (array &$configuration, int $index) use ($name, $newUsername, $mobile, $email): void {
             $existing = $this->findIndex($configuration['users'], $newUsername);
             if ($existing !== null && $existing !== $index) throw new ApiRequestException('User already exists.', 'USER_ALREADY_EXISTS', [], 409);
-            if ($configuration['users'][$index]['username'] !== $newUsername) {
-                $configuration['users'][$index]['username'] = $newUsername;
+            $user = &$configuration['users'][$index];
+            if ($user['username'] !== $newUsername || ($user['name'] ?? null) !== $name
+                || ($user['mobile'] ?? null) !== $mobile || ($user['email'] ?? null) !== $email) {
+                $user['name'] = $name;
+                $user['username'] = $newUsername;
+                $user['mobile'] = $mobile;
+                $user['email'] = $email;
                 $configuration['users'][$index]['authVersion']++;
             }
-        }, 'user.username_changed');
+        }, 'user.profile_changed', 'profile');
     }
 
     public function setFrontendUserEnabled(Principal $actor, string $username, bool $enabled): array
@@ -147,7 +203,7 @@ final class UserManagementService
                 $configuration['users'][$index]['enabled'] = $enabled;
                 $configuration['users'][$index]['authVersion']++;
             }
-        }, $enabled ? 'user.enabled' : 'user.disabled');
+        }, $enabled ? 'user.enabled' : 'user.disabled', 'lifecycle');
     }
 
     public function deleteFrontendUser(Principal $actor, string $username): array
@@ -156,10 +212,7 @@ final class UserManagementService
             $result = $this->authRepository->update(function (array &$configuration) use ($actor, $username): array {
                 $index = $this->requireUserIndex($configuration['users'], $username);
                 $user = $configuration['users'][$index];
-                $this->assertFrontendMutationAllowed($configuration['users'], $actor, $user);
-                if (strcasecmp($user['username'], $actor->username) === 0) {
-                    throw new ApiRequestException('The current user cannot be deleted.', 'CANNOT_DELETE_CURRENT_USER', [], 409);
-                }
+                $this->assertFrontendMutationAllowed($configuration['users'], $actor, $user, 'lifecycle');
                 if ($user['enabled'] && $user['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR
                     && $this->enabledSystemAdministratorCount($configuration['users']) <= 1) $this->lastEnabledAdministrator();
                 array_splice($configuration['users'], $index, 1);
@@ -177,7 +230,7 @@ final class UserManagementService
         return $this->frontendMutate($actor, $username, function (array &$configuration, int $index) use ($hash): void {
             $configuration['users'][$index]['passwordHash'] = $hash;
             $configuration['users'][$index]['authVersion']++;
-        }, 'user.password_changed');
+        }, 'user.password_changed', 'password');
     }
 
     public function assignFrontendAccess(Principal $actor, string $username, bool $frontendAccess, ?string $frontendRole): array
@@ -199,7 +252,9 @@ final class UserManagementService
                 $configuration['users'][$index]['authVersion']++;
             },
             'user.frontend_authorization_changed',
-            $frontendRole === RoleModel::APPLICATION_ADMINISTRATOR
+            'authorization',
+            $frontendAccess,
+            $frontendRole
         );
     }
 
@@ -212,12 +267,15 @@ final class UserManagementService
         bool $enabled,
         bool $frontendOnly,
         ?Principal $frontendActor = null,
-        ?string $requestedFrontendRole = null
+        ?string $requestedFrontendRole = null,
+        ?string $name = null,
+        ?string $mobile = null,
+        ?string $email = null
     ): array
     {
         try {
             $hash = $this->passwordHasher->hash($password);
-            $result = $this->authRepository->update(function (array &$configuration) use ($username, $hash, $backendRole, $frontendAccess, $frontendRole, $enabled, $frontendOnly, $frontendActor, $requestedFrontendRole): array {
+            $result = $this->authRepository->update(function (array &$configuration) use ($username, $hash, $backendRole, $frontendAccess, $frontendRole, $enabled, $frontendOnly, $frontendActor, $requestedFrontendRole, $name, $mobile, $email): array {
                 if ($frontendActor !== null) {
                     $this->assertFrontendActor($configuration['users'], $frontendActor);
                     if ($requestedFrontendRole === RoleModel::SYSTEM_ADMINISTRATOR) {
@@ -230,6 +288,7 @@ final class UserManagementService
                     'enabled' => $enabled, 'backendRole' => $backendRole, 'frontendAccess' => $frontendAccess,
                     'frontendRole' => $frontendRole, 'createdAt' => gmdate(DATE_ATOM), 'authVersion' => 1,
                 ];
+                if ($frontendOnly || $name !== null || $mobile !== null || $email !== null) $user += ['name' => $name, 'mobile' => $mobile, 'email' => $email];
                 $configuration['users'][] = $user;
                 return $frontendOnly ? $this->safeFrontendUser($user) : $this->safeUser($user);
             });
@@ -258,16 +317,20 @@ final class UserManagementService
         string $username,
         callable $operation,
         string $event,
-        bool $grantsAdministrator = false
+        string $mutation = 'general',
+        ?bool $requestedAccess = null,
+        ?string $requestedRole = null
     ): array {
         try {
-            $result = $this->authRepository->update(function (array &$configuration) use ($actor, $username, $operation, $grantsAdministrator): array {
+            $result = $this->authRepository->update(function (array &$configuration) use ($actor, $username, $operation, $mutation, $requestedAccess, $requestedRole): array {
                 $index = $this->requireUserIndex($configuration['users'], $username);
                 $this->assertFrontendMutationAllowed(
                     $configuration['users'],
                     $actor,
                     $configuration['users'][$index],
-                    $grantsAdministrator
+                    $mutation,
+                    $requestedAccess,
+                    $requestedRole
                 );
                 $operation($configuration, $index);
                 return $this->safeFrontendUser($configuration['users'][$index]);
@@ -278,18 +341,31 @@ final class UserManagementService
         catch (Throwable $exception) { $this->fail($exception); }
     }
 
-    private function assertFrontendMutationAllowed(array $users, Principal $actor, array $target, bool $grantsAdministrator = false): void
+    private function assertFrontendMutationAllowed(
+        array $users,
+        Principal $actor,
+        array $target,
+        string $mutation = 'general',
+        ?bool $requestedAccess = null,
+        ?string $requestedRole = null
+    ): void
     {
         $isSystemAdministrator = $this->assertFrontendActor($users, $actor);
         if ($isSystemAdministrator) return;
-        if ($actor->userId === $target['id']) $this->denyFrontendMutation($actor, $target, 'self_mutation');
         if ($target['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR) {
             $this->denyFrontendMutation($actor, $target, 'backend_identity_protected');
         }
+        $self = $actor->userId === $target['id'];
+        if ($self && in_array($mutation, ['profile', 'password'], true)) return;
+        if ($self) $this->denyFrontendMutation($actor, $target, 'self_mutation');
         if ($target['frontendRole'] === RoleModel::APPLICATION_ADMINISTRATOR) {
-            $this->denyFrontendMutation($actor, $target, 'application_administrator_protected');
+            if (in_array($mutation, ['profile', 'password', 'lifecycle'], true)) return;
+            if ($mutation === 'authorization' && $requestedAccess === false) return;
+            $this->denyFrontendMutation($actor, $target, 'administrator_role_change_denied');
         }
-        if ($grantsAdministrator) $this->denyFrontendMutation($actor, $target, 'administrator_assignment_denied');
+        if ($mutation === 'authorization' && $requestedRole === RoleModel::APPLICATION_ADMINISTRATOR) {
+            $this->denyFrontendMutation($actor, $target, 'administrator_assignment_denied');
+        }
     }
 
     private function assertFrontendActor(array $users, Principal $actor): bool
@@ -347,6 +423,17 @@ final class UserManagementService
         }
     }
 
+    private function validatedProfile(string $name, string $mobile, ?string $email, bool $frontend = true): array
+    {
+        try {
+            return [UserProfilePolicy::name($name), UserProfilePolicy::mobile($mobile), UserProfilePolicy::email($email)];
+        } catch (InvalidArgumentException $exception) {
+            throw new ApiRequestException($frontend ? 'Invalid frontend user request.' : 'Invalid user request.', $frontend ? 'INVALID_FRONTEND_USER_REQUEST' : 'INVALID_USER_REQUEST', [
+                ['path' => 'profile', 'message' => $exception->getMessage()],
+            ]);
+        }
+    }
+
     private function requireUserIndex(array $users, string $username): int
     {
         $index = $this->findIndex($users, $username);
@@ -367,18 +454,32 @@ final class UserManagementService
 
     private function safeUser(array $user): array
     {
-        return ['username' => $user['username'], 'enabled' => $user['enabled'], 'backendRole' => $user['backendRole'], 'frontendAccess' => $user['frontendAccess'], 'frontendRole' => $user['frontendRole'], 'createdAt' => $user['createdAt']];
+        return [
+            'name' => $user['name'] ?? null,
+            'username' => $user['username'],
+            'mobile' => $user['mobile'] ?? null,
+            'email' => $user['email'] ?? null,
+            'enabled' => $user['enabled'],
+            'backendRole' => $user['backendRole'],
+            'frontendAccess' => $user['frontendAccess'],
+            'frontendRole' => $user['frontendRole'],
+            'createdAt' => $user['createdAt'],
+        ];
     }
 
     private function safeFrontendUser(array $user): array
     {
         return [
+            'name' => $user['name'] ?? null,
             'username' => $user['username'],
+            'mobile' => $user['mobile'] ?? null,
+            'email' => $user['email'] ?? null,
             'enabled' => $user['enabled'],
             'backendRole' => $user['backendRole'],
             'frontendAccess' => $user['frontendAccess'],
             'frontendRole' => $user['frontendRole'],
             'backendProtected' => $user['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR,
+            'createdAt' => $user['createdAt'],
         ];
     }
 
@@ -390,7 +491,7 @@ final class UserManagementService
 
     private function lastEnabledAdministrator(): never
     {
-        throw new ApiRequestException('At least one enabled System Administrator is required.', 'LAST_ENABLED_ADMIN', [], 409);
+        throw new ApiRequestException('At least one enabled System Administrator is required.', 'LAST_ENABLED_ADMIN', [], 403);
     }
 
     private function audit(string $event, string $targetUsername): void

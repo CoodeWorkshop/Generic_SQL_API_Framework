@@ -353,11 +353,12 @@ try {
     }
 
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
+    $compactAdminJavaScript = str_replace('"', "'", preg_replace('/\s+/', '', $adminJavaScript));
     runtimeAssert(!str_contains(strtolower($adminJavaScript), 'test saved configuration'), 'Removed saved-configuration runtime test remains in the Admin Console.');
     runtimeAssert(!str_contains($adminJavaScript, 'Runtime access'), 'Database runtime controls remain under Configuration.');
     runtimeAssert(!str_contains($adminJavaScript, 'data-database="'), 'Legacy Configuration database runtime controls remain.');
     runtimeAssert(str_contains($adminJavaScript, 'data-database-runtime'), 'System Health database runtime controls are missing.');
-    runtimeAssert(str_contains($adminJavaScript, "['Port',health.api.port]") && str_contains($adminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not render actual API and SQL Parser ports.');
+    runtimeAssert(str_contains($compactAdminJavaScript, "['Port',health.api.port]") && str_contains($compactAdminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not render actual API and SQL Parser ports.');
 
     $adminApiSource = (string)file_get_contents(__DIR__ . '/../admin/api.php');
     $adminControllerSource = (string)file_get_contents(__DIR__ . '/../app/Controllers/AdminController.php');

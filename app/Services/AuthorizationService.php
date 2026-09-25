@@ -15,6 +15,7 @@ final class AuthorizationService
     public function legacyApiKeyRoles(): array { return $this->repository->load()['legacyApiKeyRoles']; }
     public function roleExists(string $role): bool { return isset($this->roles()[$role]); }
     public function backendRoleExists(?string $role): bool { return $role === null || in_array($role, RoleModel::backendRoles(), true); }
+    public function apiKeyRoleExists(?string $role): bool { return $role !== null && in_array($role, RoleModel::apiKeyRoles(), true); }
     public function frontendRoleExists(?string $role): bool { return $role === null || in_array($role, RoleModel::frontendRoles(), true); }
     public function permissionsForRoles(array $roles): array
     {

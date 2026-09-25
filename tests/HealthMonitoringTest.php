@@ -37,8 +37,8 @@ try {
     healthWrite($configuration . '/auth.json', ['version' => 4, 'users' => []]);
     healthWrite($configuration . '/installation.json', ['version' => 1, 'installationId' => 'fake-installation', 'initialized' => true]);
     healthWrite($configuration . '/admin.json', ['version' => 5, 'server' => [], 'cors' => [], 'authentication' => [], 'runtime' => []]);
-    healthWrite($configuration . '/authorization.json', ['version' => 2, 'roles' => []]);
-    healthWrite($configuration . '/api-keys.json', ['version' => 2, 'keys' => []]);
+    healthWrite($configuration . '/authorization.json', ['version' => 3, 'roles' => []]);
+    healthWrite($configuration . '/api-keys.json', ['version' => 3, 'keys' => []]);
     healthWrite($configuration . '/database-state.json', ['version' => 1, 'available' => true]);
     $key = base64_encode(random_bytes(32));
     putenv(DatabaseCredentialEncryption::ENVIRONMENT_VARIABLE . '=' . $key);

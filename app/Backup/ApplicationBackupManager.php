@@ -151,9 +151,9 @@ final class ApplicationBackupManager
                 && is_string($value['installationId'] ?? null) && is_bool($value['initialized'] ?? null),
             'config/admin.json' => ($value['version'] ?? null) === 5
                 && is_array($value['server'] ?? null) && is_array($value['runtime'] ?? null),
-            'config/authorization.json' => ($value['version'] ?? null) === 2
+            'config/authorization.json' => in_array($value['version'] ?? null, [2, 3], true)
                 && is_array($value['roles'] ?? null) && !array_is_list($value['roles']),
-            'config/api-keys.json' => ($value['version'] ?? null) === 2
+            'config/api-keys.json' => in_array($value['version'] ?? null, [2, 3], true)
                 && is_array($value['keys'] ?? null) && array_is_list($value['keys']),
             'database/config/database.json' => DatabaseConfigurationResolver::usesEncryption($value),
             default => false,

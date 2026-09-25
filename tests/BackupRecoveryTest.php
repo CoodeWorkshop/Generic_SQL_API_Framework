@@ -65,7 +65,7 @@ try {
     ]);
     backupWriteFixture($runtimePath . '/admin.json', AdminConfigurationRepository::defaults());
     backupWriteFixture($runtimePath . '/authorization.json', RuntimeConfiguration::authorizationDefaults());
-    backupWriteFixture($runtimePath . '/api-keys.json', ['version' => 2, 'keys' => [[
+    backupWriteFixture($runtimePath . '/api-keys.json', ['version' => 3, 'keys' => [[
         'id' => str_repeat('c', 16), 'name' => 'Backup key', 'ownerUserId' => str_repeat('a', 32),
         'roles' => [RoleModel::READ_ONLY], 'secretHash' => $apiSecretHash,
         'fingerprint' => str_repeat('d', 12), 'enabled' => true, 'revokedAt' => null,
