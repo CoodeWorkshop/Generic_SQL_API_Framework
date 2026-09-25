@@ -15,6 +15,10 @@ if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'produc
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 }
+$application = require __DIR__ . '/../config/app.php';
+$applicationVersion = is_array($application) && is_string($application['version'] ?? null)
+    ? $application['version']
+    : 'unknown';
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -24,9 +28,9 @@ if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'produc
     <link rel="stylesheet" href="/assets/admin.css">
     <link rel="stylesheet" href="/assets/service-controls.css">
 </head>
-<body class="pre-auth">
+<body class="pre-auth" data-app-version="<?= htmlspecialchars($applicationVersion, ENT_QUOTES, 'UTF-8') ?>">
 <div class="shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Administration navigation">
         <div class="brand"><span class="brand-mark">G</span><span>Generic SQL API</span></div>
         <nav id="navigation" hidden>
             <a href="/admin/health" data-route="health">System Health</a>
@@ -36,10 +40,13 @@ if (strtolower((string)(getenv('GENERIC_APP_ENV') ?: 'development')) !== 'produc
             <a href="/admin/roles" data-route="roles">Roles &amp; Permissions</a>
             <a href="/admin/api-keys" data-route="api-keys">API Keys</a>
         </nav>
-        <button id="logout" class="quiet" type="button" hidden>Sign out</button>
+        <div class="sidebar-footer">
+            <button id="logout" class="quiet" type="button" hidden>Logout <span aria-hidden="true">↪</span></button>
+            <span class="app-version" id="sidebar-version" title="Application version"></span>
+        </div>
     </aside>
     <main>
-        <header><div><p class="eyebrow">Local administration</p><h1 id="page-title">Starting…</h1></div><span class="local-pill">127.0.0.1 only</span></header>
+        <header><div><p class="eyebrow">Administration</p><h1 id="page-title">Starting…</h1></div></header>
         <div id="toast" class="toast" role="status" aria-live="polite"></div>
         <section id="content" class="panel loading"><div class="skeleton"></div><div class="skeleton short"></div></section>
     </main>

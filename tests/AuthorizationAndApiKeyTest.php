@@ -34,27 +34,31 @@ try {
     $admin = $users->createUser('System.Admin', 'system-admin-password', RoleModel::SYSTEM_ADMINISTRATOR, true, RoleModel::APPLICATION_ADMINISTRATOR);
     $reader = $users->createUser('Reader', 'read-only-password', RoleModel::READ_ONLY, false, null);
     $operator = $users->createUser('Operator', 'data-operator-password', RoleModel::DATA_OPERATOR, false, null);
-    $applicationAdmin = $users->createFrontendUser('Application.Admin', 'application-admin-password', RoleModel::APPLICATION_ADMINISTRATOR);
+    $storedSystemAdmin = (new AuthRepository())->findUser('System.Admin');
+    $systemPrincipal = new Principal($storedSystemAdmin['id'], $storedSystemAdmin['username'], 'session', $storedSystemAdmin['backendRole'], $storedSystemAdmin['frontendAccess'], $storedSystemAdmin['frontendRole'], true);
+    $applicationAdmin = $users->createFrontendUser($systemPrincipal, 'Application.Admin', 'application-admin-password', RoleModel::APPLICATION_ADMINISTRATOR);
     authorizationAssert($admin['backendRole'] === RoleModel::SYSTEM_ADMINISTRATOR && $reader['backendRole'] === RoleModel::READ_ONLY, 'Users did not receive the requested authorization domains.');
-    authorizationAssert(!array_key_exists('passwordHash', $applicationAdmin) && $applicationAdmin['backendProtected'] === false, 'Frontend user response exposed backend or credential details.');
+    authorizationAssert(!array_key_exists('passwordHash', $applicationAdmin) && $applicationAdmin['backendRole'] === null && $applicationAdmin['backendProtected'] === false, 'Frontend user response exposed credential details or malformed role state.');
     $frontendValidator = new FrontendUserRequestValidator();
     authorizationFails(fn () => $frontendValidator->validate([
         'action'=>'auth.frontendUsers.assignRole', 'username'=>'Application.Admin',
         'frontendRole'=>RoleModel::APPLICATION_ADMINISTRATOR, 'backendRole'=>RoleModel::SYSTEM_ADMINISTRATOR,
     ]), 'INVALID_FRONTEND_USER_REQUEST');
-    $users->updateUsername('Application.Admin', 'Application.Owner', true);
-    $users->changePassword('Application.Owner', 'replacement-application-password', true);
-    $users->setEnabled('Application.Owner', false, true);
-    $users->setEnabled('Application.Owner', true, true);
-    $users->assignFrontendAuthorization('Application.Owner', null);
+    $users->updateFrontendUsername($systemPrincipal, 'Application.Admin', 'Application.Owner');
+    $users->changeFrontendUserPassword($systemPrincipal, 'Application.Owner', 'replacement-application-password');
+    $users->setFrontendUserEnabled($systemPrincipal, 'Application.Owner', false);
+    $users->setFrontendUserEnabled($systemPrincipal, 'Application.Owner', true);
+    $users->assignFrontendAccess($systemPrincipal, 'Application.Owner', true, null);
     authorizationAssert((new AuthRepository())->findUser('Application.Owner')['backendRole'] === null, 'Frontend management granted backend access.');
+    $storedApplicationAdmin = (new AuthRepository())->findUser('Application.Owner');
+    $applicationPrincipal = new Principal($storedApplicationAdmin['id'], $storedApplicationAdmin['username'], 'session', null, true, RoleModel::APPLICATION_ADMINISTRATOR, true);
     foreach ([
-        fn () => $users->updateUsername('System.Admin', 'Unsafe.Admin', true),
-        fn () => $users->changePassword('System.Admin', 'unsafe-password-change', true),
-        fn () => $users->setEnabled('System.Admin', false, true),
-        fn () => $users->deleteUser('System.Admin', 'Application.Owner', true),
-    ] as $operation) authorizationFails($operation, 'BACKEND_IDENTITY_PROTECTED');
-    $users->deleteUser('Application.Owner', 'Someone.Else', true);
+        fn () => $users->updateFrontendUsername($applicationPrincipal, 'System.Admin', 'Unsafe.Admin'),
+        fn () => $users->changeFrontendUserPassword($applicationPrincipal, 'System.Admin', 'unsafe-password-change'),
+        fn () => $users->setFrontendUserEnabled($applicationPrincipal, 'System.Admin', false),
+        fn () => $users->deleteFrontendUser($applicationPrincipal, 'System.Admin'),
+    ] as $operation) authorizationFails($operation, 'AUTHORIZATION_DENIED');
+    $users->deleteFrontendUser($systemPrincipal, 'Application.Owner');
     authorizationAssert((new AuthRepository())->findUser('Application.Owner') === null, 'Frontend-only identity was not deleted.');
 
     $middleware = new AuthorizationMiddleware();
@@ -62,7 +66,6 @@ try {
     $middleware->handle(['action'=>'select']); $middleware->handle(['action'=>'sql','resource'=>'reports/sales']);
     authorizationFails(fn () => $middleware->handle(['action'=>'insert','resource'=>'customers']), 'RESOURCE_ACCESS_DENIED');
     authorizationFails(fn () => $middleware->handle(['action'=>'admin.status']), 'AUTHORIZATION_DENIED');
-
     PrincipalContext::set(authorizationPrincipal(RoleModel::DATA_OPERATOR));
     $middleware->handle(['action'=>'select']); $middleware->handle(['action'=>'upsert','resource'=>'customers']);
     authorizationFails(fn () => $middleware->handle(['action'=>'admin.status']), 'AUTHORIZATION_DENIED');
@@ -74,6 +77,11 @@ try {
     foreach ([['action'=>'select'],['action'=>'union'],['action'=>'metadata.tables'],['action'=>'sql','resource'=>'reports/sales']] as $request) $middleware->handle($request);
     authorizationFails(fn () => $middleware->handle(['action'=>'insert','resource'=>'customers']), 'RESOURCE_ACCESS_DENIED');
     authorizationFails(fn () => $middleware->handle(['action'=>'admin.status']), 'AUTHORIZATION_DENIED');
+    authorizationFails(fn () => $middleware->handle([
+        'action'=>'auth.users.assignAuthorization',
+        'username'=>'Reader',
+        'backendRole'=>RoleModel::SYSTEM_ADMINISTRATOR,
+    ]), 'AUTHORIZATION_DENIED');
     (new FrontendUserAuthorizationMiddleware(['auth.frontendUsers.list']))->handle(['action'=>'auth.frontendUsers.list']);
     authorizationFails(fn () => (new AuthorizationService())->authorize(PrincipalContext::current(), 'admin.manage'), 'AUTHORIZATION_DENIED');
 
@@ -101,7 +109,7 @@ try {
     $keys->setEnabled($created['id'], true); $keys->revoke($created['id']); authorizationAssert($keys->authenticate($created['apiKey']) === null, 'Revoked API key authenticated.');
 
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
-    foreach (["serviceControls('api',health.api)", "serviceControls('sqlParser',health.sqlParser)", 'data-database-runtime', 'auth.users.assignAuthorization', 'Application Administrator', 'System Administrator'] as $marker) authorizationAssert(str_contains($adminJavaScript, $marker), "Admin UI is missing {$marker}.");
+    foreach (["serviceControls('api',health.api)", "serviceControls('sqlParser',health.sqlParser)", 'data-database-runtime', 'auth.users.assignAuthorization', "'system-administrator':'Super Admin'", "'application-administrator':'Admin'"] as $marker) authorizationAssert(str_contains($adminJavaScript, $marker), "Admin UI is missing {$marker}.");
     authorizationAssert(!str_contains($adminJavaScript, 'admin.features.save'), 'Removed global feature controls remain in the Admin Console.');
     foreach (['start-linux.sh','start-windows.bat'] as $launcher) {
         $source=(string)file_get_contents(__DIR__.'/../'.$launcher);

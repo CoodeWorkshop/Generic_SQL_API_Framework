@@ -234,6 +234,8 @@ try {
         unifiedAdminAssert(str_contains($launcher, '/admin'), 'Launcher does not display the admin URL.');
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
+    $adminHtml = (string)file_get_contents(__DIR__ . '/../admin/index.php');
+    $adminCss = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.css');
     unifiedAdminAssert(str_contains($adminJavaScript, 'availableAuthenticationModes.map'), 'Database authentication UI does not use backend-supported modes.');
     foreach ([
         'session' => 'Session',
@@ -247,6 +249,27 @@ try {
         );
     }
     unifiedAdminAssert(!str_contains($adminJavaScript, '(existing configuration)'), 'Supported authentication modes are still rendered as existing-only configuration.');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'Welcome back')
+        && str_contains($adminJavaScript, 'Sign in to continue to your workspace.'), 'Generic Admin login copy is missing.');
+    unifiedAdminAssert(str_contains($adminJavaScript, 'data-password-toggle'), 'Admin login password visibility control is missing.');
+    unifiedAdminAssert(!str_contains($adminJavaScript, '2.0.0-dev')
+        && str_contains($adminHtml, "require __DIR__ . '/../config/app.php'")
+        && str_contains($adminHtml, 'data-app-version'), 'Admin UI does not use the centralized application version.');
+    unifiedAdminAssert(!str_contains($adminHtml, '127.0.0.1 only')
+        && !str_contains($adminHtml, 'local-pill'), 'Loopback-only UI warning remains visible.');
+    unifiedAdminAssert(!str_contains($adminHtml, 'id="menu-toggle"')
+        && !str_contains($adminHtml, 'sidebar-backdrop')
+        && !str_contains($adminHtml, 'nav-icon')
+        && !str_contains($adminJavaScript, 'sidebarCollapsed')
+        && !str_contains($adminJavaScript, 'sidebar-open'), 'Removed sidebar collapse controls or state remain.');
+    unifiedAdminAssert(str_contains($adminCss, 'position: sticky')
+        && str_contains($adminCss, 'prefers-reduced-motion: reduce')
+        && !str_contains($adminCss, '.sidebar-collapsed')
+        && !str_contains($adminCss, '.sidebar-open .sidebar'), 'Always-expanded sidebar layout or motion accessibility styles are incomplete.');
+    unifiedAdminAssert(str_contains($adminHtml, 'Logout <span aria-hidden="true">↪</span>')
+        && strpos($adminHtml, 'id="logout"') < strpos($adminHtml, 'id="sidebar-version"'), 'Logout icon or version placement is incorrect.');
+    unifiedAdminAssert(str_contains($adminJavaScript, "'system-administrator':'Super Admin'")
+        && str_contains($adminJavaScript, "'application-administrator':'Admin'"), 'Admin role display labels are missing.');
     unifiedAdminAssert(
         preg_match('/async function healthView\s*\(/', $adminJavaScript) === 1
             && preg_match('/(^|[;{}]\s*)healthView\s*=/', $adminJavaScript) !== 1,

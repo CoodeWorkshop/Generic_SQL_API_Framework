@@ -112,7 +112,7 @@ try {
     $users->createUser('Read.User', 'fake-reader-password-123', RoleModel::READ_ONLY, false, null);
     $users->createUser('Data.Operator', 'fake-operator-password-123', RoleModel::DATA_OPERATOR, false, null);
     $users->createUser('Disabled.User', 'fake-disabled-password-123', RoleModel::READ_ONLY, false, null, false);
-    $users->createFrontendUser('Application.Admin', 'fake-application-password-123', RoleModel::APPLICATION_ADMINISTRATOR);
+    $users->createUser('Application.Admin', 'fake-application-password-123', null, true, RoleModel::APPLICATION_ADMINISTRATOR);
 
     // Authentication failures are generic, validation rejects malformed credentials, and login regenerates the ID.
     $authValidator = new AuthRequestValidator();
@@ -270,7 +270,16 @@ try {
     $authorization->authorize($applicationAdministrator, 'frontend.users.manage');
     securityTestingFailure(fn () => $authorization->authorize($applicationAdministrator, 'admin.manage'), 'AUTHORIZATION_DENIED', 403);
     securityTestingFailure(fn () => $authorization->authorize($applicationAdministrator, 'data.write', 'customers', 'write'), 'RESOURCE_ACCESS_DENIED', 403);
-    securityTestingFailure(fn () => $users->changePassword('System.Admin', 'unsafe-change', true), 'BACKEND_IDENTITY_PROTECTED', 403);
+    $persistedApplicationAdmin = $repository->findUser('Application.Admin');
+    $persistedApplicationPrincipal = new Principal(
+        $persistedApplicationAdmin['id'], $persistedApplicationAdmin['username'], 'session', null,
+        true, RoleModel::APPLICATION_ADMINISTRATOR, true
+    );
+    securityTestingFailure(
+        fn () => $users->changeFrontendUserPassword($persistedApplicationPrincipal, 'System.Admin', 'unsafe-change'),
+        'AUTHORIZATION_DENIED',
+        403
+    );
 
     // API key secret handling, owner state, role confinement, object IDs, and invalid-auth throttling.
     $keys = new ApiKeyService(null, $repository, $authorization, $logger);
