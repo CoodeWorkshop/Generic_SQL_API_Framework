@@ -610,16 +610,20 @@ dialog::backdrop {
   width: min(560px, calc(100vw - 32px));
   max-width: none;
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   padding: 0;
   overflow: hidden;
 }
 .user-dialog__surface {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   overflow: hidden;
 }
 .user-dialog__header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   margin: 0;
@@ -640,15 +644,28 @@ dialog::backdrop {
   line-height: 1;
 }
 .user-dialog__body {
+  flex: 1 1 auto;
   min-height: 0;
   padding: 21px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.user-dialog__form {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
+}
+.user-dialog__footer {
+  flex: 0 0 auto;
+  padding: 16px 21px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
 }
 .dialog-error {
   margin: 15px 0 0;
@@ -1096,7 +1113,8 @@ dialog:not(.user-dialog) {
   }
 
   .user-dialog__header,
-  .user-dialog__body {
+  .user-dialog__body,
+  .user-dialog__footer {
     padding: 16px;
   }
 

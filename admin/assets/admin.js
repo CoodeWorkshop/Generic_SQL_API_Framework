@@ -118,6 +118,12 @@
   function confirmAction(message, titleText = "Confirm action") {
     document.querySelector("#confirm-title").textContent = titleText;
     document.querySelector("#confirm-message").textContent = message;
+    document.body.classList.add("dialog-open");
+    confirmation.addEventListener(
+      "close",
+      () => document.body.classList.remove("dialog-open"),
+      { once: true },
+    );
     confirmation.showModal();
     return new Promise((resolve) =>
       confirmation.addEventListener(
@@ -682,17 +688,46 @@
             : mode === "password"
               ? "Change Password"
               : `Authorization for ${user.username}`;
-      let form = `<form class="stack">${fields(null)}<label>Role *<select name="role" required><option value="read-only">Read Only</option><option value="data-operator">Data Operator</option><option value="application-administrator">Admin</option><option value="system-administrator">Super Admin</option></select></label><label>Password *<input name="password" type="password" required autocomplete="new-password"></label><label>Confirm Password *<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label><label class="check"><input name="enabled" type="checkbox" checked> Enabled</label><div class="dialog-actions"><button type="button" class="secondary" data-dialog-close>Cancel</button><button>Create User</button></div></form>`;
-      if (mode === "edit")
-        form = `<form class="stack"><input name="username" type="hidden" value="${escapeHtml(user.username)}">${fields(user)}<div class="dialog-actions"><button type="button" class="secondary" data-dialog-close>Cancel</button><button>Save User</button></div></form>`;
-      if (mode === "password")
-        form = `<form class="stack"><input name="username" type="hidden" value="${escapeHtml(user.username)}"><label>New Password *<input name="newPassword" type="password" required autocomplete="new-password"></label><label>Confirm Password *<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label><div class="dialog-actions"><button type="button" class="secondary" data-dialog-close>Cancel</button><button>Change Password</button></div></form>`;
+      let formBody = `${fields(null)}
+        <label>Role *<select name="role" required><option value="read-only">Read Only</option><option value="data-operator">Data Operator</option><option value="application-administrator">Admin</option><option value="system-administrator">Super Admin</option></select></label>
+        <label>Password *<input name="password" type="password" required autocomplete="new-password"></label>
+        <label>Confirm Password *<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label>
+        <label class="check"><input name="enabled" type="checkbox" checked> Enabled</label>`;
+      let submitLabel = "Create User";
+      if (mode === "edit") {
+        formBody = `<input name="username" type="hidden" value="${escapeHtml(user.username)}">${fields(user)}`;
+        submitLabel = "Save User";
+      }
+      if (mode === "password") {
+        formBody = `<input name="username" type="hidden" value="${escapeHtml(user.username)}">
+          <label>New Password *<input name="newPassword" type="password" required autocomplete="new-password"></label>
+          <label>Confirm Password *<input name="passwordConfirmation" type="password" required autocomplete="new-password"></label>`;
+        submitLabel = "Change Password";
+      }
       if (mode === "authorization") {
         const selected = userRolePreset(user);
-        form = `<form class="stack"><input name="username" type="hidden" value="${escapeHtml(user.username)}"><p class="help">Choose a role preset. The backend applies and validates the corresponding authorization.</p><label>Role *<select name="role" required><option value="system-administrator"${selected === "system-administrator" ? " selected" : ""}>Super Admin</option><option value="application-administrator"${selected === "application-administrator" ? " selected" : ""}>Admin</option><option value="data-operator"${selected === "data-operator" ? " selected" : ""}>Data Operator</option><option value="read-only"${selected === "read-only" ? " selected" : ""}>Read Only</option></select></label><div class="dialog-actions"><button type="button" class="secondary" data-dialog-close>Cancel</button><button>Save Authorization</button></div></form>`;
+        formBody = `<input name="username" type="hidden" value="${escapeHtml(user.username)}">
+          <p class="help">Choose a role preset. The backend applies and validates the corresponding authorization.</p>
+          <label>Role *<select name="role" required><option value="system-administrator"${selected === "system-administrator" ? " selected" : ""}>Super Admin</option><option value="application-administrator"${selected === "application-administrator" ? " selected" : ""}>Admin</option><option value="data-operator"${selected === "data-operator" ? " selected" : ""}>Data Operator</option><option value="read-only"${selected === "read-only" ? " selected" : ""}>Read Only</option></select></label>`;
+        submitLabel = "Save Authorization";
       }
       document.querySelector("#user-dialog-content").innerHTML =
-        `<div class="user-dialog__surface"><header class="user-dialog__header"><h2 id="user-dialog-title">${escapeHtml(heading)}</h2><button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button></header><div class="user-dialog__body">${form}<p class="dialog-error" data-dialog-error role="alert" hidden></p></div></div>`;
+        `<div class="user-dialog__surface">
+          <header class="user-dialog__header">
+            <h2 id="user-dialog-title">${escapeHtml(heading)}</h2>
+            <button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>
+          </header>
+          <form class="user-dialog__form">
+            <div class="user-dialog__body stack">
+              ${formBody}
+              <p class="dialog-error" data-dialog-error role="alert" hidden></p>
+            </div>
+            <footer class="dialog-actions user-dialog__footer">
+              <button type="button" class="secondary" data-dialog-close>Cancel</button>
+              <button>${escapeHtml(submitLabel)}</button>
+            </footer>
+          </form>
+        </div>`;
       userDialog
         .querySelectorAll("[data-dialog-close]")
         .forEach((item) => item.addEventListener("click", closeUserDialog));
@@ -971,18 +1006,18 @@
           <h2 id="user-dialog-title">Create API Key</h2>
           <button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>
         </header>
-        <div class="user-dialog__body">
-          <form class="stack" data-api-key-form novalidate>
+        <form class="user-dialog__form" data-api-key-form novalidate>
+          <div class="user-dialog__body stack">
             <label>Name *<input name="name" maxlength="100" required autocomplete="off"></label>
             <label>Owner *<select name="owner" required>${ownerOptions}</select></label>
             <label>Role *<select name="role" required>${roleOptions}</select></label>
-            <div class="dialog-actions">
-              <button type="button" class="secondary" data-dialog-close>Cancel</button>
-              <button>Create API Key</button>
-            </div>
-          </form>
-          <p class="dialog-error" data-dialog-error role="alert" hidden></p>
-        </div>
+            <p class="dialog-error" data-dialog-error role="alert" hidden></p>
+          </div>
+          <footer class="dialog-actions user-dialog__footer">
+            <button type="button" class="secondary" data-dialog-close>Cancel</button>
+            <button>Create API Key</button>
+          </footer>
+        </form>
       </div>`;
 
     userDialog
@@ -1031,10 +1066,10 @@
               <div class="user-dialog__body stack">
                 <p class="warning">It cannot be displayed again.</p>
                 <div class="secret-reveal">${escapeHtml(created.apiKey)}</div>
-                <div class="dialog-actions">
-                  <button type="button" data-dialog-close>Done</button>
-                </div>
               </div>
+              <footer class="dialog-actions user-dialog__footer">
+                <button type="button" data-dialog-close>Done</button>
+              </footer>
             </div>`;
           userDialog
             .querySelectorAll("[data-dialog-close]")

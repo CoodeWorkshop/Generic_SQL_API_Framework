@@ -326,8 +326,11 @@ try {
     foreach (['>Super Admin</option>', '>Admin</option>', '>Data Operator</option>', '>Read Only</option>'] as $roleOption) {
         unifiedAdminAssert(str_contains($adminJavaScript, $roleOption), "Backend Authorization UI is missing {$roleOption}.");
     }
-    unifiedAdminAssert(str_contains($adminCss, '.user-dialog__body')
-        && str_contains($adminCss, 'overflow-y: auto'), 'Backend user dialog does not provide viewport-contained scrolling.');
+    unifiedAdminAssert(str_contains($compactAdminCss, '.user-dialog__surface { display: flex; flex-direction: column;')
+        && str_contains($compactAdminCss, '.user-dialog__body { flex: 1 1 auto; min-height: 0; padding: 21px; overflow-y: auto;')
+        && str_contains($compactAdminCss, '.user-dialog__form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }')
+        && str_contains($compactAdminCss, '.user-dialog__footer { flex: 0 0 auto;')
+        && str_contains($adminJavaScript, 'class="dialog-actions user-dialog__footer"'), 'Backend dialogs do not keep their header/footer visible while the modal body scrolls.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'function openApiKeyDialog')
         && str_contains($adminJavaScript, 'data-api-key-form')
         && str_contains($adminJavaScript, 'openApiKeyDialog(users, roles, event.currentTarget)')
@@ -338,6 +341,9 @@ try {
         && str_contains($adminJavaScript, 'data-dialog-error')
         && str_contains($adminJavaScript, 'Copy this API key now')
         && str_contains($adminJavaScript, 'It cannot be displayed again.'), 'API key modal validation or one-time reveal is missing.');
+    unifiedAdminAssert(substr_count($adminJavaScript, 'document.body.classList.add("dialog-open")') >= 3
+        && substr_count($adminJavaScript, 'document.body.classList.remove("dialog-open")') >= 3,
+        'Admin dialogs do not consistently lock and restore background scrolling.');
     unifiedAdminAssert(str_contains($compactAdminCss, '.users-panel { width: 100%; max-width: 100%; overflow: hidden; }')
         && str_contains($compactAdminCss, '.table-wrap { width: 100%; min-width: 0; overflow-x: auto;')
         && str_contains($compactAdminCss, '.users-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }')
