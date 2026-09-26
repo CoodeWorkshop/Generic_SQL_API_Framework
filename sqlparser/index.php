@@ -9,6 +9,8 @@ require_once __DIR__ . '/../core/ExceptionHandler.php';
 ExceptionHandler::register();
 
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
+require_once __DIR__ . '/../app/Middleware/ApplicationRuntimeMiddleware.php';
+(new ApplicationRuntimeMiddleware('sqlParser'))->handle([]);
 
 if ($method !== 'GET') {
     header('Content-Type: application/json; charset=utf-8');

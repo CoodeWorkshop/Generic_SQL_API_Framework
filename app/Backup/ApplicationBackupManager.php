@@ -58,7 +58,8 @@ final class ApplicationBackupManager
                 'files' => $files,
                 'excluded' => [
                     'encryption_key', 'sessions', 'runtime_process_state', 'database_availability_state',
-                    'rate_limit_state', 'logs', 'exports', 'uploads', 'sql_server_data',
+                    'application_runtime_state', 'rate_limit_state', 'logs', 'exports', 'uploads',
+                    'sql_server_data',
                 ],
             ];
             $this->writeJson($temporaryPath . DIRECTORY_SEPARATOR . self::MANIFEST_FILE, $manifest);

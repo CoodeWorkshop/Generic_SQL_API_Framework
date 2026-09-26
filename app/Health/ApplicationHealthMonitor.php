@@ -101,7 +101,8 @@ final class ApplicationHealthMonitor
     private function configurationHealth(): array
     {
         $versions = ['auth.json' => 4, 'installation.json' => 1, 'admin.json' => 5,
-            'authorization.json' => 3, 'api-keys.json' => 3, 'database-state.json' => 1];
+            'authorization.json' => 3, 'api-keys.json' => 3, 'database-state.json' => 1,
+            'application-runtime-state.json' => 1];
         foreach ($versions as $file => $version) {
             $path = $this->configurationDirectory . DIRECTORY_SEPARATOR . $file;
             if (!is_file($path)) return ['status' => 'unhealthy', 'category' => 'configuration_missing'];
@@ -125,8 +126,26 @@ final class ApplicationHealthMonitor
             'authorization.json' => is_array($value['roles'] ?? null),
             'api-keys.json' => is_array($value['keys'] ?? null),
             'database-state.json' => is_bool($value['available'] ?? null),
+            'application-runtime-state.json' => $this->applicationRuntimeShapeIsValid($value),
             default => false,
         };
+    }
+
+    private function applicationRuntimeShapeIsValid(array $value): bool
+    {
+        if (!is_int($value['generation'] ?? null) || $value['generation'] < 0) return false;
+        $services = $value['services'] ?? null;
+        if (!is_array($services) || array_keys($services) !== ['api', 'sqlParser']) return false;
+        foreach ($services as $runtime) {
+            if (!is_array($runtime)
+                || array_keys($runtime) !== ['enabled', 'updatedAt', 'reloadedAt']
+                || !is_bool($runtime['enabled'] ?? null)) return false;
+            foreach (['updatedAt', 'reloadedAt'] as $field) {
+                $timestamp = $runtime[$field] ?? null;
+                if ($timestamp !== null && (!is_string($timestamp) || strtotime($timestamp) === false)) return false;
+            }
+        }
+        return true;
     }
 
     private function databaseReadiness(): array

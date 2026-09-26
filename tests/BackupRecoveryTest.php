@@ -72,6 +72,14 @@ try {
         'createdAt' => gmdate(DATE_ATOM), 'lastUsedAt' => null,
     ]]]);
     backupWriteFixture($runtimePath . '/database-state.json', ['version' => 1, 'available' => true, 'updatedAt' => gmdate(DATE_ATOM)]);
+    backupWriteFixture($runtimePath . '/application-runtime-state.json', [
+        'version' => 1,
+        'generation' => 7,
+        'services' => [
+            'api' => ['enabled' => false, 'updatedAt' => gmdate(DATE_ATOM), 'reloadedAt' => null],
+            'sqlParser' => ['enabled' => true, 'updatedAt' => gmdate(DATE_ATOM), 'reloadedAt' => gmdate(DATE_ATOM)],
+        ],
+    ]);
     $database = [
         'provider' => 'sqlserver', 'driver' => 'auto', 'server' => 'backup-db.internal',
         'port' => '1433', 'database' => 'BackupTest', 'authentication' => 'sql',
@@ -125,6 +133,8 @@ try {
     backupAssert(!is_dir($bundlePath . '/sessions'), 'Session state was included in the backup.');
     backupAssert(!is_file($bundlePath . '/runtime/secrets/database-encryption.key'), 'Encryption key was included in the backup.');
     backupAssert(!is_file($bundlePath . '/config/database-state.json'), 'Disposable database availability state was included.');
+    backupAssert(!is_file($bundlePath . '/config/application-runtime-state.json'), 'Host-specific application runtime state was included.');
+    backupAssert(in_array('application_runtime_state', $manifest['excluded'], true), 'Backup manifest did not declare application runtime state exclusion.');
     if (PHP_OS_FAMILY !== 'Windows') {
         clearstatcache(true, $bundlePath . '/manifest.json');
         backupAssert((fileperms($bundlePath . '/manifest.json') & 0777) === 0600, 'Backup file permissions are not owner-only.');
@@ -157,6 +167,7 @@ try {
     backupAssert($restore['ready'] === true && $restore['files'] === 6, 'Restore prerequisite staging failed.');
     backupAssert(!is_dir($restorePath . '/sessions'), 'Restore staging revived old authenticated sessions.');
     backupAssert(!is_file($restorePath . '/config/database-state.json'), 'Restore staging restored disposable runtime state.');
+    backupAssert(!is_file($restorePath . '/config/application-runtime-state.json'), 'Restore staging restored host-specific application runtime state.');
     backupAssert($manager->verify($restorePath)['formatVersion'] === 1, 'Staged restore failed integrity validation.');
 
     $workerCommand = [PHP_BINARY];

@@ -65,6 +65,7 @@ require_once __DIR__ . '/../app/Middleware/LoggingMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/AuthorizationMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/DatabaseAvailabilityMiddleware.php';
 require_once __DIR__ . '/../app/Middleware/ApiRateLimitMiddleware.php';
+require_once __DIR__ . '/../app/Middleware/ApplicationRuntimeMiddleware.php';
 require_once __DIR__ . '/../core/Validator.php';
 require_once __DIR__ . '/../app/Controllers/MetadataController.php';
 require_once __DIR__ . '/../app/Controllers/QueryController.php';
@@ -122,6 +123,7 @@ unset($_SERVER['GENERIC_AUTH_PROVIDER']);
 if (str_starts_with((string)($publicRequest['action'] ?? ''), 'admin.')) {
     Response::error('Not found.', 404, 'NOT_FOUND');
 }
+(new ApplicationRuntimeMiddleware('api'))->handle($publicRequest);
 $authentication = new AuthenticationMiddleware(true, $publicAuthenticationActions);
 $authentication->handle($publicRequest);
 (new ApiRateLimitMiddleware())->handle($publicRequest);

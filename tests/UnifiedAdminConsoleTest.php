@@ -229,8 +229,10 @@ try {
         unifiedAdminAssert(str_contains($launcher, '127.0.0.1'), 'Launcher does not bind to loopback.');
         unifiedAdminAssert(!str_contains($launcher, '0.0.0.0'), 'Launcher exposes the admin console to the network.');
         unifiedAdminAssert(str_contains($launcher, 'find-available-port.php'), 'Launcher does not use safe port selection.');
-        unifiedAdminAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Launcher does not start with database runtime access disconnected.');
-        unifiedAdminAssert(!str_contains($launcher, 'database-runtime-control.php connect'), 'Launcher automatically connects database runtime access.');
+        unifiedAdminAssert(str_contains($launcher, 'api-runtime-control.php') && str_contains($launcher, 'start'), 'Launcher does not automatically start the API.');
+        unifiedAdminAssert(str_contains($launcher, 'sqlparser-runtime-control.php') && str_contains($launcher, 'start'), 'Launcher does not automatically start the SQL Parser.');
+        unifiedAdminAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'connect'), 'Launcher does not automatically connect application database runtime access.');
+        unifiedAdminAssert(str_contains($launcher, 'verify-development-runtime.php'), 'Launcher does not verify development runtime startup.');
         unifiedAdminAssert(str_contains($launcher, '/admin'), 'Launcher does not display the admin URL.');
     }
     $adminJavaScript = (string)file_get_contents(__DIR__ . '/../admin/assets/admin.js');
@@ -251,6 +253,16 @@ try {
         );
     }
     unifiedAdminAssert(!str_contains($adminJavaScript, '(existing configuration)'), 'Supported authentication modes are still rendered as existing-only configuration.');
+    unifiedAdminAssert(
+        str_contains($adminJavaScript, 'item.controlMode === "application"')
+            && str_contains($adminJavaScript, 'data-control-mode="application"')
+            && str_contains($adminJavaScript, '>Enable</button>')
+            && str_contains($adminJavaScript, '>Disable</button>')
+            && str_contains($adminJavaScript, '>Reload</button>')
+            && str_contains($adminJavaScript, '["Infrastructure", service.infrastructure?.status]')
+            && str_contains($adminJavaScript, '["Application Runtime", service.applicationRuntime?.status]'),
+        'Admin Console does not expose production application runtime controls and layered health.'
+    );
     unifiedAdminAssert(str_contains($adminJavaScript, 'Welcome back')
         && str_contains($adminJavaScript, 'Sign in to continue to your workspace.'), 'Generic Admin login copy is missing.');
     preg_match('/function loginView\(\).*?content\.innerHTML = (`.*?`);/s', $adminJavaScript, $loginViewMatch);
@@ -346,7 +358,7 @@ try {
     unifiedAdminAssert(!str_contains(strtolower($adminJavaScript), 'test saved configuration'), 'Removed saved database test remains in the Admin Console.');
     unifiedAdminAssert(!str_contains($adminJavaScript, 'Runtime access'), 'Database runtime lifecycle remains under Configuration.');
     unifiedAdminAssert(str_contains($adminJavaScript, 'data-database-runtime'), 'Database runtime lifecycle is missing from System Health.');
-    unifiedAdminAssert(str_contains($compactAdminJavaScript, "['Port',health.api.port]") && str_contains($compactAdminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not display actual managed service ports.');
+    unifiedAdminAssert(str_contains($compactAdminJavaScript, "['Port',service.port]"), 'System Health does not display actual development managed-service ports.');
     unifiedAdminAssert(str_contains($compactAdminJavaScript, "['Server',health.database.server]") && str_contains($compactAdminJavaScript, "['Database',health.database.database]"), 'System Health omits safe database connection details.');
     unifiedAdminAssert(str_contains((string)file_get_contents(__DIR__ . '/../admin/api.php'), 'AdminAuthorizationMiddleware'), 'Independent Admin authorization boundary is missing.');
     foreach ([

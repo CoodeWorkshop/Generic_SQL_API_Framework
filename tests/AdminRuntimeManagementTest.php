@@ -153,15 +153,24 @@ try {
     JsonFileStore::save($databaseStatePath, ['version' => 1, 'available' => false, 'updatedAt' => null]);
     $databaseAvailability = new DatabaseAvailabilityManager($databaseStatePath);
     $connectionTests = 0;
+    $connectionTester = static function () use (&$connectionTests): void { $connectionTests++; };
     $adminService = new AdminService(
         $repository,
         $databasePath,
-        static function () use (&$connectionTests): void { $connectionTests++; },
+        $connectionTester,
         $manager,
         null,
         $parserManager,
         null,
-        $databaseAvailability
+        $databaseAvailability,
+        null,
+        new ApplicationHealthMonitor([
+            'databasePath' => $databasePath,
+            'runtimeDirectory' => $directory,
+            'databaseCachePath' => $directory . '/database-health.json',
+            'databaseAvailable' => static fn (): bool => $databaseAvailability->available(),
+            'databaseTester' => $connectionTester,
+        ])
     );
     $initialApi = $manager->status();
     $initialParser = $parserManager->status();
@@ -345,10 +354,10 @@ try {
     runtimeAssert(str_contains($windowsLauncher, 'runtime\windows\php\php.exe'), 'Windows runtime is not automatically selected.');
     runtimeAssert(str_contains($linuxLauncher, 'runtime/linux/php/php'), 'Linux bundled runtime is not preferred.');
     foreach ([$windowsLauncher, $linuxLauncher] as $launcher) {
-        runtimeAssert(!str_contains($launcher, 'api-runtime-control.php start'), 'Launcher still starts the managed API lifecycle.');
-        runtimeAssert(!str_contains($launcher, 'sqlparser-runtime-control.php start'), 'Launcher still starts the managed SQL Parser lifecycle.');
-        runtimeAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'disconnect'), 'Launcher does not reset database runtime access to disconnected.');
-        runtimeAssert(!str_contains($launcher, 'database-runtime-control.php connect'), 'Launcher automatically connects database runtime access.');
+        runtimeAssert(str_contains($launcher, 'api-runtime-control.php') && str_contains($launcher, 'start'), 'Launcher does not establish the managed API lifecycle.');
+        runtimeAssert(str_contains($launcher, 'sqlparser-runtime-control.php') && str_contains($launcher, 'start'), 'Launcher does not establish the managed SQL Parser lifecycle.');
+        runtimeAssert(str_contains($launcher, 'database-runtime-control.php') && str_contains($launcher, 'connect'), 'Launcher does not enable application database runtime access.');
+        runtimeAssert(str_contains($launcher, 'verify-development-runtime.php'), 'Launcher does not verify the complete development runtime.');
         runtimeAssert(str_contains($launcher, '-t') && str_contains($launcher, 'router.php'), 'Launcher does not start the independent Admin app.');
     }
 
@@ -358,7 +367,7 @@ try {
     runtimeAssert(!str_contains($adminJavaScript, 'Runtime access'), 'Database runtime controls remain under Configuration.');
     runtimeAssert(!str_contains($adminJavaScript, 'data-database="'), 'Legacy Configuration database runtime controls remain.');
     runtimeAssert(str_contains($adminJavaScript, 'data-database-runtime'), 'System Health database runtime controls are missing.');
-    runtimeAssert(str_contains($compactAdminJavaScript, "['Port',health.api.port]") && str_contains($compactAdminJavaScript, "['Port',health.sqlParser.port]"), 'System Health does not render actual API and SQL Parser ports.');
+    runtimeAssert(str_contains($compactAdminJavaScript, "['Port',service.port]"), 'System Health does not render actual development API and SQL Parser ports.');
 
     $adminApiSource = (string)file_get_contents(__DIR__ . '/../admin/api.php');
     $adminControllerSource = (string)file_get_contents(__DIR__ . '/../app/Controllers/AdminController.php');

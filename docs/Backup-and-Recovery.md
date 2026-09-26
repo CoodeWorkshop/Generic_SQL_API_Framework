@@ -18,7 +18,7 @@ engine, remote storage client, or enterprise backup system.
 | `GENERIC_SQL_API_ENCRYPTION_KEY` | Never included | Back up separately under a different access boundary; both matching key and envelope are required |
 | SQL Server database data | Not handled by PHP | Use SQL Server-native full/differential/transaction-log backup and restore processes |
 | PHP sessions | Excluded and disposable | Do not restore authenticated sessions; start recovery with an empty protected session directory |
-| Database availability, PID, lock, rate-limit, OPcache, export, upload, and temporary state | Excluded | Recreated or safely reset at startup; database availability should begin disconnected |
+| Database/application availability, PID, lock, rate-limit, OPcache, export, upload, and temporary state | Excluded | Recreated or safely reset after recovery; database availability should begin disconnected |
 | Application/security logs and web-server logs | Excluded from configuration bundle | Preserve separately when investigation, audit, or policy requires it; maintain restrictive permissions |
 
 The application source artifact must include backend-owned `config/sql-resources.php`,
@@ -47,6 +47,12 @@ The manifest contains only format version, UTC creation timestamp, application
 name/version, logical filenames, byte sizes, SHA-256 checksums, and a categorical
 exclusion list. It contains no configuration values, usernames, hashes, keys,
 passwords, connection details, or API-key material.
+
+Database availability and production API/Parser application availability are
+host-specific operational state and are deliberately excluded. A normal host
+restart preserves `config/application-runtime-state.json`, but disaster recovery
+bootstraps fresh enabled state after the allowlisted configuration is restored;
+operators then establish the intended availability after validation.
 
 `verify` detects missing files, invalid JSON/schema, size/checksum changes,
 unsupported manifests, plaintext database configuration, and a missing/wrong
@@ -116,7 +122,8 @@ after recovery. Do not manufacture sessions or bypass authentication.
    with the selected release.
 5. Install the five runtime configuration files and encrypted database envelope
    with the PHP worker stopped. Do not restore lock/PID/rate/session/availability
-   files. Start database availability as disconnected.
+   files. Start database availability as disconnected and bootstrap fresh
+   application runtime availability rather than restoring host state.
 6. Provision `GENERIC_SQL_API_ENCRYPTION_KEY` separately to the worker identity.
 7. Apply NTFS/POSIX ownership and permissions to configuration, key, session,
    runtime, and log directories. Create a new empty session directory.

@@ -166,7 +166,8 @@ try {
     authorizationAssert(!str_contains($adminJavaScript, 'admin.features.save'), 'Removed global feature controls remain in the Admin Console.');
     foreach (['start-linux.sh','start-windows.bat'] as $launcher) {
         $source=(string)file_get_contents(__DIR__.'/../'.$launcher);
-        authorizationAssert(!str_contains($source, 'api-runtime-control.php start') && !str_contains($source, 'sqlparser-runtime-control.php start'), "{$launcher} still auto-starts a managed service.");
+        authorizationAssert(str_contains($source, 'api-runtime-control.php') && str_contains($source, 'sqlparser-runtime-control.php') && str_contains($source, 'database-runtime-control.php'), "{$launcher} does not establish the fixed development runtime.");
+        authorizationAssert(!preg_match('/systemctl|iisreset|appcmd|net\s+(?:start|stop)|sc\s+(?:start|stop)|nginx\s+-s/i', $source), "{$launcher} controls production infrastructure.");
     }
     unset($_SERVER['HTTP_X_CSRF_TOKEN']);
     foreach (['auth.users.assignAuthorization','auth.frontendUsers.create','auth.frontendUsers.assignRole','auth.apiKeys.create','admin.database.connect'] as $action) authorizationFails(fn () => (new CsrfProtectionMiddleware())->handle(['action'=>$action]), 'CSRF_VALIDATION_FAILED');

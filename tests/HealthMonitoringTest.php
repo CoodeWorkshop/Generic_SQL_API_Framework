@@ -40,6 +40,14 @@ try {
     healthWrite($configuration . '/authorization.json', ['version' => 3, 'roles' => []]);
     healthWrite($configuration . '/api-keys.json', ['version' => 3, 'keys' => []]);
     healthWrite($configuration . '/database-state.json', ['version' => 1, 'available' => true]);
+    healthWrite($configuration . '/application-runtime-state.json', [
+        'version' => 1,
+        'generation' => 0,
+        'services' => [
+            'api' => ['enabled' => true, 'updatedAt' => null, 'reloadedAt' => null],
+            'sqlParser' => ['enabled' => true, 'updatedAt' => null, 'reloadedAt' => null],
+        ],
+    ]);
     $key = base64_encode(random_bytes(32));
     putenv(DatabaseCredentialEncryption::ENVIRONMENT_VARIABLE . '=' . $key);
     $encrypted = (new DatabaseCredentialEncryption())->encryptConfiguration([

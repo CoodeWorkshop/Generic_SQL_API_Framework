@@ -13,6 +13,7 @@ require_once __DIR__ . '/../Runtime/SqlParserProcessManager.php';
 require_once __DIR__ . '/../Runtime/DatabaseAuthenticationSupport.php';
 require_once __DIR__ . '/../Runtime/RuntimeDetector.php';
 require_once __DIR__ . '/../Runtime/DatabaseAvailabilityManager.php';
+require_once __DIR__ . '/../Runtime/ApplicationRuntimeManager.php';
 require_once __DIR__ . '/../Health/ApplicationHealthMonitor.php';
 require_once __DIR__ . '/../../core/JsonFileStore.php';
 require_once __DIR__ . '/../../database/drivers/SqlServerDriver.php';
@@ -28,6 +29,7 @@ final class AdminService
     private RuntimeDetector $runtimeDetector;
     private DatabaseAuthenticationSupport $databaseAuthentication;
     private DatabaseAvailabilityManager $databaseAvailability;
+    private ApplicationRuntimeManager $applicationRuntime;
     private Logger $logger;
     private ApplicationHealthMonitor $healthMonitor;
 
@@ -41,7 +43,8 @@ final class AdminService
         ?DatabaseAuthenticationSupport $databaseAuthentication = null,
         ?DatabaseAvailabilityManager $databaseAvailability = null,
         ?Logger $logger = null,
-        ?ApplicationHealthMonitor $healthMonitor = null
+        ?ApplicationHealthMonitor $healthMonitor = null,
+        ?ApplicationRuntimeManager $applicationRuntime = null
     ) {
         $this->configuration = $configuration ?? new AdminConfigurationRepository();
         $this->databasePath = $databasePath
@@ -59,6 +62,7 @@ final class AdminService
         $this->parserProcessManager = $parserProcessManager ?? new SqlParserProcessManager($this->configuration);
         $this->databaseAuthentication = $databaseAuthentication ?? new DatabaseAuthenticationSupport();
         $this->databaseAvailability = $databaseAvailability ?? new DatabaseAvailabilityManager();
+        $this->applicationRuntime = $applicationRuntime ?? new ApplicationRuntimeManager();
         $this->logger = $logger ?? new Logger();
         $this->healthMonitor = $healthMonitor ?? new ApplicationHealthMonitor([
             'databasePath' => $this->databasePath,
@@ -71,9 +75,9 @@ final class AdminService
     {
         $databaseAvailable = $this->databaseAvailability->available();
         $api = SecurityConfiguration::isProduction()
-            ? $this->externallyManagedProcess('api') : $this->processManager->status();
+            ? $this->applicationRuntime->status('api') : $this->processManager->status();
         $parser = SecurityConfiguration::isProduction()
-            ? $this->externallyManagedProcess('sqlparser') : $this->parserProcessManager->status();
+            ? $this->applicationRuntime->status('sqlParser') : $this->parserProcessManager->status();
         $admin = [
                 'running' => true,
                 'healthy' => true,
@@ -120,9 +124,9 @@ final class AdminService
         $runtime = $this->runtimeDetector->information();
         $installation = (new InstallationRepository())->load();
         $api = SecurityConfiguration::isProduction()
-            ? $this->externallyManagedProcess('api') : $this->processManager->status();
+            ? $this->applicationRuntime->status('api') : $this->processManager->status();
         $parser = SecurityConfiguration::isProduction()
-            ? $this->externallyManagedProcess('sqlparser') : $this->parserProcessManager->status();
+            ? $this->applicationRuntime->status('sqlParser') : $this->parserProcessManager->status();
         $databaseAvailable = $this->databaseAvailability->available();
         $database = $databaseAvailable ? $this->databaseHealth() : ['status' => 'disconnected'];
         return [
@@ -285,6 +289,7 @@ final class AdminService
     {
         $settings = $this->configuration->load();
         return [
+            'hostingMode' => SecurityConfiguration::isProduction() ? 'production' : 'development',
             'server' => $settings['server'],
             'cors' => $settings['cors'],
             'authentication' => [
@@ -306,21 +311,23 @@ final class AdminService
     public function saveServer(array $server): array
     {
         $currentServer = $this->configuration->load()['server'];
-        $runtime = $this->processManager->status();
-        $parserRuntime = $this->parserProcessManager->status();
-        if (($runtime['running'] ?? false) === true && ($runtime['port'] ?? null) === $server['adminPort']) {
-            throw new ApiRequestException(
-                'Invalid admin request.',
-                'INVALID_ADMIN_REQUEST',
-                [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running API port.']]
-            );
-        }
-        if (($parserRuntime['running'] ?? false) === true && ($parserRuntime['port'] ?? null) === $server['adminPort']) {
-            throw new ApiRequestException(
-                'Invalid admin request.',
-                'INVALID_ADMIN_REQUEST',
-                [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running SQL Parser port.']]
-            );
+        if (!SecurityConfiguration::isProduction()) {
+            $runtime = $this->processManager->status();
+            $parserRuntime = $this->parserProcessManager->status();
+            if (($runtime['running'] ?? false) === true && ($runtime['port'] ?? null) === $server['adminPort']) {
+                throw new ApiRequestException(
+                    'Invalid admin request.',
+                    'INVALID_ADMIN_REQUEST',
+                    [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running API port.']]
+                );
+            }
+            if (($parserRuntime['running'] ?? false) === true && ($parserRuntime['port'] ?? null) === $server['adminPort']) {
+                throw new ApiRequestException(
+                    'Invalid admin request.',
+                    'INVALID_ADMIN_REQUEST',
+                    [['path' => 'server.adminPort', 'message' => 'Admin port conflicts with the running SQL Parser port.']]
+                );
+            }
         }
         $apiRestartRequired = $server['apiPortMinimum'] !== $currentServer['apiPortMinimum']
             || $server['apiPortMaximum'] !== $currentServer['apiPortMaximum'];
@@ -393,12 +400,7 @@ final class AdminService
     public function controlApi(string $operation): array
     {
         if (SecurityConfiguration::isProduction()) {
-            throw new ApiRequestException(
-                'API workers are managed by the production web server.',
-                'PROCESS_EXTERNALLY_MANAGED',
-                [],
-                409
-            );
+            return $this->controlApplicationRuntime('api', $operation, 'API_RUNTIME_OPERATION_FAILED');
         }
         try {
             $result = $operation === 'start' ? $this->processManager->start()
@@ -414,11 +416,10 @@ final class AdminService
     public function controlSqlParser(string $operation): array
     {
         if (SecurityConfiguration::isProduction()) {
-            throw new ApiRequestException(
-                'SQL Parser workers are managed by the production web server.',
-                'PROCESS_EXTERNALLY_MANAGED',
-                [],
-                409
+            return $this->controlApplicationRuntime(
+                'sqlParser',
+                $operation,
+                'SQL_PARSER_RUNTIME_OPERATION_FAILED'
             );
         }
         try {
@@ -463,6 +464,24 @@ final class AdminService
         ]);
     }
 
+    private function controlApplicationRuntime(string $service, string $operation, string $errorCode): array
+    {
+        $auditComponent = $service === 'api' ? 'api' : 'sql_parser';
+        try {
+            $result = $this->applicationRuntime->control($service, $operation);
+            $this->runtimeAudit($auditComponent, $operation, 'success', $result);
+            return $result;
+        } catch (Throwable $exception) {
+            $this->runtimeAudit($auditComponent, $operation, 'failure', [], 'operation_failed');
+            throw new ApiRequestException(
+                'Application runtime operation failed.',
+                $errorCode,
+                [],
+                409
+            );
+        }
+    }
+
     private function databaseStatus(): array
     {
         if (!is_file($this->databasePath)) {
@@ -487,22 +506,6 @@ final class AdminService
                 'readable' => false,
             ];
         }
-    }
-
-    private function externallyManagedProcess(string $service): array
-    {
-        return [
-            'running' => false,
-            'service' => $service,
-            'healthy' => false,
-            'status' => 'externally managed',
-            'lifecycleManaged' => false,
-            'port' => null,
-            'pid' => null,
-            'startedAt' => null,
-            'uptimeSeconds' => null,
-            'version' => null,
-        ];
     }
 
     private function databaseHealth(): array

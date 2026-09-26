@@ -42,7 +42,12 @@ never returned.
 ## Detailed health
 
 System Health preserves Admin, API, SQL Parser, database, and PHP lifecycle
-cards and adds safe checks for:
+cards. In development, API and Parser cards show the managed PID, selected port,
+start time, and process state. In production, those cards instead show external
+infrastructure ownership plus Enabled/Disabled application runtime state and
+update/reload timestamps; PID, port, and start time remain null because the
+application does not own the web-server workers. The detailed response also adds
+safe checks for:
 
 - required configuration presence, JSON readability, and format versions;
 - database availability and sanitized connectivity category;
@@ -106,6 +111,8 @@ live SQL Server or multi-worker shared-filesystem deployment.
 
 The workspace result and exact target-host procedures are recorded
 in [Windows and Linux production validation](Production-Validation.md). In
-production, API and SQL Parser lifecycle cards are explicitly externally
-managed; health observation does not grant the application control of web-server
-workers.
+production, API and SQL Parser infrastructure is explicitly externally managed
+while application availability remains Admin-controlled. A disabled runtime is
+an intentional application state, not a claim that IIS/Nginx/FastCGI or PHP-FPM
+is down. External platform monitoring remains authoritative for those workers,
+while application liveness stays independent of the enabled flag.

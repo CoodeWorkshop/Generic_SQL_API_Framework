@@ -12,6 +12,7 @@ final class RuntimeConfiguration
     public const AUTHORIZATION_FILE = 'authorization.json';
     public const API_KEYS_FILE = 'api-keys.json';
     public const DATABASE_STATE_FILE = 'database-state.json';
+    public const APPLICATION_RUNTIME_STATE_FILE = 'application-runtime-state.json';
 
     public static function directory(): string
     {
@@ -24,7 +25,8 @@ final class RuntimeConfiguration
     public static function path(string $file): string
     {
         if (!in_array($file, [self::AUTH_FILE, self::INSTALLATION_FILE, self::ADMIN_FILE,
-            self::AUTHORIZATION_FILE, self::API_KEYS_FILE, self::DATABASE_STATE_FILE], true)) {
+            self::AUTHORIZATION_FILE, self::API_KEYS_FILE, self::DATABASE_STATE_FILE,
+            self::APPLICATION_RUNTIME_STATE_FILE], true)) {
             throw new InvalidArgumentException('Unsupported runtime configuration file.');
         }
         return self::directory() . DIRECTORY_SEPARATOR . $file;
@@ -129,6 +131,14 @@ final class RuntimeConfiguration
             self::AUTHORIZATION_FILE => self::authorizationDefaults(),
             self::API_KEYS_FILE => ['version' => 3, 'keys' => []],
             self::DATABASE_STATE_FILE => ['version' => 1, 'available' => false, 'updatedAt' => null],
+            self::APPLICATION_RUNTIME_STATE_FILE => [
+                'version' => 1,
+                'generation' => 0,
+                'services' => [
+                    'api' => ['enabled' => true, 'updatedAt' => null, 'reloadedAt' => null],
+                    'sqlParser' => ['enabled' => true, 'updatedAt' => null, 'reloadedAt' => null],
+                ],
+            ],
         ];
     }
 }

@@ -309,6 +309,10 @@
   }
   function serviceControls(service, item) {
     if (item.lifecycleManaged === false) return "";
+    if (item.controlMode === "application")
+      return item.running
+        ? `<button data-service="${service}" data-operation="stop" data-control-mode="application" class="danger">Disable</button><button data-service="${service}" data-operation="restart" data-control-mode="application" class="secondary">Reload</button>`
+        : `<button data-service="${service}" data-operation="start" data-control-mode="application">Enable</button>`;
     return item.running
       ? `<button data-service="${service}" data-operation="stop" class="danger">Stop</button><button data-service="${service}" data-operation="restart" class="secondary">Restart</button>`
       : `<button data-service="${service}" data-operation="start">Start</button>`;
@@ -376,15 +380,24 @@
         ),
       );
     const target = document.querySelector("#config-section");
-    if (activeConfigTab === "server") serverSection(target, settings.server);
+    if (activeConfigTab === "server")
+      serverSection(target, settings.server, settings.hostingMode);
     else if (activeConfigTab === "database") await databaseSection(target);
     else if (activeConfigTab === "security") securitySection(target, settings);
     else if (activeConfigTab === "runtime")
       runtimeSection(target, settings.runtime);
     else advancedSection(target, settings.advanced);
   }
-  function serverSection(target, server) {
-    target.innerHTML = `<form id="server-form" class="stack"><p class="help">API and SQL Parser each use the first available loopback port in their range. The Admin Console port is always reserved.</p><div class="row"><label>API Port Minimum<input name="apiPortMinimum" type="number" min="1" max="65535" value="${server.apiPortMinimum}" required></label><label>API Port Maximum<input name="apiPortMaximum" type="number" min="1" max="65535" value="${server.apiPortMaximum}" required></label></div><div class="row"><label>Parser Port Minimum<input name="parserPortMinimum" type="number" min="1" max="65535" value="${server.parserPortMinimum}" required></label><label>Parser Port Maximum<input name="parserPortMaximum" type="number" min="1" max="65535" value="${server.parserPortMaximum}" required></label></div><div class="row"><label>Admin Port<input name="adminPort" type="number" min="1" max="65535" value="${server.adminPort}" required></label><label>Bind Address<input name="bindAddress" value="127.0.0.1" readonly></label></div><p class="restart-note">● API and SQL Parser restarts are required after changing their ranges. Admin port changes apply on the next launcher start.</p><div class="actions"><button>Save Server Configuration</button><button type="button" class="secondary" data-server-restart="api">Restart API</button><button type="button" class="secondary" data-server-restart="sqlParser">Restart SQL Parser</button></div></form>`;
+  function serverSection(target, server, hostingMode) {
+    const production = hostingMode === "production",
+      lifecycleLabel = production ? "Reload" : "Restart",
+      serverHelp = production
+        ? "Production listener ports and worker processes are managed by IIS/Nginx and PHP FastCGI/FPM."
+        : "API and SQL Parser each use the first available loopback port in their range. The Admin Console port is always reserved.",
+      restartNote = production
+        ? "● These ranges are development settings. Production listeners are deployment-managed; Reload records an application reload without restarting infrastructure."
+        : "● API and SQL Parser restarts are required after changing their ranges. Admin port changes apply on the next launcher start.";
+    target.innerHTML = `<form id="server-form" class="stack"><p class="help">${serverHelp}</p><div class="row"><label>API Port Minimum<input name="apiPortMinimum" type="number" min="1" max="65535" value="${server.apiPortMinimum}" required></label><label>API Port Maximum<input name="apiPortMaximum" type="number" min="1" max="65535" value="${server.apiPortMaximum}" required></label></div><div class="row"><label>Parser Port Minimum<input name="parserPortMinimum" type="number" min="1" max="65535" value="${server.parserPortMinimum}" required></label><label>Parser Port Maximum<input name="parserPortMaximum" type="number" min="1" max="65535" value="${server.parserPortMaximum}" required></label></div><div class="row"><label>Admin Port<input name="adminPort" type="number" min="1" max="65535" value="${server.adminPort}" required></label><label>Bind Address<input name="bindAddress" value="127.0.0.1" readonly></label></div><p class="restart-note">${restartNote}</p><div class="actions"><button>Save Server Configuration</button><button type="button" class="secondary" data-server-restart="api">${lifecycleLabel} API</button><button type="button" class="secondary" data-server-restart="sqlParser">${lifecycleLabel} SQL Parser</button></div></form>`;
     target.querySelector("form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.currentTarget.querySelector(
@@ -414,9 +427,11 @@
         if (result.parserRestartRequired) restarts.push("SQL Parser");
         if (result.adminRestartRequired) restarts.push("Admin launcher");
         notify(
-          restarts.length
-            ? `Configuration saved. Restart required: ${restarts.join(", ")}.`
-            : "Configuration saved.",
+          production
+            ? "Configuration saved. Production listeners remain infrastructure-managed."
+            : restarts.length
+              ? `Configuration saved. Restart required: ${restarts.join(", ")}.`
+              : "Configuration saved.",
         );
       } catch (error) {
         notify(error.message, true);
@@ -428,13 +443,13 @@
       button.addEventListener("click", async () => {
         const service = button.dataset.serverRestart,
           label = service === "api" ? "API" : "SQL Parser",
-          done = setButtonBusy(button, "Restarting…");
+          done = setButtonBusy(button, `${lifecycleLabel}ing…`);
         try {
           const result = row(
             await call({ action: `admin.${service}.restart` }, true),
           );
           notify(
-            `${label} restarted${result.port ? ` on port ${result.port}` : ""}.`,
+            `${label} ${production ? "reloaded" : "restarted"}${result.port ? ` on port ${result.port}` : ""}.`,
           );
         } catch (error) {
           notify(error.message, true);
@@ -818,6 +833,19 @@
       checks = health.monitoring?.checks || {};
     title.textContent = "System Health";
     content.className = "panel";
+    const serviceDetails = (service) =>
+      service.controlMode === "application"
+        ? [
+            ["Infrastructure", service.infrastructure?.status],
+            ["Application Runtime", service.applicationRuntime?.status],
+            ["Updated", service.applicationRuntime?.updatedAt],
+            ["Reloaded", service.applicationRuntime?.reloadedAt],
+          ]
+        : [
+            ["PID", service.pid],
+            ["Port", service.port],
+            ["Started", service.startedAt],
+          ];
     content.innerHTML = `<div class="grid">${healthCard(
       "Admin Console",
       health.adminConsole,
@@ -829,20 +857,12 @@
     )}${healthCard(
       "API Server",
       health.api,
-      [
-        ["PID", health.api.pid],
-        ["Port", health.api.port],
-        ["Started", health.api.startedAt],
-      ],
+      serviceDetails(health.api),
       serviceControls("api", health.api),
     )}${healthCard(
       "SQL Parser",
       health.sqlParser,
-      [
-        ["PID", health.sqlParser.pid],
-        ["Port", health.sqlParser.port],
-        ["Started", health.sqlParser.startedAt],
-      ],
+      serviceDetails(health.sqlParser),
       serviceControls("sqlParser", health.sqlParser),
     )}${healthCard(
       "Database",
@@ -875,19 +895,27 @@
       button.addEventListener("click", async () => {
         const operation = button.dataset.operation,
           service = button.dataset.service,
-          label = service === "api" ? "API" : "SQL Parser";
+          label = service === "api" ? "API" : "SQL Parser",
+          applicationControl = button.dataset.controlMode === "application";
         if (
           operation === "stop" &&
           !(await confirmAction(
-            `Stop the ${label}? The Admin Console will remain available.`,
-            `Stop ${label}`,
+            applicationControl
+              ? `Disable the ${label} application runtime? Production infrastructure will remain running.`
+              : `Stop the ${label}? The Admin Console will remain available.`,
+            `${applicationControl ? "Disable" : "Stop"} ${label}`,
           ))
         )
           return;
         const done = setButtonBusy(button, "Working…");
         try {
           await call({ action: `admin.${service}.${operation}` }, true);
-          notify(`${label} ${operation} completed.`);
+          const completedOperation = applicationControl
+            ? { start: "enabled", stop: "disabled", restart: "reloaded" }[
+                operation
+              ]
+            : operation;
+          notify(`${label} ${completedOperation} completed.`);
           await healthView();
         } catch (error) {
           notify(error.message, true);

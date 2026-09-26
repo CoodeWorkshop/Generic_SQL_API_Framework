@@ -155,10 +155,11 @@ Linux prefers `runtime/linux/php/php` when present and otherwise uses `php` from
 ```
 
 Both launchers validate the runtime, bootstrap configuration, prepare an ignored
-local encryption key, set database runtime access to disconnected, select the
-configured loopback Admin port, and start only the Admin Console. API and SQL
-Parser lifecycle and database availability are controlled from System Health.
-The PHP built-in server is for local development only.
+local encryption key, select the configured loopback Admin port, start the
+managed API and SQL Parser, connect application database availability, verify
+all three runtime states, and start the Admin Console. A failed component remains
+accurately unavailable while the Admin control plane starts for recovery. The
+PHP built-in server is for local development only.
 
 For manual production provisioning, copy
 `database/config/database.example.json` to the ignored `database.json`, complete
