@@ -340,7 +340,7 @@ try {
         && str_contains($adminJavaScript, 'It cannot be displayed again.'), 'API key modal validation or one-time reveal is missing.');
     unifiedAdminAssert(str_contains($compactAdminCss, '.users-panel { width: 100%; max-width: 100%; overflow: hidden; }')
         && str_contains($compactAdminCss, '.table-wrap { width: 100%; min-width: 0; overflow-x: auto;')
-        && str_contains($compactAdminCss, '.users-table-wrap { max-width: 100%; overscroll-behavior-inline: contain; }')
+        && str_contains($compactAdminCss, '.users-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }')
         && str_contains($compactAdminCss, '.users-table { width: 100%; min-width: 1040px; table-layout: fixed; }')
         && str_contains($adminCss, '.users-table th:nth-child(8)')
         && str_contains($compactAdminCss, '.users-table td { overflow-wrap: anywhere; word-break: break-word; }'), 'Backend Users table lacks controlled columns or safe long-text wrapping.');
@@ -348,9 +348,9 @@ try {
         && str_contains($compactAdminCss, 'flex-wrap: wrap; gap: 15px; margin-bottom: 18px; } .users-heading .help { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }')
         && !str_contains($compactAdminCss, '.users-heading .help { min-width: 0; flex: 1 1 320px;')
         && str_contains($compactAdminCss, '.users-table .actions button { max-width: 100%; padding: 6px 8px; overflow-wrap: anywhere; white-space: normal; }'), 'Backend Users header or action controls do not wrap within the available content width.');
-    unifiedAdminAssert(str_contains($compactAdminCss, '.users-table-wrap { overflow-x: hidden; border: 0; }')
-        && str_contains($compactAdminCss, '.users-table { min-width: 0; table-layout: auto; }')
-        && str_contains($compactAdminCss, '.users-table tr { min-width: 0; max-width: 100%;'), 'Backend Users mobile card layout can escape its panel and cause page-level horizontal overflow.');
+    unifiedAdminAssert(!str_contains($adminCss, '.users-table td::before')
+        && !str_contains($compactAdminCss, '.users-table, .users-table tbody, .users-table tr, .users-table td { display: block;')
+        && !str_contains($compactAdminCss, '.users-table .actions button { width: 100%; }'), 'Backend Users table still changes into the broken mobile label/value card layout.');
     foreach (['<th>Name</th>', '<th>Mobile Number</th>', '<th>Email</th>', '<th>Role</th>'] as $column) {
         unifiedAdminAssert(str_contains($adminJavaScript, $column), "Backend Users table is missing {$column}.");
     }

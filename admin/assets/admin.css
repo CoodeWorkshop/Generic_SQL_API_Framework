@@ -473,29 +473,32 @@ tr:last-child td {
   overflow: hidden;
 }
 .users-table-wrap {
+  width: 100%;
   max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-inline: contain;
 }
 .users-table th:nth-child(1) {
-  width: 13%;
+  width: 12%;
 }
 .users-table th:nth-child(2) {
-  width: 12%;
+  width: 11%;
 }
 .users-table th:nth-child(3) {
   width: 12%;
 }
 .users-table th:nth-child(4) {
-  width: 16%;
+  width: 14%;
 }
 .users-table th:nth-child(5) {
-  width: 10%;
+  width: 12%;
 }
 .users-table th:nth-child(6) {
-  width: 8%;
+  width: 9%;
 }
 .users-table th:nth-child(7) {
-  width: 11%;
+  width: 12%;
 }
 .users-table th:nth-child(8) {
   width: 18%;
@@ -790,64 +793,6 @@ dialog::backdrop {
   .users-heading button {
     align-self: flex-start;
   }
-  .users-table-wrap {
-    overflow-x: hidden;
-    border: 0;
-  }
-  .users-table,
-  .users-table tbody,
-  .users-table tr,
-  .users-table td {
-    display: block;
-    width: 100%;
-  }
-  .users-table {
-    min-width: 0;
-    table-layout: auto;
-  }
-  .users-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-  .users-table tr {
-    min-width: 0;
-    max-width: 100%;
-    margin-bottom: 12px;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-  }
-  .users-table td {
-    display: grid;
-    grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
-    gap: 10px;
-    max-width: 100%;
-    padding: 8px 0;
-    border: 0;
-  }
-  .users-table td::before {
-    color: var(--muted);
-    content: attr(data-label);
-    font-size: 11px;
-    font-weight: 750;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-  .users-table .user-actions-cell {
-    min-width: 0;
-  }
-  .users-table .actions {
-    width: 100%;
-    min-width: 0;
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .users-table .actions button {
-    width: 100%;
-  }
 }
 
 @media (max-width: 480px) {
@@ -886,10 +831,6 @@ dialog::backdrop {
   .toast {
     top: 12px;
     right: 12px;
-  }
-  .users-table td {
-    grid-template-columns: 1fr;
-    gap: 4px;
   }
 }
 
