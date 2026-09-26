@@ -345,7 +345,8 @@ try {
         && str_contains($adminCss, '.users-table th:nth-child(8)')
         && str_contains($compactAdminCss, '.users-table td { overflow-wrap: anywhere; word-break: break-word; }'), 'Backend Users table lacks controlled columns or safe long-text wrapping.');
     unifiedAdminAssert(str_contains($compactAdminCss, '.users-heading { display: flex; min-width: 0;')
-        && str_contains($compactAdminCss, 'flex-wrap: wrap; gap: 15px; margin-bottom: 18px; } .users-heading .help { min-width: 0; flex: 1 1 320px; overflow-wrap: anywhere; }')
+        && str_contains($compactAdminCss, 'flex-wrap: wrap; gap: 15px; margin-bottom: 18px; } .users-heading .help { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }')
+        && !str_contains($compactAdminCss, '.users-heading .help { min-width: 0; flex: 1 1 320px;')
         && str_contains($compactAdminCss, '.users-table .actions button { max-width: 100%; padding: 6px 8px; overflow-wrap: anywhere; white-space: normal; }'), 'Backend Users header or action controls do not wrap within the available content width.');
     unifiedAdminAssert(str_contains($compactAdminCss, '.users-table-wrap { overflow-x: hidden; border: 0; }')
         && str_contains($compactAdminCss, '.users-table { min-width: 0; table-layout: auto; }')

@@ -532,7 +532,7 @@ tr:last-child td {
 }
 .users-heading .help {
   min-width: 0;
-  flex: 1 1 320px;
+  flex: 1 1 auto;
   overflow-wrap: anywhere;
 }
 .users-heading > button {
